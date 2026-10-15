@@ -9,9 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = {
-    "fast": ("tests",),
-    "pr": ("tests", "workflow", "security"),
-    "security": ("tests", "workflow", "security"),
+    "fast": ("tests", "source-integrity"),
+    "pr": ("tests", "source-integrity", "workflow", "security"),
+    "security": ("tests", "source-integrity", "workflow", "security"),
 }
 
 
@@ -21,6 +21,7 @@ def main() -> int:
     stage = parser.parse_args().stage
     commands = {
         "tests": [sys.executable, "ci/tests.py"],
+        "source-integrity": [sys.executable, "ci/source_integrity.py"],
         "workflow": [sys.executable, "ci/workflow_policy.py"],
         "security": [sys.executable, "ci/security.py"],
     }
