@@ -50,13 +50,9 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
         with:
           node-version: "24"
-      - name: Resolve pinned preview dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install exact locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Audit production dependencies
+        run: npm audit --audit-level=high --omit=dev
       - name: Typecheck, test, and production build
         run: bash ci/run web
-      - name: Emit package lock for reproducibility (temporary bootstrap)
-        run: |
-          echo BIDMASON_LOCK_BEGIN
-          base64 -w 0 package-lock.json
-          echo
-          echo BIDMASON_LOCK_END

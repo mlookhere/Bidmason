@@ -20,6 +20,12 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 
+    def test_web_uses_exact_dependency_lock(self):
+        self.assertTrue(workflow_findings(self.good.replace("npm ci --no-audit --no-fund", "npm install --no-audit --no-fund")))
+
+    def test_dependency_audit_is_required(self):
+        self.assertTrue(workflow_findings(self.good.replace("npm audit --audit-level=high --omit=dev", "echo skipped audit")))
+
     def test_unpinned_action_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/checkout@v4")))
 

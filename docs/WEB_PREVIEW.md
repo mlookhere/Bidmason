@@ -12,4 +12,4 @@ The root Next.js application is a deliberately limited development preview, not 
 Original historical HTML and PDF artifacts remain unsafe for external publication until Issue #3 resolves DEF-01..DEF-10, including form persistence, credential claims, pricing, PDF glyphs and mobile navigation. Do **not** copy historical JS form-success handlers into the new app.
 
 ## Dependencies
-Use locked Next 16.4.0 and React 19.3.1 for the initial web preview; TypeScript 6.0.2 retains the compatibility expected by Next's JavaScript TypeScript compiler integration. For reproducible CI, check in `package-lock.json` and switch to `npm ci`; package-lock bootstrap will be resolved separately and verified by GitHub Actions.
+Use locked Next 16.4.0 and React 19.3.1 for the initial web preview; TypeScript 6.0.2 retains the compatibility expected by Next's JavaScript TypeScript compiler integration. A checked-in `package-lock.json` from a successful GitHub Actions build locks the dependency tree. CI runs `npm ci`, audits production dependencies and performs a real TypeScript check, web tests and Next production build; no dependency resolution is skipped.
