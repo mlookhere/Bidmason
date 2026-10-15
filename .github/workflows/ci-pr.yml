@@ -1,0 +1,35 @@
+name: BidMason PR CI
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fast:
+    name: fast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap
+        run: bash scripts/bootstrap --ci
+      - name: Fast checks
+        run: bash ci/run fast
+  pr:
+    name: pr
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bootstrap
+        run: bash scripts/bootstrap --ci
+      - name: PR checks
+        run: bash ci/run pr
+  security:
+    name: security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Security checks
+        run: bash ci/run security
