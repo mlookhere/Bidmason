@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test_*.py", top_level_dir=str(ROOT))
+sys.path.insert(0, str(ROOT))
+suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), pattern="test_*.py")
 count = suite.countTestCases()
 if count < 8:
     raise SystemExit(f"FAIL: expected at least 8 substantive tests, discovered {count}")
