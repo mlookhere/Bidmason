@@ -13,3 +13,7 @@ Original historical HTML and PDF artifacts remain unsafe for external publicatio
 
 ## Dependencies
 Use locked Next 16.4.0 and React 19.3.1 for the initial web preview; TypeScript 6.0.2 retains the compatibility expected by Next's JavaScript TypeScript compiler integration. A checked-in `package-lock.json` from a successful GitHub Actions build locks the dependency tree. CI runs `npm ci`, audits production dependencies and performs a real TypeScript check, web tests and Next production build; no dependency resolution is skipped.
+
+## Real CI evidence
+
+The [Actions run 38747877843](https://github.com/mlookhere/Bidmason/actions/runs/38747877843) executed the actual Next production build and HTTP smoke test on commit `b5330a0`: four jobs passed, `npm ci` installed the checked-in dependency lock, production audit returned zero vulnerabilities, and the preview's no-form/noindex notices were verified in the served HTML. This is a tested preview, **not** a production deployment or tested lead submission.
