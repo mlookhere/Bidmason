@@ -12,6 +12,7 @@ def main() -> int:
         ["npm", "run", "typecheck"],
         ["npm", "run", "test:web"],
         ["npm", "run", "build"],
+        ["npm", "run", "smoke:web"],
     ]
     for args in commands:
         print("WEB:", " ".join(args), flush=True)

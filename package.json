@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:web": "node --test tests-web/*.test.mjs"
+    "test:web": "node --test tests-web/*.test.mjs",
+    "smoke:web": "node ci/web_smoke.mjs"
   },
   "dependencies": {
     "next": "16.4.0",
