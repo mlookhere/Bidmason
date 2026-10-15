@@ -32,6 +32,11 @@ IMPORTED_ORIGINAL_BLOBS = {
     "agents/07-sales-assistant.md": "48f066aaa0d44fcba7348c1b18ec778bd1107825",
     "agents/08-inspector.md": "d18a6003cef9dea5dae7b06e8b7e3bf271eb85f8",
     "agents/09-account-analyst.md": "7970301a69265e268a0780ac7988e996c97360f9",
+    "docs/HISTORICAL_SOURCE_README.md": "f3aefe16ca4611db756dc1368868598a720358a7",
+    "demo-clients/harbor-coast-painting/02-market-research-memo.md": "81a1e4fec3650f0efaafeb6fa55b072166c22f1e",
+    "demo-clients/harbor-coast-painting/03-offer-blueprint.md": "9913f814f520a26fb40f2616e9c7477de647472f",
+    "demo-clients/harbor-coast-painting/09-qa-report.md": "f1d9511bfe7c897ad469590b6043f96a35046f4e",
+    "demo-clients/harbor-coast-painting/10-monthly-report-sample.md": "1a6d312bf99e4b05609bc8a67fff2e8fdd56008f",
 }
 
 def git_blob_sha(data: bytes) -> str:

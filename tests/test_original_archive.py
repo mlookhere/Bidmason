@@ -11,7 +11,7 @@ class OriginalArchiveTests(unittest.TestCase):
         self.assertEqual(validate(), [])
 
     def test_total_imports_recorded(self):
-        self.assertEqual(len(IMPORTED_ORIGINAL_BLOBS), 21)
+        self.assertEqual(len(IMPORTED_ORIGINAL_BLOBS), 26)
 
     def test_git_blob_sha_known_example(self):
         self.assertEqual(git_blob_sha(b"hello\n"), "ce013625030ba8dba906f756967f9e9ca394464a")
@@ -19,7 +19,7 @@ class OriginalArchiveTests(unittest.TestCase):
     def test_missing_original_fails_closed(self):
         with tempfile.TemporaryDirectory() as folder:
             errors = validate(Path(folder))
-            self.assertEqual(len(errors), 21)
+            self.assertEqual(len(errors), 26)
 
     def test_tampered_original_fails_closed(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -29,7 +29,7 @@ class OriginalArchiveTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"tampered")
             errors = validate(root)
-            self.assertEqual(len(errors), 21)
+            self.assertEqual(len(errors), 26)
 
 
 if __name__ == "__main__":
