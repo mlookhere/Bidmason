@@ -17,6 +17,9 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_job_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  security:", "  omitted:")))
 
+    def test_missing_web_build_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
+
     def test_unpinned_action_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/checkout@v4")))
 

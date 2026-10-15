@@ -12,6 +12,7 @@ STAGES = {
     "fast": ("tests", "source-integrity"),
     "pr": ("tests", "source-integrity", "workflow", "security"),
     "security": ("tests", "source-integrity", "workflow", "security"),
+    "web": ("web",),
 }
 
 
@@ -24,6 +25,7 @@ def main() -> int:
         "source-integrity": [sys.executable, "ci/source_integrity.py"],
         "workflow": [sys.executable, "ci/workflow_policy.py"],
         "security": [sys.executable, "ci/security.py"],
+        "web": [sys.executable, "ci/web.py"],
     }
     for gate in STAGES[stage]:
         print(f"=== {stage}: {gate} ===", flush=True)

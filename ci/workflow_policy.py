@@ -22,7 +22,7 @@ def findings(source: str) -> list[str]:
     problems = []
     if not re.search(r"(?m)^permissions:\s*$", source) or "contents: read" not in source:
         problems.append("missing explicit read-only permissions")
-    for needle in ("pull_request:", "push:", "branches: [dev, main]", "  fast:", "  pr:", "  security:", "bash ci/run fast", "bash ci/run pr", "bash ci/run security"):
+    for needle in ("pull_request:", "push:", "branches: [dev, main]", "  fast:", "  pr:", "  security:", "  web-build:", "bash ci/run web", "bash ci/run fast", "bash ci/run pr", "bash ci/run security"):
         if needle not in source:
             problems.append(f"missing gate/trigger: {needle}")
     uses = USES.findall(source)
