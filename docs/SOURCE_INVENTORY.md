@@ -39,9 +39,9 @@ Input: uploaded `bidmason.zip` (June 2026 synthetic/business snapshot). This is 
 
 ## Import and trust status
 
-- **Imported original text:** 26/32 files, including all 8 operational policies, the sales outreach playbook, all nine role prompts, and three synthetic Harbor Coast source documents. `ci/source_integrity.py` enforces exact original Git blob hashes for each file; `ci/run` executes it for fast, PR, and security stages.
+- **Imported original text:** 28/32 files, including all 8 operational policies, the sales outreach playbook, all nine role prompts, and three synthetic Harbor Coast source documents. `ci/source_integrity.py` enforces exact original Git blob hashes for each file; `ci/run` executes it for fast, PR, and security stages.
 - **Imported separately from Project attachments:** full `docs/BIDMASON_MASTER_IMPLEMENTATION_PLAN.md` and `docs/BIDMASON_EXECUTION_TRACKER.md`.
-- **Not yet committed:** 6 of 32 original ZIP files, including the historical PDF, original Python PDF generator, two illustrative/nonpersistent HTML websites, historical proposal and email sample.
+- **Not yet committed:** 4 of 32 original ZIP files, including the historical PDF, original Python PDF generator, and two illustrative/nonpersistent HTML websites.
 - **Not approved for external use:** the historical Harbor Coast website and proposal contain unverified claims and pricing contradictions. Do not serve or publish them until their issue-specific corrections and QA passes are recorded.
 - The blueprint's truthful claims, tenant isolation, pricing minimums, approval and send restrictions supersede inconsistent historical sample instructions.
 - Do **not** mark `BM-001` or `[PLAN 1/8]` complete merely because inventory is present. Actual source import, build integration and deployed evidence remain outstanding.
@@ -50,6 +50,6 @@ Input: uploaded `bidmason.zip` (June 2026 synthetic/business snapshot). This is 
 
 Original source text is deliberately preserved unchanged, including historical errors and marketing guidance. In particular, the unverified Harbor Coast credentials, below-minimum studio pricing, and scripts that imply a form submission succeeded are **not approved for production use**. The source archive is for provenance and regression testing. The authoritative master blueprint requires truthful AI disclosure when appropriate; the older outreach template's broad instruction to never mention AI does not override this.
 
-GitHub SHA-1 blob identities for the first 26 imported entries were independently compared to their June 2026 ZIP bytes. Actions run [38693225530](https://github.com/mlookhere/Bidmason/actions/runs/38693225530) passed all 3 current jobs at commit `c0116619ddc39fdeebe61e3ac5d1f5d4e01eb07d`. This proves only the source-integrity and CI checks in that commit, not application readiness.
+GitHub SHA-1 blob identities for the first 28 imported entries were independently compared to their June 2026 ZIP bytes. Actions run [38693225530](https://github.com/mlookhere/Bidmason/actions/runs/38693225530) passed all 3 current jobs at commit `c0116619ddc39fdeebe61e3ac5d1f5d4e01eb07d`. This proves only the source-integrity and CI checks in that commit, not application readiness.
 
 Historical root README is stored byte-identically at `docs/HISTORICAL_SOURCE_README.md` rather than overwriting the actual repository README or reintroducing incompatible old agent/runtime instructions. Harbor Coast QA and monthly-report samples remain marked **fictional/historical**, and their asserted quality cannot override independently executed QA gates.
