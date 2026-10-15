@@ -26,6 +26,12 @@ IMPORTED_ORIGINAL_BLOBS = {
     "agents/01-market-analyst.md": "91b1c87c633492bd2f555f88c25429bc6c13b045",
     "agents/02-offer-architect.md": "1c5b5b2e409cda8bea2904391a077635d3f8f8de",
     "agents/03-web-builder.md": "389ca36f0f014c989390e8575fc051131f050be7",
+    "agents/04-sales-copywriter.md": "69d43ed22e151c2737696b71abb554e8e3b3444b",
+    "agents/05-bid-writer.md": "2d839eeab2f4827e2e64313dc5b03d0d87b91c62",
+    "agents/06-risk-reviewer.md": "228c6e8dd31a82b256d10f20d16bb6c95757eea7",
+    "agents/07-sales-assistant.md": "48f066aaa0d44fcba7348c1b18ec778bd1107825",
+    "agents/08-inspector.md": "d18a6003cef9dea5dae7b06e8b7e3bf271eb85f8",
+    "agents/09-account-analyst.md": "7970301a69265e268a0780ac7988e996c97360f9",
 }
 
 def git_blob_sha(data: bytes) -> str:
