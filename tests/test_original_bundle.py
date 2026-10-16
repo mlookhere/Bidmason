@@ -43,7 +43,7 @@ class OriginalBundleTests(unittest.TestCase):
             shutil.copyfile(ROOT / BUNDLE, target)
             paths = restore_assets(root)
             self.assertEqual(len(paths), 4)
-            self.assertTrue(all(str(p.relative_to(root)).startswith("historical-source/") for p in paths))
+            self.assertTrue(all(p.relative_to(root).parts[0] == "historical-source" for p in paths))
             self.assertFalse((root / "app").exists())
             self.assertEqual(paths, restore_assets(root))
 
