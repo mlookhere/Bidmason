@@ -98,7 +98,7 @@ end $$;
 
 
 -- A missing or forged hash must not reach the review queue.
-do $
+do $$
 declare allowed boolean := false;
 begin
  begin
@@ -110,7 +110,7 @@ begin
  exception when check_violation then null;
  end;
  if allowed then raise exception 'Forged content digest was accepted'; end if;
-end $;
+end $$;
 
 -- A revision that was never approved becomes stale once newer content arrives.
 -- This checks the actual latest-revision policy, not merely a uniqueness failure.
@@ -119,7 +119,7 @@ insert into public.bm_brief_revisions(
 values ('30000000-0000-4000-8000-000000000003',
  '10000000-0000-4000-8000-000000000001', 3, '{"status":"latest"}',
  encode(sha256(convert_to('{"status":"latest"}'::jsonb::text,'UTF8')), 'hex'));
-do $
+do $$
 declare allowed boolean := false;
 begin
  begin
@@ -130,7 +130,7 @@ begin
  exception when insufficient_privilege then null;
  end;
  if allowed then raise exception 'Approved a stale, previously unapproved revision'; end if;
-end $;
+end $$;
 
 set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 do $$
