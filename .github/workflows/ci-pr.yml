@@ -81,3 +81,37 @@ jobs:
           npm run test:web
       - name: Windows production build
         run: npm run build
+
+  db-rls:
+    name: db-rls
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci-isolated-database-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: ci-isolated-database-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Bootstrap isolated Supabase auth contract
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+      - name: Install proposed tenant tables and RLS
+        run: psql -X -v ON_ERROR_STOP=1 -f db/schema.sql
+      - name: Exercise two-tenant authorization and revision approval
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
