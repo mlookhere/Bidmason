@@ -56,3 +56,28 @@ jobs:
         run: npm audit --audit-level=high --omit=dev
       - name: Typecheck, test, and production build
         run: bash ci/run web
+
+  win-fast:
+    name: win-fast
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Windows bootstrap
+        shell: pwsh
+        run: ./scripts/bootstrap.ps1 -CI
+      - name: Native Windows fast checks
+        shell: pwsh
+        run: ./ci/run.ps1 fast
+      - name: Reproducible Windows dependency install
+        run: npm ci --no-audit --no-fund
+      - name: Windows TypeScript and unit tests
+        run: |
+          npm run typecheck
+          npm run test:web
+      - name: Windows production build
+        run: npm run build

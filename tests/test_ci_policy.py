@@ -17,6 +17,15 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_job_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  security:", "  omitted:")))
 
+    def test_missing_windows_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  win-fast:", "  omitted:")))
+
+    def test_missing_windows_bootstrap_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("./scripts/bootstrap.ps1 -CI", "echo skipped bootstrap")))
+
+    def test_missing_windows_runner_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("./ci/run.ps1 fast", "echo skipped win gate")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 
