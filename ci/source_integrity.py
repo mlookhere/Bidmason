@@ -65,7 +65,11 @@ def main() -> int:
         print(f"FAIL: {error}")
     if errors:
         return 1
-    print(f"PASS: {len(IMPORTED_ORIGINAL_BLOBS)} original archive files match byte-for-byte")
+    from scripts.source_bundle import original_assets
+    assets = original_assets()
+    if len(assets) != 4:
+        raise SystemExit("FAIL: missing original archived assets")
+    print(f"PASS: {len(IMPORTED_ORIGINAL_BLOBS) + len(assets)} original archive files verified (28 loose + 4 quarantined)")
     return 0
 
 
