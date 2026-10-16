@@ -66,6 +66,19 @@ def main():
             raise AssertionError("Contradictory included/billed quarterly fixture was accepted")
         if (Path(directory) / "must-not-exist.pdf").exists():
             raise AssertionError("Invalid proposal generated a PDF")
+        for included, additional in ((True, 0), (False, 47500)):
+            still_unapproved = json.loads(json.dumps(snapshot))
+            still_unapproved["quarterly"]["included"] = included
+            still_unapproved["quarterly"]["additionalCents"] = additional
+            target_unapproved = Path(directory) / f"unapproved-{included}.pdf"
+            try:
+                render(still_unapproved, target_unapproved)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Unapproved quarterly price/inclusion accepted")
+            if target_unapproved.exists():
+                raise AssertionError("Rendered unauthorized commercial terms")
     print("PASS: 2 rendered PDF pages; pricing/scope/claims, page geometry, vector option boxes and fail-closed quarterly pricing")
 
 
