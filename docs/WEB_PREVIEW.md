@@ -23,3 +23,7 @@ The [Actions run 38747877843](https://github.com/mlookhere/Bidmason/actions/runs
 `ci/publish_guard.py` runs in fast/PR/security CI and rejects historical source files under served Next/public paths, known fake-success form patterns, and loss of noindex/disabled-intake notices. Negative tests verify each guard. This is a transitional scaffold policy, not a replacement for real intake persistence, access controls or compliance review. Before approving a live website, replace the preview-only checks with independent, end-to-end backend, authorization, abuse-control, consent, and customer-data tests.
 
 **Important:** `noindex` is only search crawler guidance and is not an access restriction. No secret or customer-specific data is safe merely because a route is marked noindex.
+
+## Tested browser/mobile accessibility evidence
+
+[GitHub Actions 38869258287](https://github.com/mlookhere/Bidmason/actions/runs/38869258287) executed a **real Chromium** production-server E2E across 320×780, 375×812, 768×900 and 1280×800. The job passed document no-overflow, landmarks, skip link, visible keyboard focus, 44px navigation targets, reduced-motion, primary links, zero browser exceptions, disabled intake, absent live `/api/leads` and blocked historical asset URLs. See [the browser QA methodology](BROWSER_PREVIEW_QA.md) and `ci/browser_qa.py`. Screenshots are transient within the job, not persisted as approval artifacts. This remains a tested **development preview** without authentication or deployment.
