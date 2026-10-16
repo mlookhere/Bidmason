@@ -5,7 +5,7 @@ BidMason is a commercial contractor website, proposal and follow-up project. The
 ## What actually exists
 
 - **Development preview:** Next.js 16 + React 19 + TypeScript website at the repository root. It is intentionally marked **internal preview**, `noindex` and **does not accept or claim to submit leads**. No hosted deployment is verified.
-- **Source baseline:** the full implementation plan and execution tracker in `docs/`; historical operating policies, nine drafting prompts and synthetic Harbor Coast records. **28 of 32** original archive entries are imported and byte-verifiable; the original two HTML websites, Python PDF generator and demo PDF remain in the uploaded source ZIP, not this Git branch.
+- **Source baseline:** the full implementation plan and execution tracker in `docs/`; historical operating policies, nine drafting prompts and synthetic Harbor Coast records. **All 32 original archive entries are preserved and byte-verifiable**: 28 stored as original text; the two original HTML sites, Python PDF generator and historical PDF encoded losslessly in `historical-source/legacy-assets.lzma.b64` (not publicly served). `python -m scripts.source_bundle` restores them to a quarantine directory; CI verifies all four SHA-256 checksums.
 - **CI:** Python fast/PR/security validation and a required Next web-build job with locked npm dependencies, production dependency audit, TypeScript checks, UI source tests, production build and HTTP smoke test.
 - **Not implemented:** persisted lead forms, tenant login/database, structured proposal pricing, approved PDF rendering, customer sending, CRM, billing, production hosting. The historical ZIP is neither a deployed application nor approval to publish its claims.
 

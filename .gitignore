@@ -12,3 +12,7 @@ __pycache__/
 *.log
 
 *.tsbuildinfo
+
+# Restored source archive contents remain in quarantine; canonical bytes in encoded bundle
+historical-source/bidmason-website.html
+historical-source/demo-clients/

@@ -1,6 +1,6 @@
 # Original BidMason ZIP source inventory
 
-Input: uploaded `bidmason.zip` (June 2026 synthetic/business snapshot). This is the audit's historical artifact, not a production deployment or proof of customer results. Path names below are relative to archive root `bidmason/`. Checksums are first 16 hexadecimal characters of SHA-256. The complete ZIP includes **32 files**, 184,134 uncompressed bytes. Source import is incomplete.
+Input: uploaded `bidmason.zip` (June 2026 synthetic/business snapshot). This is the audit's historical artifact, not a production deployment or proof of customer results. Path names below are relative to archive root `bidmason/`. Checksums are first 16 hexadecimal characters of SHA-256. The complete ZIP includes **32 files**, 184,134 uncompressed bytes. Source preservation is complete; none of these historical assets is approved for publication.
 
 | File | Bytes | SHA-256 prefix |
 |---|---:|---|
@@ -41,10 +41,10 @@ Input: uploaded `bidmason.zip` (June 2026 synthetic/business snapshot). This is 
 
 - **Imported original text:** 28/32 files, including all 8 operational policies, the sales outreach playbook, all nine role prompts, and three synthetic Harbor Coast source documents. `ci/source_integrity.py` enforces exact original Git blob hashes for each file; `ci/run` executes it for fast, PR, and security stages.
 - **Imported separately from Project attachments:** full `docs/BIDMASON_MASTER_IMPLEMENTATION_PLAN.md` and `docs/BIDMASON_EXECUTION_TRACKER.md`.
-- **Not yet committed:** 4 of 32 original ZIP files, including the historical PDF, original Python PDF generator, and two illustrative/nonpersistent HTML websites.
+- **Committed as a lossless quarantine bundle:** the other 4 of 32 original ZIP entries (2 HTML sites, ReportLab PDF generator, historical PDF) in `historical-source/legacy-assets.lzma.b64`. `scripts/source_bundle.py` decodes and restores them verbatim with SHA-256 verification and no overwrite or public serving. CI validates all **32/32** bytes and aborts on archive tampering.
 - **Not approved for external use:** the historical Harbor Coast website and proposal contain unverified claims and pricing contradictions. Do not serve or publish them until their issue-specific corrections and QA passes are recorded.
 - The blueprint's truthful claims, tenant isolation, pricing minimums, approval and send restrictions supersede inconsistent historical sample instructions.
-- Do **not** mark `BM-001` or `[PLAN 1/8]` complete merely because inventory is present. Actual source import, build integration and deployed evidence remain outstanding.
+- The **source-preservation** acceptance check is verified by real GitHub CI. Do not infer that the separate runtime/backend, demo correction, tenant isolation or deployment tickets are complete.
 
 ### Provenance and publish policy
 
