@@ -7,9 +7,11 @@ of external releases. Imported historical source is not automatically publishabl
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 IMPORTED_ORIGINAL_BLOBS = {
     "operations/pricing-and-packages.md": "a7ba84db87056f73bf9ec715116ba72e61cb34db",
     "operations/qc-checklists.md": "18a3bbedf5b48dbb2e68dfa2ee93fc820ae8888a",
