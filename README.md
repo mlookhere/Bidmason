@@ -28,6 +28,17 @@ bash ci/run security
 bash ci/run web
 ```
 
+On Windows (PowerShell):
+
+```powershell
+.\scripts\bootstrap.ps1 -CI
+npm ci
+.\ci\run.ps1 fast
+.\ci\run.ps1 pr
+.\ci\run.ps1 security
+.\ci\run.ps1 web
+```
+
 The `web` stage requires `npm ci` first. It runs typechecking, web tests, a production build and live HTTP smoke test. Publishing the preview or migrating historical claims/forms needs explicit review and a separate acceptance gate.
 
 ## Project navigation

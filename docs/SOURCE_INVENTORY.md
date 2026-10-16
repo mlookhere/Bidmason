@@ -53,3 +53,7 @@ Original source text is deliberately preserved unchanged, including historical e
 GitHub SHA-1 blob identities for the first 28 imported entries were independently compared to their June 2026 ZIP bytes. Actions run [38693225530](https://github.com/mlookhere/Bidmason/actions/runs/38693225530) passed all 3 current jobs at commit `c0116619ddc39fdeebe61e3ac5d1f5d4e01eb07d`. This proves only the source-integrity and CI checks in that commit, not application readiness.
 
 Historical root README is stored byte-identically at `docs/HISTORICAL_SOURCE_README.md` rather than overwriting the actual repository README or reintroducing incompatible old agent/runtime instructions. Harbor Coast QA and monthly-report samples remain marked **fictional/historical**, and their asserted quality cannot override independently executed QA gates.
+
+### Cross-platform archival proof
+
+The five required jobs in [run 38864273304](https://github.com/mlookhere/Bidmason/actions/runs/38864273304) passed on both Linux and Windows. The Windows job verified byte-for-byte reconstruction of all 32 original files; line ending normalization is explicitly pinned to LF through `.gitattributes`. The archive bundle is source provenance only, never shipped as a functional site.
