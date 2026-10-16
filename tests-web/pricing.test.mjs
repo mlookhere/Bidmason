@@ -81,6 +81,6 @@ test("invalid quantity, rate, and fractional cents fail", () => {
 });
 
 test("overflow is rejected instead of silently losing money precision", () => {
-  assert.throws(() => standard(Number.MAX_SAFE_INTEGER), /range/);
+  assert.throws(() => standard(Number.MAX_SAFE_INTEGER, { surchargeBps: 4000 }), /range/);
   assert.throws(() => standard(50000, { quantity: Number.MAX_SAFE_INTEGER }), RangeError);
 });
