@@ -60,6 +60,8 @@ def render(snapshot: dict, destination: Path) -> None:
         raise ValueError("Three simulated tiers and explicit quarterly assumption required")
     if quarterly["included"] and quarterly["additionalCents"]:
         raise ValueError("Quarterly touch-up is both included and billed")
+    if quarterly.get("status") != "pending-owner-approval" or quarterly.get("included") is not None or quarterly.get("additionalCents") is not None:
+        raise ValueError("Unapproved quarterly terms must remain unspecified")
 
     story = [
         Paragraph(escape(snapshot["business"]).upper(), H1),
@@ -79,7 +81,7 @@ def render(snapshot: dict, destination: Path) -> None:
     for name, key in (("Studio", "studioCents"), ("1 Bedroom", "oneBedCents"), ("2 Bedroom", "twoBedCents")):
         data.append([Paragraph(name, CELL)] + [Paragraph(dollars(item[key]), CELL) for item in programs])
     data.append([Paragraph("Heavy-condition surcharge", CELL)] + [Paragraph("+40% of base before discount / minimum", CELL)] * 3)
-    data.append([Paragraph("Quarterly common-area touch-up", CELL), Paragraph("Quoted separately", CELL), Paragraph("Quoted separately", CELL), Paragraph("Included; $0 additional", CELL)])
+    data.append([Paragraph("Quarterly common-area touch-up", CELL), Paragraph("Quoted separately", CELL), Paragraph("Quoted separately", CELL), Paragraph("Terms pending owner approval", CELL)])
     table = Table(data, colWidths=[120, 125, 125, 125], repeatRows=1, hAlign="LEFT", splitByRow=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), NAVY),
@@ -94,8 +96,9 @@ def render(snapshot: dict, destination: Path) -> None:
     story.extend([table, Spacer(1, 7)])
     story.append(Paragraph(
         "Synthetic pricing fixture: after discount, all unit rates respect the $450 minimum. "
-        "A quarterly touch-up visit would be $475 as a standalone service, but this example ASSUMES "
-        "it is included in Full Property at $0 additional charge. Owner has NOT approved this policy.", SMALL))
+        "The historic standalone touch-up rate was $475 per visit. Whether the Full Property tier "
+        "includes this service or bills it separately is UNRESOLVED. No price or inclusion "
+        "for that tier is approved for customer use.", SMALL))
     story.append(Paragraph("4. Service Expectations", H2))
     story.append(Paragraph("Confirm notice, crew access, insurance documents and safety prerequisites before work. A 48-hour target is not a guarantee.", BODY))
     story.append(PageBreak())

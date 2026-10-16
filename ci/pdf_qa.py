@@ -28,11 +28,11 @@ def main():
             "SYNTHETIC DEMO - NOT FOR DELIVERY", "1. Overview", "2. Scope of Work",
             "3. Service Options", "4. Service Expectations", "5. Assumptions",
             "6. Exclusions", "7. Timeline", "8. Acceptance", "Heavy-condition surcharge",
-            "$450.00", "$540.00", "Included; $0 additional",
+            "$450.00", "$540.00", "Terms pending owner approval",
         ):
             if required not in text:
                 raise AssertionError(f"Missing rendered proposal text: {required}")
-        for forbidden in ("$360.00", "CSLB #", "Licensed and insured", "Internal Note", "■", "☐"):
+        for forbidden in ("$360.00", "CSLB #", "Licensed and insured", "Internal Note", "Included; $0 additional", "■", "☐"):
             if forbidden.lower() in text.lower():
                 raise AssertionError(f"Forbidden source/claim/glyph in rendered proposal: {forbidden}")
         for page in document:
@@ -56,6 +56,7 @@ def main():
         if squares < 3:
             raise AssertionError("Expected three vector empty option boxes")
         invalid = json.loads(json.dumps(snapshot))
+        invalid["quarterly"]["included"] = True
         invalid["quarterly"]["additionalCents"] = 47500
         try:
             render(invalid, Path(directory) / "must-not-exist.pdf")

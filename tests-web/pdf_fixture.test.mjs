@@ -19,8 +19,11 @@ test("PDF demo fixture derives each displayed amount from one canonical pricing 
   }
 });
 
-test("PDF fixture has an explicit simulated quarterly assumption and no extra billed included charge", () => {
+test("PDF fixture refuses to assume unapproved quarterly pricing", () => {
   assert.equal(snapshot.quarterly.fixtureAssumptionOnly, true);
-  assert.equal(validateQuarterlyTouchUp(snapshot.quarterly.included, snapshot.quarterly.additionalCents), 0);
+  assert.equal(snapshot.quarterly.status, "pending-owner-approval");
+  assert.equal(snapshot.quarterly.included, null);
+  assert.equal(snapshot.quarterly.additionalCents, null);
   assert.equal(snapshot.quarterly.standaloneReferenceCents, 47500);
+  assert.throws(() => validateQuarterlyTouchUp(true, 47500), /both included/);
 });

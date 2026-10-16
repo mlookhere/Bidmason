@@ -12,6 +12,6 @@ The original 2026 Harbor Coast proposal is preserved byte-exact in the source ar
 | 2BR, reserved 10% | $540 | $540 |
 | 1BR heavy, as needed +40% | $700 | $700 |
 
-**Unresolved operator decision:** Does the Full Property tier include the quarterly $475 touch-up day at no additional charge, or bill $475 each visit? The historical proposal says both. `validateQuarterlyTouchUp(true,47500)` rejects the contradiction, rather than picking a price. The fixture must not be treated as an owner-approved revised offer until this choice is explicitly recorded.
+**Unresolved operator decision:** Does the Full Property tier include the quarterly $475 touch-up day at no additional charge, or bill $475 each visit? The historical proposal says both. `validateQuarterlyTouchUp(true,47500)` rejects the contradiction, rather than picking a price. The live PDF fixture now displays **“Terms pending owner approval”** instead of simulating inclusion at $0. It must not be treated as an owner-approved revised offer until this choice is explicitly recorded.
 
 This work does not make the historical PDF safe. The original PDF has checkbox/word-wrap defects and contains unverified claims, and the marketing/demo forms are not persisted. Those remain blocked separately under Issue #3.
