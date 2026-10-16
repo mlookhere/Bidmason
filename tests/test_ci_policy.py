@@ -26,6 +26,12 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_windows_runner_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("./ci/run.ps1 fast", "echo skipped win gate")))
 
+    def test_missing_pdf_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  pdf-qa:", "  missing-pdf:")))
+
+    def test_missing_pdf_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("bash ci/run pdf", "echo skipped PDF QA")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

@@ -81,3 +81,15 @@ jobs:
           npm run test:web
       - name: Windows production build
         run: npm run build
+
+  pdf-qa:
+    name: pdf-qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PDF QA dependencies
+        run: python3 -m pip install --requirement requirements-pdf.txt
+      - name: Render and inspect all PDF pages
+        run: bash ci/run pdf
