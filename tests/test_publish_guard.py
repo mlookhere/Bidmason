@@ -33,6 +33,12 @@ class PublishGuardTests(unittest.TestCase):
         (self.root / "app/page.tsx").write_text("No live lead capture; e.preventDefault(); formSuccess.classList.add('show');")
         self.assertTrue(any("fake form success" in e for e in findings(self.root)))
 
+    def test_double_quoted_fake_confirmation_is_blocked(self):
+        (self.root / "app/page.tsx").write_text(
+            'No live lead capture; e.preventDefault(); document.getElementById("pfSuccess").classList.add("show");'
+        )
+        self.assertTrue(any("fake form success" in e for e in findings(self.root)))
+
     def test_noindex_must_remain_until_verified_backend(self):
         (self.root / "app/layout.tsx").write_text("robots: { index: true }")
         self.assertTrue(any("noindex" in e for e in findings(self.root)))

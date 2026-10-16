@@ -6,6 +6,7 @@ with tests for a real persisted intake before deliberately enabling public forms
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLISHABLE = ("app", "pages", "src/app", "src/pages", "public")
@@ -32,7 +33,11 @@ def findings(root: Path = ROOT) -> list[str]:
             if path.suffix.lower() not in {".html", ".htm", ".js", ".jsx", ".ts", ".tsx"}:
                 continue
             content = path.read_text(encoding="utf-8", errors="replace").lower()
-            if "preventdefault(" in content and "classlist.add('show')" in content:
+            if (
+                re.search(r"\bpreventdefault\s*\(", content)
+                and re.search(r"\b(?:formsuccess|pfsuccess)\b", content)
+                and re.search(r"\.classlist\.add\(\s*['\"]show['\"]\s*\)", content)
+            ):
                 errors.append(f"Potential fake form success in publishable code: {relative}")
     layout = root / "app/layout.tsx"
     page = root / "app/page.tsx"
