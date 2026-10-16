@@ -31,7 +31,8 @@ values ('20000000-0000-4000-8000-000000000001',
 insert into public.bm_brief_revisions(
  id, organization_id, revision, document, content_sha256)
 values ('30000000-0000-4000-8000-000000000001',
- '10000000-0000-4000-8000-000000000001', 1, '{"status":"draft"}', repeat('a',64));
+ '10000000-0000-4000-8000-000000000001', 1, '{"status":"draft"}',
+  encode(sha256(convert_to('{"status":"draft"}'::jsonb::text, 'UTF8')), 'hex'));
 
 insert into public.bm_brief_approvals(
  organization_id, revision_id) values
@@ -76,7 +77,8 @@ end $$;
 insert into public.bm_brief_revisions(
  id, organization_id, revision, document, content_sha256)
 values ('30000000-0000-4000-8000-000000000002',
- '10000000-0000-4000-8000-000000000001', 2, '{"status":"changed"}', repeat('b',64));
+ '10000000-0000-4000-8000-000000000001', 2, '{"status":"changed"}',
+  encode(sha256(convert_to('{"status":"changed"}'::jsonb::text, 'UTF8')), 'hex'));
 
 do $$
 declare allowed boolean := false;
@@ -93,6 +95,42 @@ begin
  end;
  if allowed then raise exception 'Stale revision approval accepted'; end if;
 end $$;
+
+
+-- A missing or forged hash must not reach the review queue.
+do $
+declare allowed boolean := false;
+begin
+ begin
+   insert into public.bm_brief_revisions(
+     organization_id, revision, document, content_sha256)
+   values ('10000000-0000-4000-8000-000000000001', 3,
+           '{"status":"tampered"}', repeat('f',64));
+   allowed := true;
+ exception when check_violation then null;
+ end;
+ if allowed then raise exception 'Forged content digest was accepted'; end if;
+end $;
+
+-- A revision that was never approved becomes stale once newer content arrives.
+-- This checks the actual latest-revision policy, not merely a uniqueness failure.
+insert into public.bm_brief_revisions(
+ id, organization_id, revision, document, content_sha256)
+values ('30000000-0000-4000-8000-000000000003',
+ '10000000-0000-4000-8000-000000000001', 3, '{"status":"latest"}',
+ encode(sha256(convert_to('{"status":"latest"}'::jsonb::text,'UTF8')), 'hex'));
+do $
+declare allowed boolean := false;
+begin
+ begin
+  insert into public.bm_brief_approvals(organization_id, revision_id)
+   values ('10000000-0000-4000-8000-000000000001',
+           '30000000-0000-4000-8000-000000000002');
+  allowed := true;
+ exception when insufficient_privilege then null;
+ end;
+ if allowed then raise exception 'Approved a stale, previously unapproved revision'; end if;
+end $;
 
 set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 do $$
