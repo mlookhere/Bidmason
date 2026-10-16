@@ -9,9 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = {
-    "fast": ("tests", "source-integrity"),
-    "pr": ("tests", "source-integrity", "workflow", "security"),
-    "security": ("tests", "source-integrity", "workflow", "security"),
+    "fast": ("tests", "source-integrity", "publish"),
+    "pr": ("tests", "source-integrity", "publish", "workflow", "security"),
+    "security": ("tests", "source-integrity", "publish", "workflow", "security"),
     "web": ("web",),
 }
 
@@ -23,6 +23,7 @@ def main() -> int:
     commands = {
         "tests": [sys.executable, "ci/tests.py"],
         "source-integrity": [sys.executable, "ci/source_integrity.py"],
+        "publish": [sys.executable, "ci/publish_guard.py"],
         "workflow": [sys.executable, "ci/workflow_policy.py"],
         "security": [sys.executable, "ci/security.py"],
         "web": [sys.executable, "ci/web.py"],
