@@ -1,0 +1,16 @@
+{
+  "kind": "synthetic-demo-not-for-delivery",
+  "business": "Harbor Coast Painting",
+  "prospect": "Mariner's Landing Apartments (synthetic)",
+  "proposalId": "HC-2026-041-DEMO",
+  "minimumCents": 45000,
+  "programs": [
+    {"name": "As-Needed Turns", "discountBps": 0, "studioCents": 45000, "oneBedCents": 50000, "twoBedCents": 60000},
+    {"name": "Reserved Turn Program", "discountBps": 1000, "studioCents": 45000, "oneBedCents": 45000, "twoBedCents": 54000},
+    {"name": "Full Property Program", "discountBps": 1000, "studioCents": 45000, "oneBedCents": 45000, "twoBedCents": 54000}
+  ],
+  "quarterly": {"included": true, "additionalCents": 0, "standaloneReferenceCents": 47500, "fixtureAssumptionOnly": true},
+  "scope": ["Walls, ceilings, trim and doors in vacant units", "Minor wall repairs up to four inches; larger work quoted separately", "Photo confirmation and color log on completion"],
+  "assumptions": ["Unit is vacant, accessible and safe at the scheduled time", "Paint colors and sheens are supplied or confirmed before work", "48-hour completion is a scheduling target, never a guarantee"],
+  "exclusions": ["Mold and moisture remediation, hidden damage, and larger repairs", "Full common-area repaints and exterior work", "Pre-1978 lead-related scope pending building age and compliance review"]
+}
