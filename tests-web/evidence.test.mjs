@@ -27,7 +27,7 @@ test("normalizes PNG and JPEG extensions from MIME type", () => {
 
 test("rejects path spoofing, mixed-case IDs, mismatched signatures, and HTML", () => {
   assert.throws(() => prepareEvidenceReceipt("../" + org, object, "application/pdf", pdf), TypeError);
-  assert.throws(() => prepareEvidenceReceipt(org.toUpperCase(), object, "application/pdf", pdf), TypeError);
+  assert.throws(() => prepareEvidenceReceipt("AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", object, "application/pdf", pdf), TypeError);
   assert.throws(() => prepareEvidenceReceipt(org, "not-a-uuid", "application/pdf", pdf), TypeError);
   assert.throws(() => prepareEvidenceReceipt(org, object, "image/png", pdf), TypeError);
   assert.throws(() => prepareEvidenceReceipt(org, object, "text/html", pdf), TypeError);
