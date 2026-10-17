@@ -75,6 +75,21 @@ class WorkflowPolicyTests(unittest.TestCase):
             "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql",
             "echo missing review FK index")))
 
+    def test_missing_pdf_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  pdf-qa:", "  missing-pdf:")))
+
+    def test_missing_pdf_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("bash ci/run pdf", "echo skipped PDF QA")))
+
+    def test_missing_browser_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  browser-e2e:", "  removed-e2e:")))
+
+    def test_missing_browser_execution_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("python3 ci/browser_qa.py", "echo skipped real browser")))
+
+    def test_missing_browser_install_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("python3 -m playwright install --with-deps chromium", "echo browser unavailable")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 
