@@ -158,7 +158,7 @@ where organization_id='10000000-0000-4000-8000-000000000001'
 
 set role authenticated;
 set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-do $
+do $$
 declare allowed boolean := false;
 begin
   if (select count(*) from public.bm_organizations) != 0
@@ -179,7 +179,7 @@ begin
   exception when insufficient_privilege then null;
   end;
   if allowed then raise exception 'Revoked member still has tenant write permission'; end if;
-end $;
+end $$;
 reset request.jwt.claim.sub;
 reset role;
 \echo PASS: immutable receipts, same-tenant foreign keys, forged evidence denial, seven RLS tables, immediate membership revocation
