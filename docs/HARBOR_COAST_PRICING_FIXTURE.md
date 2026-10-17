@@ -12,6 +12,10 @@ The original 2026 Harbor Coast proposal is preserved byte-exact in the source ar
 | 2BR, reserved 10% | $540 | $540 |
 | 1BR heavy, as needed +40% | $700 | $700 |
 
-**Unresolved operator decision:** Does the Full Property tier include the quarterly $475 touch-up day at no additional charge, or bill $475 each visit? The historical proposal says both. `validateQuarterlyTouchUp(true,47500)` rejects the contradiction, rather than picking a price. The live PDF fixture now displays **“Terms pending owner approval”** instead of simulating inclusion at $0. It must not be treated as an owner-approved revised offer until this choice is explicitly recorded.
+**Archived example, not a business default:** This original painting scenario has contradictory quarterly touch-up language: included versus separately billed. The synthetic QA fixture deliberately leaves the service **pending/non-quotable**, and the PDF states **“Terms pending owner approval”**. Neither $450 nor $475 applies to other organizations or represents an approved current offer. As the platform serves many types of companies, its price policy must be configured per company. No one is required to choose the old demo's quarterly price to complete internal QA; if that actual customer-specific service is later proposed, a verified owner must authorize either inclusion or a charge. `validateQuarterlyTouchUp(true,47500)` remains an important safety regression.
 
 This work does not make the historical PDF safe. The original PDF has checkbox/word-wrap defects and contains unverified claims, and the marketing/demo forms are not persisted. Those remain blocked separately under Issue #3.
+
+## Multi-company regression coverage
+
+`lib/company-pricing.ts` adds an independent **pure, non-production** rule evaluator. The painting fixture uses a per-line minimum while a fictional office-cleaning fixture uses a quote-level minimum; each supplies its own catalog, units, surcharges, discounts, billing decisions and calculation order. A service with `billing: "pending"` causes a hard failure when requested; the evaluator never infers included/free versus billable. Such a test **does not grant quote approval**. The authenticated tenant-owned policy store, per-company tax/margin rules, durable versioning and production rendering/approval flow remain work for later slices.

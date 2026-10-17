@@ -343,3 +343,13 @@ Issue [#3](https://github.com/mlookhere/Bidmason/issues/3), draft [PR #11](https
 - The E2E browser pipeline's [run 38869258287](https://github.com/mlookhere/Bidmason/actions/runs/38869258287) passed **all seven required jobs**, with real Chromium at 320/375/768/1280 and no forms/legacy routes. The newest pricing/QA commits require their **own** completed Actions evidence before any promotion.
 - The remaining **human-required commercial decision** for the Full Property tier is unambiguous: (A) quarterly common-area visit included at no additional charge or (B) billed separately at $475 per visit. This is a synthetic case, but the original brief does not resolve it. No arbitrary default, credential verification or binding/legal proposal policy can be inferred.
 - Until the choice is explicitly approved and the fixture/renderer/tests are updated, [Issue #3](https://github.com/mlookhere/Bidmason/issues/3) stays open and draft [PR #11](https://github.com/mlookhere/Bidmason/pull/11) stays unmerged. `dev` and `main` are unchanged during this slice.
+
+---
+
+## 23. One platform, company-specific pricing — October 16, 2026
+
+- Owner clarified BidMason is **one configurable multi-company system**, not a bespoke Harbor Coast Painting pricing/workflow application. No universal $450 minimum, $475 touch-up, paint packages or fixed service lists. This updates the operative Step 2/4/5 plan and does not erase historical examples.
+- **Step 2 decision re-scoped:** There is no need for the owner to select an arbitrary inclusion or billing rate for a historical synthetic proposal. The contradictory quarterly terms stay **unset/pending** and impossible to print as approved price/inclusion. Current PDF/price/claim/mobile/disabled-form fail-closed regression gates remain intact; no customer delivery becomes authorized.
+- Implemented `lib/company-pricing.ts` as a pure company-configurable evaluator and `tests-web/company-pricing.test.mjs` using separate synthetic painting and cleaning configurations, distinct minima, optional included work, discount/surcharge orders, numerical validation and reject-on-pending behavior. This is a stepping stone, **not** the production pricing backend.
+- The general platform architecture is captured in `docs/COMPANY_POLICY_ARCHITECTURE.md`. Tax, legal/regulatory, company-specific source authorization, persisted policy versioning and role-based commercial approvals remain scheduled for later implementation slices.
+- Do not mark original 2026 Harbor Coast PDF as approved or overwrite source evidence. Step 2 may proceed to internal QA/review without an arbitrary fictional $475 business choice once new CI checks succeed; this does **not** loosen any approval/claim/security gate.
