@@ -131,3 +131,22 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
       - name: Deny forged, missing or cross-tenant evidence receipts
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
+      - name: Verify deterministic candidate migration is up to date
+        run: python3 scripts/build_migration.py --check
+      - name: Create a second empty database for candidate migration replay
+        run: createdb bm_migration_ci
+      - name: Bootstrap only local auth and Storage compatibility stubs
+        run: |
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
+      - name: Execute the exact candidate migration atomically
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017000000_bidmason_candidate_baseline.sql
+      - name: Re-run all positive and adversarial tenant tests on the migration
+        run: |
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_seed.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
+
