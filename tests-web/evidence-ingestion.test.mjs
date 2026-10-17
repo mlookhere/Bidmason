@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { ingestVerifiedEvidence } from "../lib/evidence-ingestion.ts";
+import { ingestVerifiedEvidence } from "../lib/evidence.ts";
 
 const user = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const org = "10000000-0000-4000-8000-000000000001";

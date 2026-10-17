@@ -2,7 +2,7 @@
 
 The pure `prepareEvidenceReceipt()` helper validates file signature, size and MIME and derives SHA-256/path from actual provided bytes, not client metadata.
 
-`ingestVerifiedEvidence()` in `lib/evidence-ingestion.ts` now enforces this **server-side sequence** using injected privileged adapters:
+`ingestVerifiedEvidence()` in `lib/evidence.ts` now enforces this **server-side sequence** using injected privileged adapters:
 
 1. Validate canonical actor/organization identifiers and immutable snapshot of uploaded bytes.
 2. Require authorization from a trusted check tied to current Auth/session and database membership.
