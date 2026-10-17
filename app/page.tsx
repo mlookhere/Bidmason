@@ -18,7 +18,8 @@ const capabilities = [
 
 export default function Home() {
   return (
-    <main>
+    <>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <div className="notice" role="status">
         Internal development preview. No live lead capture, proposals, or customer sending is enabled.
       </div>
@@ -26,6 +27,7 @@ export default function Home() {
         <a className="wordmark" href="#home" aria-label="BidMason home">BID<span>MASON</span><span className="mark">.</span></a>
         <nav aria-label="Main navigation"><a href="#approach">Approach</a><a href="#capabilities">What we&apos;re building</a></nav>
       </header>
+      <main id="main-content" tabIndex={-1}>
       <section className="hero shell" id="home">
         <div className="eyebrow">A clearer path to commercial work</div>
         <h1>Present the work.<br/><em>Win the bid.</em></h1>
@@ -44,7 +46,8 @@ export default function Home() {
         <h2>One connected workflow.</h2>
         <div className="cards">{capabilities.map((item) => <article className="feature" key={item.number}><span>{item.number}</span><h3>{item.title}</h3><p>{item.description}</p></article>)}</div>
       </section>
+      </main>
       <footer className="footer"><div className="shell footer-inner"><strong>BidMason</strong><span>Internal preview — not accepting submissions.</span></div></footer>
-    </main>
+    </>
   );
 }

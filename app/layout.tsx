@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "BidMason | Development Preview",
-  description: "Private development preview for BidMason commercial contractor services.",
+  description: "Internal non-production preview for BidMason commercial contractor services.",
   robots: { index: false, follow: false },
 };
 

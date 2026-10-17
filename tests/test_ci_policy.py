@@ -26,6 +26,21 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_windows_runner_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("./ci/run.ps1 fast", "echo skipped win gate")))
 
+    def test_missing_pdf_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  pdf-qa:", "  missing-pdf:")))
+
+    def test_missing_pdf_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("bash ci/run pdf", "echo skipped PDF QA")))
+
+    def test_missing_browser_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  browser-e2e:", "  removed-e2e:")))
+
+    def test_missing_browser_execution_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("python3 ci/browser_qa.py", "echo skipped real browser")))
+
+    def test_missing_browser_install_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("python3 -m playwright install --with-deps chromium", "echo browser unavailable")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

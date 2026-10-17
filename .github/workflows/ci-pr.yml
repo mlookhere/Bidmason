@@ -81,3 +81,36 @@ jobs:
           npm run test:web
       - name: Windows production build
         run: npm run build
+
+  pdf-qa:
+    name: pdf-qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PDF QA dependencies
+        run: python3 -m pip install --requirement requirements-pdf.txt
+      - name: Render and inspect all PDF pages
+        run: bash ci/run pdf
+
+  browser-e2e:
+    name: browser-e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install locked web dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Build production preview
+        run: npm run build
+      - name: Install pinned browser QA
+        run: python3 -m pip install --requirement requirements-browser.txt
+      - name: Install exact Playwright Chromium revision
+        run: python3 -m playwright install --with-deps chromium
+      - name: Chromium mobile, keyboard and disabled-intake E2E
+        run: python3 ci/browser_qa.py
