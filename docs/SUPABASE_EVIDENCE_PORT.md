@@ -8,3 +8,5 @@
 - Fails closed on missing/invalid public-key configuration, incorrect user, revoked membership, rejected upload, invalid or unexpected object paths, downloaded content mismatch and unavailable provider.
 
 `tests-web/supabase-evidence-port.test.mjs` exercises this flow using intercepted HTTP responses. This is not proof of success against live Supabase Storage or real signed-in accounts. Production needs verified session transport, private credential custody, a trusted insert implementation, orphan cleanup and malware/document validation. Never enable a customer-facing upload form based on mocked tests alone.
+
+See [TRUSTED_RECEIPTS.md](TRUSTED_RECEIPTS.md) for the now-implemented but **undeployed and unconfigured** privileged metadata writer. Only a protected server workflow may construct or invoke that capability after a verified Storage readback. No browser should receive or ever supply a secret key.
