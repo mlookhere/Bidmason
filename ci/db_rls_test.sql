@@ -194,14 +194,19 @@ begin
      where oid in ('public.bm_organizations'::regclass,
                    'public.bm_memberships'::regclass,
                    'public.bm_business_facts'::regclass,
+                   'public.bm_fact_reviews'::regclass,
                    'public.bm_brief_revisions'::regclass,
                    'public.bm_brief_approvals'::regclass)
-       and relrowsecurity) != 5 then
+       and relrowsecurity) != 6 then
     raise exception 'A tenant table has RLS disabled';
  end if;
  if (select reloptions @> array['security_invoker=true']::text[]
      from pg_class where oid='public.bm_current_approved_briefs'::regclass) is not true then
     raise exception 'Approval view must be security_invoker';
+ end if;
+ if (select reloptions @> array['security_invoker=true']::text[]
+     from pg_class where oid='public.bm_current_verified_facts'::regclass) is not true then
+    raise exception 'Fact-review view must be security_invoker';
  end if;
 end $$;
 \echo PASS: two-tenant read/write isolation, unverified evidence, membership privilege, stale approval invalidation, schema RLS
