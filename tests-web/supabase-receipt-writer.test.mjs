@@ -24,7 +24,7 @@ function mockWriter(status=201) {
     organizationId: org,
     http: async (url, options) => {
       requests.push({url: String(url), options});
-      return new Response("", {status});
+      return new Response(status === 204 ? null : "", {status});
     },
   });
   return {write, requests};
