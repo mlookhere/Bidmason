@@ -51,6 +51,11 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertTrue(workflow_findings(self.good.replace(
             "psql -X -v ON_ERROR_STOP=1 -f db/evidence_receipts.sql", "echo no receipt FK")))
 
+    def test_missing_storage_policy_drift_audit_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql",
+            "echo skipped policy shadowing audit")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

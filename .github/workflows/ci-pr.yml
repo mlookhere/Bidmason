@@ -127,5 +127,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/storage_policies.sql
       - name: Verify storage RLS and unauthorized mutations
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql
+      - name: Audit the complete Storage policy set and inject unsafe policies
+        run: psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
       - name: Deny forged, missing or cross-tenant evidence receipts
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
