@@ -27,7 +27,7 @@ function mockPort(opts = {}) {
     async readBackPrivate(actor, receipt) {
       calls.push("readBack");
       assert.equal(actor, user);
-      assert.match(receipt.object_path, /\\.pdf$/);
+      assert.match(receipt.object_path, /\.pdf$/);
       return opts.readBack ?? bytes;
     },
     async issueTrustedReceipt(receipt) {
