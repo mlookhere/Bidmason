@@ -14,7 +14,7 @@ The GitHub repository was empty at inspection. Source material: user-provided `b
 **Gates:** fast, PR, security, secret scan. **Risk:** `risk:ci`, `risk:supply-chain`.
 
 ### 2. Correct existing public/demo artifacts and enforce truthful QA
-**Acceptance:** Harbor Coast $450 minimum respects discount order; quarterly $475 included/additional contradiction resolved by owner-approved fixture policy; PDF glyphs/pagination pass page-by-page checks; remove unverified claims and testimonials from publishable output; mobile navigation works at 375px; both forms have real persistence or remain disabled/nonpublic until backing endpoint is verified.
+**Acceptance:** The historical Harbor Coast $450 minimum remains regression-tested, never a global business default; contradictory quarterly $475 terms are quarantined as **pending** and forbidden in deliverable quotes until that individual contractor approves a policy. Demonstrate multiple independent company-configured pricing strategies and reject unapproved services. PDF glyphs/pagination pass page-by-page checks; remove unverified claims and testimonials from publishable output; mobile navigation works at 375px; both forms have real persistence or remain disabled/nonpublic until backing endpoint is verified.
 **Areas:** `demo-clients/`, marketing site, proposal renderer, regression tests.
 **Gates:** pricing, PDF QA, a11y/E2E, form failure tests. **Risk:** `risk:pricing`, `risk:claims`, `risk:public-data`.
 
@@ -24,12 +24,12 @@ The GitHub repository was empty at inspection. Source material: user-provided `b
 **Gates:** migration/RLS, unit/integration, security. **Risk:** `risk:tenant`, `risk:security`.
 
 ### 4. Intake, transcription, extraction and deterministic pricing
-**Acceptance:** Typed notes and protected uploads; retained originals; transcription failure safety; structured extraction with provenance and human review; accurate discount/minimum/surcharge/tax/margin rules; all supplied Harbor Coast cases plus cleaning case pass.
+**Acceptance:** Typed notes and protected uploads; retained originals; transcription failure safety; structured extraction with provenance and human review; **company-owned, versioned policy configuration** for configurable service units, discounts, surcharge sequence, per-line or quote minima, optional add-ons, tax/margin behavior, and company-specific exclusions; all supplied Harbor Coast cases plus a distinct cleaning-company case pass. No single customer's rates, optional services, or workflow are universal defaults.
 **Areas:** ingestion, AI adapter, pricing domain, review UI.
 **Gates:** unit pricing, adversarial extraction, integration, security. **Risk:** `risk:pricing`, `risk:privacy`, `risk:ai`.
 
 ### 5. Reusable branded proposal and evidence-backed QA
-**Acceptance:** One structured renderer for painting and commercial cleaning, no internal notes or unverified credentials, legible PDF and bounds tests; blockers and `not_run` recorded truthfully; hash-bound operator and contractor approvals; revisions invalidate signoff.
+**Acceptance:** One reusable renderer driven by company-owned brand, service catalogue, approved pricing policy and proposal template (validated for painting and commercial cleaning), no internal notes or unverified credentials, legible PDF and bounds tests; blockers and `not_run` recorded truthfully; hash-bound operator and contractor approvals; revisions invalidate signoff.
 **Areas:** proposals, PDF, QA, review UI.
 **Gates:** PDF full render, approval unit/integration, visual/e2e. **Risk:** `risk:claims`, `risk:approval`.
 
@@ -52,4 +52,4 @@ The GitHub repository was empty at inspection. Source material: user-provided `b
 One slice = one Issue, one `work/<issue>-<slug>` branch from `dev`, one PR to `dev`. Merge only with completed successful **nonzero** relevant Actions checks. No direct commits on `dev` or `main` after initial seed. Track commits, PRs, test evidence, remaining gaps and deployments in the control Issue and execution tracker. Phases 0–6 and all BM-001..BM-055 coverage remain specified in the companion blueprint/tracker; these eight slices group—not delete—that scope.
 
 ## Critical dependencies and decisions
-Start at slice 1. Before real customer data/sends: choose authorized Supabase/auth project, email provider and domain, AI retention policy, legal proposal language, contractor pricing exceptions, and ambiguous quarterly touch-up inclusion. Fail closed until owners approve. Packaging a synthetic demo is not a deployed SaaS.
+Start at slice 1. Before real customer data/sends: choose authorized Supabase/auth project, email provider and domain, AI retention policy, legal proposal language, and **each company's own** pricing, add-ons and workflow rules. The historical Harbor Coast quarterly ambiguity is not a platform-wide business decision or a condition for completing internal fixture QA: it stays unspecified and non-quotable, with its conflicting source preserved. If an actual customer proposal ever includes that service, that customer's authorized owner must decide the commercial terms. Do not invent them or bypass approval checks. See [company-configurable platform architecture](COMPANY_POLICY_ARCHITECTURE.md). Packaging a synthetic demo is not a deployed SaaS.

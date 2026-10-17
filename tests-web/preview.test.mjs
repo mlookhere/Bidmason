@@ -24,7 +24,9 @@ test("preview includes mobile and reduced-motion behavior", () => {
 });
 
 test("preview has accessible navigation landmarks", () => {
-  assert.match(page, /<main>/);
+  assert.match(page, /<main id="main-content"/);
+  assert.match(page, /Skip to main content/);
+  assert.match(page, /tabIndex=\{-1\}/);
   assert.match(page, /<nav aria-label/);
   assert.match(page, /<footer/);
 });
