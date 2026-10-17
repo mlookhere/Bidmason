@@ -95,6 +95,11 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_browser_install_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("python3 -m playwright install --with-deps chromium", "echo browser unavailable")))
 
+    def test_missing_independence_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017063426_bidmason_independent_fact_review.sql",
+            "echo independent review migration skipped")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 
