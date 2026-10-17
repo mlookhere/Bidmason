@@ -35,6 +35,14 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_fact_review_gate_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql", "echo skipped fact reviews")))
 
+    def test_missing_storage_rls_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql", "echo skipped storage security")))
+
+    def test_missing_storage_policy_install_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/storage_policies.sql", "echo skipped storage policies")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

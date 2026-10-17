@@ -20,3 +20,9 @@ The trusted backend (future work) must provision organizations and memberships. 
 Supabase documentation: https://supabase.com/docs/guides/database/postgres/row-level-security and https://supabase.com/docs/guides/api/securing-your-api
 
 A second SQL suite (`ci/db_fact_review_test.sql`) runs after the original two-tenant fixtures and proves client timestamp spoofing, unauthorized contractor reviews, cross-tenant evidence disclosure and blank evidence are rejected. **The evidence reference is an unvalidated string until a real private Storage policy and evidence ingestion flow exist.** No verified claim may be published from this draft alone.
+
+## Draft private evidence Storage policy
+
+`db/storage_policies.sql` seeds a **non-public** `bm-evidence` bucket with a 15 MiB limit and PDF/PNG/JPEG allowlist, and adds `storage.objects` policies for names following `<organization-uuid>/<object-uuid>.<extension>`. Authenticated members may create **new** objects under their own organization only if Storage's `owner_id` matches `auth.uid()`. Organization owners/operators may read their tenant's evidence; contractors may read only their own uploads. Client UPDATE and DELETE are intentionally absent; overwrites and cross-tenant reads are denied.
+
+`ci/db_storage_stub.sql` stands in for the live Supabase Storage schema **only in disposable PostgreSQL CI**, and `ci/db_storage_test.sql` exercises the actual RLS expressions and adversarial owner/path/tenant/mutation cases. This does **not** prove real Supabase Storage upload behavior, MIME enforcement, file integrity, revocation, immutable object contents, or access through generated/signed URLs. Those require a dedicated project, the real Storage system, retention policy and authenticated client tests. Storage policy code must be reviewed against the selected project's live Storage schema before any migration.

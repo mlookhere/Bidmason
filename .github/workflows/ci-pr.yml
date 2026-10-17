@@ -117,3 +117,9 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
       - name: Verify independent evidence review and audit immutability
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql
+      - name: Stub Supabase Storage tables for isolated CI only
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
+      - name: Install tenant-private evidence storage rules
+        run: psql -X -v ON_ERROR_STOP=1 -f db/storage_policies.sql
+      - name: Verify storage RLS and unauthorized mutations
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql
