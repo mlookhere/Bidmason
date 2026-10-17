@@ -23,10 +23,13 @@ begin
  end if;
 end $$;
 
+-- Submission and independent review must be different authenticated people.
+set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 insert into public.bm_business_facts(
  id, organization_id, fact_key, claimed_value)
 values ('20000000-0000-4000-8000-000000000001',
  '10000000-0000-4000-8000-000000000001', 'service_area', '"San Diego"');
+set request.jwt.claim.sub = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 insert into public.bm_brief_revisions(
  id, organization_id, revision, document, content_sha256)

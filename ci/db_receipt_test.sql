@@ -2,11 +2,12 @@
 -- Run after base tenant, review, and isolated Storage tests.
 -- Uses the same three accounts; the receipt rows themselves are CI fixtures.
 set role authenticated;
-set request.jwt.claim.sub = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 insert into public.bm_business_facts(id, organization_id, fact_key, claimed_value)
 values ('20000000-0000-4000-8000-000000000009',
         '10000000-0000-4000-8000-000000000001',
         'pending_evidence', '"unreviewed"');
+set request.jwt.claim.sub = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 do $$
 declare allowed boolean := false;

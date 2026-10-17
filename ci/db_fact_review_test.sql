@@ -79,6 +79,33 @@ begin
   if allowed then raise exception 'Blank evidence accepted as review'; end if;
 end $$;
 
+-- A legitimate owner/operator cannot certify their own submitted fact.
+insert into public.bm_business_facts(id, organization_id, fact_key, claimed_value)
+values ('20000000-0000-4000-8000-000000000005',
+        '10000000-0000-4000-8000-000000000001',
+        'self_review_claim', '"must remain unverified"');
+do $$
+declare allowed boolean := false;
+begin
+  begin
+    insert into public.bm_fact_reviews(
+      organization_id, fact_id, decision, evidence_reference, rationale)
+    values (
+      '10000000-0000-4000-8000-000000000001',
+      '20000000-0000-4000-8000-000000000005',
+      'verified',
+      '10000000-0000-4000-8000-000000000001/50000000-0000-4000-8000-000000000001.pdf',
+      'Attempt to approve my own submitted fact');
+    allowed := true;
+  exception when insufficient_privilege then null;
+  end;
+  if allowed then raise exception 'Owner verified their own submitted fact'; end if;
+  if exists (select 1 from public.bm_current_verified_facts
+    where fact_key='self_review_claim') then
+    raise exception 'Self-reviewed claim was exposed as verified';
+  end if;
+end $$;
+
 -- Contractor in same organization can submit an unverified fact but cannot
 -- authenticate it as verified, nor overwrite existing verified evidence.
 set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';

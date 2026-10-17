@@ -150,6 +150,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
       - name: Install evidence receipt FK and authorization policy
         run: psql -X -v ON_ERROR_STOP=1 -f db/evidence_receipts.sql
+      - name: Enforce independent verification of business facts
+        run: psql -X -v ON_ERROR_STOP=1 -f db/review_independence.sql
       - name: Seed server-only synthetic ingestion receipts
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_seed.sql
       - name: Verify independent evidence review and audit immutability
@@ -177,6 +179,7 @@ jobs:
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f db/review_independence.sql
       - name: Re-run all positive and adversarial tenant tests on the migration
         run: |
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
