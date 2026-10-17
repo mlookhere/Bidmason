@@ -26,6 +26,60 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_windows_runner_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("./ci/run.ps1 fast", "echo skipped win gate")))
 
+    def test_missing_tenant_db_job_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("  db-rls:", "  removed-db:")))
+
+    def test_missing_real_rls_test_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql", "echo fake rls check")))
+
+    def test_missing_independent_review_policy_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/review_independence.sql",
+            "echo independent review disabled")))
+
+    def test_missing_fact_review_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql", "echo skipped fact reviews")))
+
+    def test_missing_storage_rls_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql", "echo skipped storage security")))
+
+    def test_missing_storage_policy_install_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/storage_policies.sql", "echo skipped storage policies")))
+
+    def test_missing_evidence_receipt_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql", "echo no receipt test")))
+
+    def test_missing_evidence_receipt_policy_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/evidence_receipts.sql", "echo no receipt FK")))
+
+    def test_missing_storage_policy_drift_audit_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql",
+            "echo skipped policy shadowing audit")))
+
+    def test_missing_generated_migration_consistency_check_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "python3 scripts/build_migration.py --check", "echo stale migration allowed")))
+
+    def test_missing_foundation_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql",
+            "echo foundation skipped")))
+
+    def test_missing_storage_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql",
+            "echo storage skipped")))
+
+    def test_missing_review_fk_index_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql",
+            "echo missing review FK index")))
+
     def test_missing_pdf_job_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  pdf-qa:", "  missing-pdf:")))
 
@@ -40,6 +94,11 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_missing_browser_install_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("python3 -m playwright install --with-deps chromium", "echo browser unavailable")))
+
+    def test_missing_independence_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017063426_bidmason_independent_fact_review.sql",
+            "echo independent review migration skipped")))
 
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))

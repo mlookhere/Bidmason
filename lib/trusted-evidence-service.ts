@@ -1,0 +1,78 @@
+import { lookupAccount } from "./supabase-account.ts";
+import { ingestVerifiedEvidence } from "./evidence.ts";
+import type { EvidenceContentType, EvidenceReceipt } from "./evidence.ts";
+import { createSupabaseEvidencePort } from "./supabase-evidence-port.ts";
+import { createTrustedReceiptWriter } from "./supabase-receipt-writer.ts";
+
+/**
+ * Server-only, NOT an HTTP route. Requires genuine Supabase Auth, current
+ * membership, a private Storage roundtrip and a separate privileged receipt.
+ * Never accept the privileged key or alleged user ID from an untrusted caller.
+ */
+export type TrustedIngestionConfig = {
+  publishableKey: string | undefined;
+  secretKey: string | undefined;
+  http?: typeof fetch;
+  createObjectId?: () => string;
+};
+export type TrustedIngestionInput = {
+  authorization: string | null;
+  organizationId: string;
+  contentType: EvidenceContentType;
+  bytes: Uint8Array;
+};
+const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+const MAX_BYTES = 15 * 1024 * 1024;
+
+export async function ingestForSignedInMember(
+  input: TrustedIngestionInput,
+  config: TrustedIngestionConfig,
+): Promise<EvidenceReceipt> {
+  // Validate feature configuration and input *before* contacting any external
+  // service. This helper must never read configuration from the request body.
+  if (!config.publishableKey?.startsWith("sb_publishable_")
+    || !config.secretKey?.startsWith("sb_secret_")) {
+    throw new Error("Trusted ingestion is not configured");
+  }
+  if (!input || !UUID.test(input.organizationId)) {
+    throw new TypeError("Invalid evidence organization");
+  }
+  if (!(input.bytes instanceof Uint8Array)
+    || input.bytes.length === 0 || input.bytes.length > MAX_BYTES) {
+    throw new RangeError("Invalid evidence payload size");
+  }
+  if (!input.authorization || !/^Bearer [A-Za-z0-9._~+/-]+={0,2}$/.test(input.authorization)
+    || input.authorization.length > 8192) {
+    throw new Error("Authenticated member required");
+  }
+  const account = await lookupAccount(
+    input.authorization, config.publishableKey, config.http,
+  );
+  if (account.status !== 200) {
+    throw new Error("Authenticated member required");
+  }
+  if (!account.data.memberships.some(
+    member => member.organizationId === input.organizationId,
+  )) {
+    throw new Error("Organization membership required");
+  }
+
+  // Bind the privileged operation to the already authenticated organization
+  // and give it only the 5-column receipt. The user token is used exclusively
+  // for Auth, membership and Storage; no client key can perform the insert.
+  const issueTrustedReceipt = createTrustedReceiptWriter({
+    secretKey: config.secretKey,
+    organizationId: input.organizationId,
+    http: config.http,
+  });
+  const port = createSupabaseEvidencePort({
+    accessToken: input.authorization.slice("Bearer ".length),
+    publishableKey: config.publishableKey,
+    issueTrustedReceipt,
+    http: config.http,
+  });
+  return ingestVerifiedEvidence(
+    account.data.id, input.organizationId, input.contentType,
+    input.bytes, port, config.createObjectId,
+  );
+}
