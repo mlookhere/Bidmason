@@ -96,7 +96,7 @@ set request.jwt.claim.sub = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 do $bm_shadow$
 begin
   if (select count(*) from storage.objects where bucket_id='bm-evidence') != 2 then
-    raise exception 'Broad policy fixture could not see owner's evidence';
+    raise exception 'Broad policy fixture could not see owner evidence';
   end if;
   update storage.objects set name =
     '10000000-0000-4000-8000-000000000001/50000000-0000-4000-8000-0000000000f2.pdf'
