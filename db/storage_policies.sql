@@ -68,9 +68,9 @@ using (
 
 
 -- Deny even if an unrelated permissive policy later adds UPDATE/DELETE.
-create policy bm_evidence_block_update as restrictive on storage.objects
+create policy bm_evidence_block_update on storage.objects as restrictive
 for update to public using (false) with check (false);
-create policy bm_evidence_block_delete as restrictive on storage.objects
+create policy bm_evidence_block_delete on storage.objects as restrictive
 for delete to public using (false);
 
 -- No BidMason permissive UPDATE/DELETE or anonymous grants exist.
