@@ -104,3 +104,34 @@ test("receipt writer is unreachable after denied authorization or mismatched pri
     bytes, tampered, ()=>object), /differ/);
   assert.equal(requests.length,0);
 });
+
+test("successful full ingestion reaches privileged writer only after two authorization checks and verified readback", async () => {
+  const {write,requests} = mockWriter();
+  const steps = [];
+  const port = {
+    authorize: async (userId, orgId) => {
+      assert.equal(userId, actor);
+      assert.equal(orgId, org);
+      steps.push("authorize");
+      return true;
+    },
+    uploadPrivate: async (_, metadata, uploaded) => {
+      steps.push("upload");
+      assert.deepEqual(uploaded, bytes);
+      assert.equal(metadata.object_path, receipt.object_path);
+    },
+    readBackPrivate: async () => {
+      steps.push("readback");
+      return new Uint8Array(bytes);
+    },
+    issueTrustedReceipt: async metadata => {
+      steps.push("issue");
+      await write(metadata);
+    },
+  };
+  const saved = await ingestVerifiedEvidence(actor,org,"application/pdf",
+    bytes, port,()=>object);
+  assert.deepEqual(steps, ["authorize","upload","readback","authorize","issue"]);
+  assert.equal(requests.length,1);
+  assert.deepEqual(JSON.parse(requests[0].options.body),saved);
+});
