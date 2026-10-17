@@ -149,4 +149,37 @@ begin
     raise exception 'A tenant table has RLS disabled';
   end if;
 end $$;
-\echo PASS: immutable receipts, same-tenant foreign keys, forged evidence denial, seven RLS tables
+-- Revocation is read from the live membership roster, not stale JWT claims.
+-- Once the trusted backend deletes a membership, all protected reads must
+-- vanish even while the old token still contains that user's original uid.
+delete from public.bm_memberships
+where organization_id='10000000-0000-4000-8000-000000000001'
+  and user_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+set role authenticated;
+set request.jwt.claim.sub = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+do $
+declare allowed boolean := false;
+begin
+  if (select count(*) from public.bm_organizations) != 0
+    or (select count(*) from public.bm_business_facts) != 0
+    or (select count(*) from public.bm_evidence_receipts) != 0
+    or (select count(*) from public.bm_brief_revisions) != 0
+    or (select count(*) from public.bm_current_verified_facts) != 0
+    or (select count(*) from storage.objects) != 0 then
+    raise exception 'Revoked member retained data access with old JWT identity';
+  end if;
+
+  begin
+    insert into public.bm_business_facts
+      (organization_id, fact_key, claimed_value)
+    values ('10000000-0000-4000-8000-000000000001',
+      'revoked_access', '"must fail"');
+    allowed := true;
+  exception when insufficient_privilege then null;
+  end;
+  if allowed then raise exception 'Revoked member still has tenant write permission'; end if;
+end $;
+reset request.jwt.claim.sub;
+reset role;
+\echo PASS: immutable receipts, same-tenant foreign keys, forged evidence denial, seven RLS tables, immediate membership revocation
