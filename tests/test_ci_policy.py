@@ -43,6 +43,14 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertTrue(workflow_findings(self.good.replace(
             "psql -X -v ON_ERROR_STOP=1 -f db/storage_policies.sql", "echo skipped storage policies")))
 
+    def test_missing_evidence_receipt_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql", "echo no receipt test")))
+
+    def test_missing_evidence_receipt_policy_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "psql -X -v ON_ERROR_STOP=1 -f db/evidence_receipts.sql", "echo no receipt FK")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

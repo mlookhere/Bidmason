@@ -15,7 +15,7 @@ insert into public.bm_fact_reviews (
 values (
   '10000000-0000-4000-8000-000000000001',
   '20000000-0000-4000-8000-000000000001',
-  'verified', 'synthetic://evidence/service-area',
+  'verified', '10000000-0000-4000-8000-000000000001/50000000-0000-4000-8000-000000000001.pdf',
   'Verified only for synthetic integration test');
 
 do $$
