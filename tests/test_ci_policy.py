@@ -32,6 +32,9 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_missing_real_rls_test_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql", "echo fake rls check")))
 
+    def test_missing_fact_review_gate_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace("psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql", "echo skipped fact reviews")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

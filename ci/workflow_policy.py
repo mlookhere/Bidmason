@@ -22,7 +22,7 @@ def findings(source: str) -> list[str]:
     problems = []
     if not re.search(r"(?m)^permissions:\s*$", source) or "contents: read" not in source:
         problems.append("missing explicit read-only permissions")
-    for needle in ("pull_request:", "push:", "branches: [dev, main]", "  fast:", "  pr:", "  security:", "  web-build:", "  win-fast:", "  db-rls:", "psql -X -v ON_ERROR_STOP=1 -f db/schema.sql", "psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql", "./scripts/bootstrap.ps1 -CI", "./ci/run.ps1 fast", "bash ci/run web", "npm ci --no-audit --no-fund", "npm audit --audit-level=high --omit=dev", "bash ci/run fast", "bash ci/run pr", "bash ci/run security"):
+    for needle in ("pull_request:", "push:", "branches: [dev, main]", "  fast:", "  pr:", "  security:", "  web-build:", "  win-fast:", "  db-rls:", "psql -X -v ON_ERROR_STOP=1 -f db/schema.sql", "psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql", "psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql", "./scripts/bootstrap.ps1 -CI", "./ci/run.ps1 fast", "bash ci/run web", "npm ci --no-audit --no-fund", "npm audit --audit-level=high --omit=dev", "bash ci/run fast", "bash ci/run pr", "bash ci/run security"):
         if needle not in source:
             problems.append(f"missing gate/trigger: {needle}")
     uses = USES.findall(source)

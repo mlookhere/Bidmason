@@ -115,3 +115,5 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/schema.sql
       - name: Exercise two-tenant authorization and revision approval
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
+      - name: Verify independent evidence review and audit immutability
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql
