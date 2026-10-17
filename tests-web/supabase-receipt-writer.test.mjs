@@ -117,7 +117,7 @@ test("successful full ingestion reaches privileged writer only after two authori
     },
     uploadPrivate: async (_, metadata, uploaded) => {
       steps.push("upload");
-      assert.deepEqual(uploaded, bytes);
+      assert.deepEqual(Buffer.from(uploaded), bytes);
       assert.equal(metadata.object_path, receipt.object_path);
     },
     readBackPrivate: async () => {
