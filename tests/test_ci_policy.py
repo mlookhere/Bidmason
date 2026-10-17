@@ -70,6 +70,11 @@ class WorkflowPolicyTests(unittest.TestCase):
             "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql",
             "echo storage skipped")))
 
+    def test_missing_review_fk_index_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql",
+            "echo missing review FK index")))
+
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))
 

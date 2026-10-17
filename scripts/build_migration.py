@@ -23,6 +23,12 @@ MIGRATIONS = (
         "-- Reproduced from reviewed db/storage_policies.sql.\n",
         ("db/storage_policies.sql",),
     ),
+    (
+        "supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql",
+        "-- BidMason applied managed Supabase migration: 20261017035730 bidmason_evidence_review_fk_index\n"
+        "-- Reproduced from db/review_indexes.sql.\n",
+        ("db/review_indexes.sql",),
+    ),
 )
 
 
@@ -53,8 +59,8 @@ def main() -> int:
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(expected, encoding="utf-8", newline="\n")
-    print("PASS: both applied BidMason migration files match their reviewed sources"
-          if args.check else "Wrote both applied BidMason migration files")
+    print("PASS: all applied BidMason migration files match their reviewed sources"
+          if args.check else "Wrote all applied BidMason migration files")
     return 0
 
 
