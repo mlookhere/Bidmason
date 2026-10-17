@@ -1,6 +1,8 @@
-# Tenant model — isolated PostgreSQL baseline
+# Tenant model — installed schema with isolated and live security tests
 
-This is a **SQL proof-of-concept**, not a deployed Supabase migration. The connected Supabase account has no project called BidMason. No unrelated project is used or modified.
+See [LIVE_SUPABASE.md](LIVE_SUPABASE.md) for exact deployed migration history, project reference, and remaining production blockers.
+
+The original model began as an isolated PostgreSQL prototype. As of 2026-10-16, its three approved schema/Storage/index migrations are **installed on the dedicated BidMason Supabase project** (`jgbogpunyzkoytrclqdl`). The authenticating application and private upload workflow remain unfinished. No unrelated project was modified.
 
 Files: `db/schema.sql` defines the six core public tables, indexed membership checks, fail-closed grants/RLS policies, immutable proposed fact/revision records, operator-only approval inserts, independently reviewed fact evidence with a security-invoker verified view, column-restricted client INSERT grants that prevent forged actor/timestamp fields, a PostgreSQL-calculated SHA-256 check tying every immutable revision to its exact canonical JSONB bytes, and a `security_invoker=true` view that returns only the newest approved brief revision.
 
