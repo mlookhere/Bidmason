@@ -37,6 +37,43 @@ using (
   )
 );
 
--- Intentional: no UPDATE, DELETE, public bucket, or anonymous policies.
+create policy bm_evidence_upload_boundary on storage.objects
+as restrictive
+for insert to public
+with check (
+  bucket_id = 'bm-evidence'
+  and owner_id = (select auth.uid()::text)
+  and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|png|jpg|jpeg)$'
+  and exists (
+    select 1 from public.bm_memberships m
+    where m.organization_id::text = split_part(storage.objects.name, '/', 1)
+      and m.user_id = (select auth.uid())
+  )
+);
+
+
+create policy bm_evidence_read_boundary on storage.objects
+as restrictive
+for select to public
+using (
+  bucket_id = 'bm-evidence'
+  and exists (
+    select 1 from public.bm_memberships m
+    where m.organization_id::text = split_part(storage.objects.name, '/', 1)
+      and m.user_id = (select auth.uid())
+      and (m.member_role in ('owner', 'operator')
+           or storage.objects.owner_id = (select auth.uid()::text))
+  )
+);
+
+
+-- Deny even if an unrelated permissive policy later adds UPDATE/DELETE.
+create policy bm_evidence_block_update as restrictive on storage.objects
+for update to public using (false) with check (false);
+create policy bm_evidence_block_delete as restrictive on storage.objects
+for delete to public using (false);
+
+-- No BidMason permissive UPDATE/DELETE or anonymous grants exist.
+-- Defense-in-depth restrictive boundaries AND with all permissive policies.
 -- Replace/update/upload overwrites are denied. Evidence is append-only until
 -- an independently audited administrative retention/deletion workflow exists.

@@ -145,13 +145,17 @@ do $$
 begin
   if (select count(*) from pg_policies
       where schemaname='storage' and tablename='objects'
-        and policyname in ('bm_evidence_member_upload', 'bm_evidence_private_read')) != 2 then
+        and policyname in (
+          'bm_evidence_member_upload', 'bm_evidence_private_read',
+          'bm_evidence_upload_boundary', 'bm_evidence_read_boundary',
+          'bm_evidence_block_update', 'bm_evidence_block_delete')) != 6 then
     raise exception 'Missing private evidence Storage policies';
   end if;
   if (select count(*) from pg_policies
       where schemaname='storage' and tablename='objects'
-        and policyname like 'bm_evidence_%' and cmd in ('UPDATE','DELETE','ALL')) != 0 then
+        and policyname like 'bm_evidence_%' and cmd in ('UPDATE','DELETE','ALL')
+        and permissive = 'PERMISSIVE') != 0 then
     raise exception 'Evidence may be modified or deleted';
   end if;
 end $$;
-\echo PASS: tenant-private object policies, append-only uploads, owner checks, traversal rejection, no cross-tenant reads
+\echo PASS: restrictive tenant boundary and tenant-private policies, append-only uploads, owner checks, traversal rejection, no cross-tenant reads
