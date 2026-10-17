@@ -60,10 +60,15 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertTrue(workflow_findings(self.good.replace(
             "python3 scripts/build_migration.py --check", "echo stale migration allowed")))
 
-    def test_missing_migration_replay_blocks_release(self):
+    def test_missing_foundation_migration_replay_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace(
-            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017000000_bidmason_candidate_baseline.sql",
-            "echo migration not executed")))
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql",
+            "echo foundation skipped")))
+
+    def test_missing_storage_migration_replay_blocks_release(self):
+        self.assertTrue(workflow_findings(self.good.replace(
+            "PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql",
+            "echo storage skipped")))
 
     def test_missing_web_build_blocks_release(self):
         self.assertTrue(workflow_findings(self.good.replace("  web-build:", "  omitted:")))

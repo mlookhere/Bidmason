@@ -1,7 +1,8 @@
-"""Build or check a candidate, atomic baseline migration from reviewed SQL.
+"""Regenerate/check exact source-backed migrations applied to BidMason Supabase.
 
-Never connects to Supabase; never runs SQL. The source files are maintained
-individually and copied verbatim into a single transaction-ready artifact.
+This script performs no network or database operations. Two managed migrations
+already exist on BidMason project jgbogpunyzkoytrclqdl. The Storage collision
+auditor is a separate preflight, not a persisted schema migration.
 """
 from __future__ import annotations
 
@@ -9,56 +10,51 @@ import argparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = (
-    "db/schema.sql",
-    "db/evidence_receipts.sql",
-    "db/storage_policies.sql",
-    "db/storage_policy_audit.sql",
-)
-DEST = ROOT / "supabase/migrations/20261017000000_bidmason_candidate_baseline.sql"
-HEADER = (
-    "-- BIDMASON CANDIDATE ONLY -- NEVER APPLY TO AN UNAUTHORIZED PROJECT.\n"
-    "-- Needs a dedicated Supabase project, Storage-schema/DDL compatibility review,\n"
-    "-- migration-owner approval, and live tenant tests before production use.\n"
-    "-- Do not package CI-only auth/Storage stubs or synthetic fixtures.\n"
-    "begin;\n"
+MIGRATIONS = (
+    (
+        "supabase/migrations/20261017035109_bidmason_tenant_foundation.sql",
+        "-- BidMason applied managed Supabase migration: 20261017035109 bidmason_tenant_foundation\n"
+        "-- Reproduced from reviewed db/schema.sql and db/evidence_receipts.sql.\n",
+        ("db/schema.sql", "db/evidence_receipts.sql"),
+    ),
+    (
+        "supabase/migrations/20261017035151_bidmason_evidence_storage.sql",
+        "-- BidMason applied managed Supabase migration: 20261017035151 bidmason_evidence_storage\n"
+        "-- Reproduced from reviewed db/storage_policies.sql.\n",
+        ("db/storage_policies.sql",),
+    ),
 )
 
 
-def render() -> str:
-    contents = [HEADER]
-    for relative in SOURCES:
-        raw = (ROOT / relative).read_text(encoding="utf-8")
-        if not raw.endswith("\n"):
-            raise ValueError(f"Missing final newline: {relative}")
-        # psql output directives are not valid SQL in native Supabase migrations.
-        sql = "\n".join(
-            line for line in raw.splitlines()
-            if not line.lstrip().startswith("\\echo")
-        ) + "\n"
-        if any(line.lstrip().startswith("\\") for line in sql.splitlines()):
-            raise ValueError(f"Unsupported psql directive in {relative}")
-        contents.append(f"\n-- BEGIN AUTHORITATIVE SOURCE {relative}\n")
-        contents.append(sql)
-        contents.append(f"-- END AUTHORITATIVE SOURCE {relative}\n")
-    contents.append("\ncommit;\n")
-    return "".join(contents)
+def rendered_migrations() -> dict[Path, str]:
+    result: dict[Path, str] = {}
+    for target, header, sources in MIGRATIONS:
+        parts = [header]
+        for source in sources:
+            content = (ROOT / source).read_text(encoding="utf-8")
+            if not content.endswith("\n") or any(line.lstrip().startswith("\\") for line in content.splitlines()):
+                raise ValueError(f"Nonmigration directive or missing final newline: {source}")
+            parts.append(content)
+            if source != sources[-1]:
+                parts.append("\n")
+        result[ROOT / target] = "".join(parts)
+    return result
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="Fail if committed migration is stale")
-    args = parser.parse_args()
-    expected = render()
-    if args.check:
-        if not DEST.is_file() or DEST.read_text(encoding="utf-8") != expected:
-            print("FAIL: committed migration differs from authoritative source")
-            return 1
-        print("PASS: candidate migration is byte-exact from reviewed source SQL")
-    else:
-        DEST.parent.mkdir(parents=True, exist_ok=True)
-        DEST.write_text(expected, encoding="utf-8", newline="\n")
-        print(f"Candidate migration generated: {DEST.relative_to(ROOT)}")
+    p = argparse.ArgumentParser()
+    p.add_argument("--check", action="store_true")
+    args = p.parse_args()
+    for target, expected in rendered_migrations().items():
+        if args.check:
+            if not target.is_file() or target.read_text(encoding="utf-8") != expected:
+                print(f"FAIL: migration source drift: {target.relative_to(ROOT)}")
+                return 1
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(expected, encoding="utf-8", newline="\n")
+    print("PASS: both applied BidMason migration files match their reviewed sources"
+          if args.check else "Wrote both applied BidMason migration files")
     return 0
 
 

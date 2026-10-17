@@ -139,8 +139,10 @@ jobs:
         run: |
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
-      - name: Execute the exact candidate migration atomically
-        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017000000_bidmason_candidate_baseline.sql
+      - name: Replay the two actual managed Supabase migrations
+        run: |
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
       - name: Re-run all positive and adversarial tenant tests on the migration
         run: |
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
