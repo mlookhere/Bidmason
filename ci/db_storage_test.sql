@@ -72,22 +72,18 @@ begin
   end;
   if allowed then raise exception 'Storage policy permitted wrong bucket'; end if;
 
-  allowed := false;
   begin
     update storage.objects set name =
       '10000000-0000-4000-8000-000000000001/50000000-0000-4000-8000-000000000009.pdf';
-    allowed := true;
+    if found then raise exception 'Client can overwrite evidence'; end if;
   exception when insufficient_privilege then null;
   end;
-  if allowed then raise exception 'Client can overwrite evidence'; end if;
 
-  allowed := false;
   begin
     delete from storage.objects;
-    allowed := true;
+    if found then raise exception 'Client can delete evidence'; end if;
   exception when insufficient_privilege then null;
   end;
-  if allowed then raise exception 'Client can delete evidence'; end if;
 end $$;
 
 -- Same-tenant contractor cannot enumerate other uploaders' private evidence.
