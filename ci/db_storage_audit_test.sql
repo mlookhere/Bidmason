@@ -110,5 +110,32 @@ reset request.jwt.claim.sub;
 reset role;
 rollback;
 
+
+-- An unrelated bucket should still obey its own permissive policies.
+-- BidMason's restrictive guards apply only to bm-evidence.
+begin;
+insert into storage.buckets(id, name, public) values
+  ('ci-other-bucket', 'ci-other-bucket', false);
+create policy ci_other_bucket_access on storage.objects for all to authenticated
+  using (bucket_id='ci-other-bucket') with check (bucket_id='ci-other-bucket');
+set role authenticated;
+set request.jwt.claim.sub = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+insert into storage.objects(bucket_id,name,owner_id) values
+  ('ci-other-bucket','not-a-bidmason-path','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+do $bm_shadow$
+begin
+  if (select count(*) from storage.objects where bucket_id='ci-other-bucket') != 1 then
+    raise exception 'BidMason guard blocked separate bucket read';
+  end if;
+  update storage.objects set name='renamed' where bucket_id='ci-other-bucket';
+  if not found then raise exception 'BidMason guard blocked separate bucket update'; end if;
+  delete from storage.objects where bucket_id='ci-other-bucket';
+  if not found then raise exception 'BidMason guard blocked separate bucket delete'; end if;
+end
+$bm_shadow$;
+reset request.jwt.claim.sub;
+reset role;
+rollback;
+
 select pg_temp.bm_audit_evidence_storage_policies();
 \echo PASS: policy audit rejects permissive shadow policies and unrestricted owner/tenant predicates

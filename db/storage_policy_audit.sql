@@ -91,12 +91,20 @@ begin
      or forbidden_delete.permissive != 'RESTRICTIVE'
      or forbidden_update.roles != array['public']::name[]
      or forbidden_delete.roles != array['public']::name[]
-     or forbidden_update.qual not in ('false', 'false::boolean')
-     or forbidden_delete.qual not in ('false', 'false::boolean')
-     or (forbidden_update.with_check is not null
-        and forbidden_update.with_check not in ('false', 'false::boolean'))
-     or upload.with_check is distinct from restrictive_upload.with_check
-     or reader.qual is distinct from restrictive_read.qual then
+     or position('bm-evidence' in forbidden_update.qual) = 0
+     or position('<>' in forbidden_update.qual) = 0
+     or position('bm-evidence' in forbidden_delete.qual) = 0
+     or position('<>' in forbidden_delete.qual) = 0
+     or position('bm-evidence' in forbidden_update.with_check) = 0
+     or position('<>' in forbidden_update.with_check) = 0
+     or position('bm-evidence' in restrictive_upload.with_check) = 0
+     or position('bm_memberships' in restrictive_upload.with_check) = 0
+     or position('auth.uid' in restrictive_upload.with_check) = 0
+     or position('owner_id' in restrictive_upload.with_check) = 0
+     or position('bm-evidence' in restrictive_read.qual) = 0
+     or position('bm_memberships' in restrictive_read.qual) = 0
+     or position('auth.uid' in restrictive_read.qual) = 0
+     or position('owner_id' in restrictive_read.qual) = 0 then
     raise exception 'BidMason Storage policy role/command drift';
   end if;
 
