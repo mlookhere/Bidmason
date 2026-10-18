@@ -103,3 +103,86 @@ test("quota response arriving after cancellation cannot be interpreted as succes
   });
   await assert.rejects(permit(user, org, controller.signal), /Trusted upload quota unavailable/);
 });
+
+
+test("quota rejects oversized, malformed, truncated or nonboolean provider bodies without retry", async () => {
+  const cases = [
+    new Response("true" + " ".repeat(70), { status: 200 }),
+    new Response("false" + " ".repeat(70), { status: 200 }),
+    new Response("{broken", { status: 200 }),
+    new Response("tru", { status: 200 }),
+    new Response("{}", { status: 200 }),
+    new Response("null", { status: 200 }),
+    new Response("1", { status: 200 }),
+    new Response("", { status: 200 }),
+    new Response("true", { status: 200, headers: { "content-length": "100000000" } }),
+    new Response("true", { status: 200, headers: { "content-length": "bad" } }),
+  ];
+  for (const response of cases) {
+    let requests = 0;
+    const permit = createSupabaseUploadPermit({
+      secretKey,
+      http: async () => { requests++; return response; },
+    });
+    await assert.rejects(permit(user, org), /Trusted upload quota unavailable/);
+    assert.equal(requests, 1, "uncertain or malformed quota result may not be retried");
+  }
+});
+
+test("quota read accepts valid JSON boolean with ordinary HTTP Content-Length", async () => {
+  for (const [reply, expected] of [["true", true], ["false", false]]) {
+    const permit = createSupabaseUploadPermit({
+      secretKey,
+      http: async (_url, init) => {
+        assert.ok(init.signal instanceof AbortSignal);
+        return new Response(reply, {
+          status: 200, headers: { "content-length": String(Buffer.byteLength(reply)) },
+        });
+      },
+    });
+    assert.equal(await permit(user, org), expected);
+  }
+});
+
+test("abort after quota headers while body stream stalls never grants a permit", async () => {
+  const controller = new AbortController();
+  let reachedPull;
+  const entered = new Promise(resolve => { reachedPull = resolve; });
+  const stalled = new ReadableStream({
+    pull() { reachedPull(); return new Promise(() => {}); },
+  });
+  let requests = 0;
+  const permit = createSupabaseUploadPermit({
+    secretKey,
+    http: async (_url, init) => {
+      requests++;
+      assert.ok(init.signal instanceof AbortSignal);
+      return new Response(stalled, { status: 200 });
+    },
+  });
+  const pending = permit(user, org, controller.signal);
+  await entered;
+  controller.abort();
+  await assert.rejects(pending, /Trusted upload quota unavailable/);
+  assert.equal(requests, 1, "remote quota may already be reserved; never replay");
+});
+
+test("abort after a valid quota response but before body completion cannot yield true", async () => {
+  const controller = new AbortController();
+  let reachedPull;
+  const entered = new Promise(resolve => { reachedPull = resolve; });
+  const stalled = new ReadableStream({
+    start(stream) { stream.enqueue(new TextEncoder().encode("true")); },
+    pull() { reachedPull(); return new Promise(() => {}); },
+  });
+  let requests = 0;
+  const permit = createSupabaseUploadPermit({
+    secretKey,
+    http: async () => { requests++; return new Response(stalled, { status: 200 }); },
+  });
+  const pending = permit(user, org, controller.signal);
+  await entered;
+  controller.abort();
+  await assert.rejects(pending, /Trusted upload quota unavailable/);
+  assert.equal(requests, 1);
+});
