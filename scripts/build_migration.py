@@ -52,8 +52,8 @@ MIGRATIONS = (
         ("db/evidence_uploader_read_access.sql",),
     ),
     (
-        "supabase/migrations/20261018133000_bidmason_receipt_metadata_private_read.sql",
-        "-- BidMason managed migration: 20261018133000 bidmason_receipt_metadata_private_read\n-- Additive, restrictive signed-in receipt metadata visibility boundary.\n",
+        "supabase/migrations/20261018111633_bidmason_receipt_metadata_private_read.sql",
+        "-- BidMason managed migration: 20261018111633 bidmason_receipt_metadata_private_read\n-- Additive, restrictive signed-in receipt metadata visibility boundary.\n",
         ("db/receipt_metadata_private_read.sql",),
     ),
 )

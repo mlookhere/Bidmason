@@ -215,7 +215,7 @@ jobs:
       - name: Verify migrated uploader reads, revocation and shadow-policy denial
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_uploader_read_test.sql
       - name: Replay eighth managed receipt metadata privacy migration
-        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018133000_bidmason_receipt_metadata_private_read.sql
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018111633_bidmason_receipt_metadata_private_read.sql
       - name: Verify migrated receipt metadata privacy and revocation
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_metadata_privacy_test.sql
 

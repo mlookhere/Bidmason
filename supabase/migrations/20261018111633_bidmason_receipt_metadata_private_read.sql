@@ -1,4 +1,4 @@
--- BidMason managed migration: 20261018133000 bidmason_receipt_metadata_private_read
+-- BidMason managed migration: 20261018111633 bidmason_receipt_metadata_private_read
 -- Additive, restrictive signed-in receipt metadata visibility boundary.
 -- Prevent same-tenant contractors from enumerating another uploader's
 -- private evidence path, digest, size or MIME through PostgREST.
