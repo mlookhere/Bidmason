@@ -98,16 +98,15 @@ export type ReviewedQuotePreview = {
 };
 
 /**
- * Builds a NON-SENDABLE quote preview from explicitly selected candidates.
- * The calling authenticated review workflow must independently authorize the
- * reviewer and commit an immutable approval before publication.
+ * Recheck the exact immutable source and extraction suggestion snapshot.
+ * Returning only validated requested service inputs prevents a model-supplied
+ * price from crossing into either quoting or economics calculations.
  */
-export function previewReviewedQuote(
+export function selectReviewedServices(
   original: IntakeSource,
   review: ExtractionReview,
   selectedIndices: number[],
-  policy: CompanyPricePolicy,
-): ReviewedQuotePreview {
+): { serviceCode: string; units: number }[] {
   validateSource(original);
   if (!review || review.state !== "needs-human-review"
     || review.kind !== original.kind || review.sourceSha256 !== digest(original)) {
@@ -131,6 +130,21 @@ export function previewReviewedQuote(
     const selected = review.candidates[index];
     return { serviceCode: selected.serviceCode, units: selected.units };
   });
+  return requested;
+}
+
+/**
+ * Builds a NON-SENDABLE quote preview from explicitly selected candidates.
+ * The calling authenticated review workflow must independently authorize the
+ * reviewer and commit an immutable approval before publication.
+ */
+export function previewReviewedQuote(
+  original: IntakeSource,
+  review: ExtractionReview,
+  selectedIndices: number[],
+  policy: CompanyPricePolicy,
+): ReviewedQuotePreview {
+  const requested = selectReviewedServices(original, review, selectedIndices);
   return {
     state: "preview-only",
     sourceSha256: review.sourceSha256,
