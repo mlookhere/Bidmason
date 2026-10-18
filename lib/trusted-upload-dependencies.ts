@@ -1,4 +1,4 @@
-import { createLocalClamAvScanner } from "./local-clamav-evidence-scanner.ts";
+import { createProductionClamAvScanner } from "./production-clamav-evidence-scanner.ts";
 import { createSupabaseUploadPermit } from "./supabase-upload-quota.ts";
 import type { EvidenceUploadDependencies } from "./evidence-upload-boundary.ts";
 
@@ -11,6 +11,8 @@ export function createTrustedEvidenceUploadDependencies(config: {
   publishableKey: string;
   secretKey: string;
   clamavPort: number;
+  /** Absolute server-owned directory populated by official signed freshclam definitions. */
+  clamavSignatureDirectory: string;
   http?: typeof fetch;
 }): EvidenceUploadDependencies {
   if (!config.publishableKey?.startsWith("sb_publishable_")
@@ -22,7 +24,11 @@ export function createTrustedEvidenceUploadDependencies(config: {
     secretKey: config.secretKey,
     http: config.http,
   });
-  const scan = createLocalClamAvScanner({ port: config.clamavPort });
+  // A daemon clean reply alone is insufficient with stale or test-only signatures.
+  const scan = createProductionClamAvScanner({
+    port: config.clamavPort,
+    signatureDirectory: config.clamavSignatureDirectory,
+  });
   return Object.freeze({
     publishableKey: config.publishableKey,
     secretKey: config.secretKey,

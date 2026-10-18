@@ -6,7 +6,8 @@ const publishableKey = "sb_publishable_ci_public";
 const secretKey = "sb_secret_ci_server_only";
 
 test("internal composition requires both trusted keys and a valid scanner daemon port", () => {
-  const base = { publishableKey, secretKey, clamavPort: 3310 };
+  const base = { publishableKey, secretKey, clamavPort: 3310,
+    clamavSignatureDirectory: "/var/lib/clamav", clamavSignatureDirectory: "/var/lib/clamav" };
   for (const broken of [
     { ...base, publishableKey: "" },
     { ...base, publishableKey: "sb_secret_fake" },
@@ -14,12 +15,15 @@ test("internal composition requires both trusted keys and a valid scanner daemon
     { ...base, secretKey: "sb_publishable_fake" },
     { ...base, clamavPort: 0 },
     { ...base, clamavPort: 65536 },
-  ]) assert.throws(() => createTrustedEvidenceUploadDependencies(broken), /not configured|port/);
+    { ...base, clamavSignatureDirectory: "" },
+    { ...base, clamavSignatureDirectory: "relative/clamav" },
+  ]) assert.throws(() => createTrustedEvidenceUploadDependencies(broken), /not configured|port|signature directory/);
 });
 
 test("composition always provides both security dependencies but no injectable bypass", async () => {
   const config = createTrustedEvidenceUploadDependencies({
     publishableKey, secretKey, clamavPort: 3310,
+    clamavSignatureDirectory: "/var/lib/clamav",
     http: async (url, init) => {
       assert.match(String(url), /\/rest\/v1\/rpc\/bm_reserve_upload_quota$/);
       assert.equal(init.headers.apikey, secretKey);
@@ -45,6 +49,7 @@ test("composed trusted quota retains server Request.signal through provider HTTP
   let remoteSignal;
   const config = createTrustedEvidenceUploadDependencies({
     publishableKey, secretKey, clamavPort: 3310,
+    clamavSignatureDirectory: "/var/lib/clamav",
     http: async (_url, init) => {
       remoteSignal = init.signal;
       return new Promise((_resolve, reject) => {
