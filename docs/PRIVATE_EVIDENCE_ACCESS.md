@@ -67,3 +67,23 @@ A role downgrade therefore returns no evidence bytes even if the download
 already completed; incomplete or forged `uploaded_by` metadata fails closed.
 These are offline regression tests and do not authorize turning on the
 customer download endpoint without genuine live multiuser acceptance.
+
+## Storage quarantine until receipt commitment (2026-10-18)
+
+The existing signed-in Storage read policies allowed owners/operators to GET
+private objects directly while antivirus scanning or trusted receipt insertion
+was still incomplete. The additive candidate migration
+`20261018181932_bidmason_verified_receipt_storage_read.sql` introduces a restrictive `SELECT` boundary:
+`bm-evidence` objects need a matching tenant-scoped immutable
+`bm_evidence_receipts` row before **any** authenticated user's Storage
+access succeeds, including owners and the Storage `owner_id`.
+The original tenant and role/uploader policy is still required and separate;
+an unrelated bucket is not affected. A privileged server process may still
+scan/read its staged object using a secured service role (which bypasses RLS).
+This avoids accidentally exposing unscanned objects while keeping the
+receipt-commit boundary authoritative. The matching receipt must be created
+*only after* successful malware and exact-byte verification. Database CI
+checks both the reviewed source and ninth migration replay for missing
+receipts, owner access, and broad shadow policies. This candidate migration
+does **not** establish live multiuser Auth/Storage proof or deploy itself;
+customer upload/download endpoints remain disabled.
