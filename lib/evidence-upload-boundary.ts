@@ -16,7 +16,7 @@ const ALLOWED = new Set<EvidenceContentType>([
 
 export type EvidenceUploadDependencies = TrustedIngestionConfig & {
   /** Mandatory durable/distributed quota. Never substitute process-local counters. */
-  takePermit?: (userId: string, organizationId: string) => Promise<boolean>;
+  takePermit?: (userId: string, organizationId: string, signal?: AbortSignal) => Promise<boolean>;
   /** Mandatory trusted malware scanner. Only an explicit clean result proceeds. */
   scan?: (bytes: Uint8Array, contentType: EvidenceContentType, signal?: AbortSignal) => Promise<"clean" | "unsafe">;
   /** Test seam for the existing trusted internal ingestion service. */
@@ -63,8 +63,16 @@ export async function processEvidenceUpload(
   if (length === 0) return fail(400, "Empty evidence document");
   if (length > LIMIT) return fail(413, "Evidence exceeds upload limit");
 
+  if (request.signal.aborted) {
+    return fail(408, "Evidence request timed out or was cancelled");
+  }
   const authorization = request.headers.get("authorization");
-  const account = await lookupAccount(authorization, deps.publishableKey, deps.http);
+  const account = await lookupAccount(
+    authorization, deps.publishableKey, deps.http, request.signal,
+  );
+  if (request.signal.aborted) {
+    return fail(408, "Evidence request timed out or was cancelled");
+  }
   if (account.status !== 200) {
     return fail(account.status, account.error);
   }
@@ -73,11 +81,22 @@ export async function processEvidenceUpload(
   }
   try {
     // Quota BEFORE reading the request body or invoking a scanner/provider.
-    if ((await deps.takePermit(account.data.id, organizationId)) !== true) {
+    if ((await deps.takePermit(account.data.id, organizationId, request.signal)) !== true) {
+      if (request.signal.aborted) {
+        return fail(408, "Evidence request timed out or was cancelled");
+      }
       return fail(429, "Evidence upload quota exceeded");
     }
   } catch {
+    if (request.signal.aborted) {
+      return fail(408, "Evidence request timed out or was cancelled");
+    }
     return fail(503, "Evidence quota unavailable");
+  }
+  // Remote quota may have been consumed even when the client disconnected.
+  // NEVER refund or blindly replay a reservation after an ambiguous abort.
+  if (request.signal.aborted) {
+    return fail(408, "Evidence request timed out or was cancelled");
   }
 
   let bytes: Uint8Array | null;

@@ -335,3 +335,78 @@ test("trusted ingestion aborted with error returns 408 without leaking details",
     error: "Evidence request timed out or was cancelled",
   });
 });
+
+test("aborted upload never authenticates, reserves quota or reads file bytes", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = new Request(request(), { signal: controller.signal });
+  controller.abort();
+  assert.equal((await processEvidenceUpload(req, deps)).status, 408);
+  assert.deepEqual(events, []);
+  assert.equal(req.bodyUsed, false);
+});
+
+test("abort during the initial account HTTP request stops before quota or body", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = new Request(request(), { signal: controller.signal });
+  let opened;
+  const started = new Promise(resolve => { opened = resolve; });
+  deps.http = async (url, init) => {
+    events.push("http:" + new URL(String(url)).pathname);
+    assert.equal(init.redirect, "error");
+    assert.ok(init.signal instanceof AbortSignal);
+    const pending = new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(Error("auth cancelled")), { once: true });
+    });
+    opened();
+    return pending;
+  };
+  const result = processEvidenceUpload(req, deps);
+  await started;
+  controller.abort();
+  assert.equal((await result).status, 408);
+  assert.deepEqual(events, ["http:/auth/v1/user"]);
+  assert.equal(req.bodyUsed, false);
+});
+
+test("abort during quota RPC stops before reading or scanning and passes same signal", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = new Request(request(), { signal: controller.signal });
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  deps.takePermit = async (id, organizationId, signal) => {
+    events.push("quota");
+    assert.equal(id, USER);
+    assert.equal(organizationId, ORG);
+    assert.equal(signal, req.signal);
+    const pending = new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(Error("RPC aborted")), { once: true });
+    });
+    entered();
+    return pending;
+  };
+  const operation = processEvidenceUpload(req, deps);
+  await started;
+  controller.abort();
+  assert.equal((await operation).status, 408);
+  assert.deepEqual(events, ["http:/auth/v1/user", "http:/rest/v1/bm_memberships", "quota"]);
+  assert.equal(req.bodyUsed, false);
+});
+
+test("successful quota RPC response arriving after client abort never advances to body read", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = new Request(request(), { signal: controller.signal });
+  deps.takePermit = async (_user, _org, signal) => {
+    assert.equal(signal, req.signal);
+    events.push("quota");
+    controller.abort();
+    return true; // Remote server may already have consumed the permit.
+  };
+  assert.equal((await processEvidenceUpload(req, deps)).status, 408);
+  assert.equal(req.bodyUsed, false);
+  assert.equal(events.includes("scan"), false);
+  assert.equal(events.includes("ingest"), false);
+});

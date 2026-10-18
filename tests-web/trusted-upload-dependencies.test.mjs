@@ -39,3 +39,25 @@ test("composition always provides both security dependencies but no injectable b
     Buffer.from("%PDF-1.7\nsynthetic\n"), "application/pdf",
   ), /antivirus/i);
 });
+
+test("composed trusted quota retains server Request.signal through provider HTTP", async () => {
+  const controller = new AbortController();
+  let remoteSignal;
+  const config = createTrustedEvidenceUploadDependencies({
+    publishableKey, secretKey, clamavPort: 3310,
+    http: async (_url, init) => {
+      remoteSignal = init.signal;
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+      });
+    },
+  });
+  const result = config.takePermit(
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    "10000000-0000-4000-8000-000000000001",
+    controller.signal,
+  );
+  assert.ok(remoteSignal instanceof AbortSignal);
+  controller.abort();
+  await assert.rejects(result, /quota unavailable/);
+});

@@ -55,3 +55,51 @@ test("upstream denial, failure, network error and invalid RPC data all fail clos
     await assert.rejects(permit(user, org), /quota unavailable/);
   }
 });
+
+test("caller abort propagates into in-flight quota HTTP without refund or retry", async () => {
+  const controller = new AbortController();
+  let requestSignal;
+  let n = 0;
+  const permit = createSupabaseUploadPermit({
+    secretKey,
+    http: async (_url, init) => {
+      n++;
+      requestSignal = init.signal;
+      assert.equal(init.redirect, "error");
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(Error("quota RPC cancelled")), { once: true });
+      });
+    },
+  });
+  const running = permit(user, org, controller.signal);
+  assert.ok(requestSignal instanceof AbortSignal);
+  controller.abort();
+  assert.equal(requestSignal.aborted, true);
+  await assert.rejects(running, /Trusted upload quota unavailable/);
+  assert.equal(n, 1, "ambiguous quota response must not be blindly replayed");
+});
+
+test("pre-aborted quota request fails before privileged HTTP", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let calls = 0;
+  const permit = createSupabaseUploadPermit({
+    secretKey,
+    http: async () => { calls++; return json(true); },
+  });
+  await assert.rejects(permit(user, org, controller.signal), /Trusted upload quota unavailable/);
+  assert.equal(calls, 0);
+});
+
+test("quota response arriving after cancellation cannot be interpreted as success", async () => {
+  const controller = new AbortController();
+  const permit = createSupabaseUploadPermit({
+    secretKey,
+    http: async (_url, init) => {
+      assert.ok(init.signal instanceof AbortSignal);
+      controller.abort();
+      return json(true);
+    },
+  });
+  await assert.rejects(permit(user, org, controller.signal), /Trusted upload quota unavailable/);
+});
