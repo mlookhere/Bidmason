@@ -42,8 +42,8 @@ MIGRATIONS = (
         ("db/upload_quota.sql",),
     ),
     (
-        "supabase/migrations/20261018101500_bidmason_scan_gate_storage_lockdown.sql",
-        "-- BidMason managed Supabase migration: 20261018101500 bidmason_scan_gate_storage_lockdown\n-- Additive client-write deny; preserve all previously applied migration history.\n",
+        "supabase/migrations/20261018100829_bidmason_scan_gate_storage_lockdown.sql",
+        "-- BidMason managed Supabase migration: 20261018100829 bidmason_scan_gate_storage_lockdown\n-- Additive client-write deny; preserve all previously applied migration history.\n",
         ("db/storage_insert_lockdown.sql",),
     ),
 )

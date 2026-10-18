@@ -199,7 +199,7 @@ jobs:
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
       - name: Replay sixth managed migration to deny direct Storage uploads
-        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018101500_bidmason_scan_gate_storage_lockdown.sql
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018100829_bidmason_scan_gate_storage_lockdown.sql
       - name: Verify final migrated Storage lockdown and shadow-policy denial
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_lockdown_test.sql
 

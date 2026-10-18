@@ -1,4 +1,4 @@
--- BidMason managed Supabase migration: 20261018101500 bidmason_scan_gate_storage_lockdown
+-- BidMason managed Supabase migration: 20261018100829 bidmason_scan_gate_storage_lockdown
 -- Additive client-write deny; preserve all previously applied migration history.
 -- Defense-in-depth: ONLY server-managed Storage writes may store evidence.
 -- A signed-in tenant user cannot skip application malware scanning or the
