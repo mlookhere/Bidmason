@@ -182,14 +182,13 @@ jobs:
         run: |
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
-      - name: Replay all six actual managed Supabase migrations
+      - name: Replay the five historical managed migrations before final lockdown
         run: |
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017063426_bidmason_independent_fact_review.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018064847_bidmason_atomic_evidence_upload_quota.sql
-          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018101500_bidmason_scan_gate_storage_lockdown.sql
       - name: Re-run all positive and adversarial tenant tests on the migration
         run: |
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
@@ -199,7 +198,10 @@ jobs:
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
-          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_lockdown_test.sql
+      - name: Replay sixth managed migration to deny direct Storage uploads
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018101500_bidmason_scan_gate_storage_lockdown.sql
+      - name: Verify final migrated Storage lockdown and shadow-policy denial
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_lockdown_test.sql
 
 
   av-real:
