@@ -158,3 +158,131 @@ export async function verifyLiveEvidenceIsolation(
     deniedApplicationCrossTenantReads: 2,
   };
 }
+
+export type SameTenantProofConfig = {
+  publishableKey: string;
+  /** Existing verified uploader and receipt; never create fixtures here. */
+  uploader: EvidenceProofSession;
+  /** A distinct, currently signed-in NON-UPLOADER contractor in same tenant. */
+  otherContractor: { authorization: string; organizationId: string };
+  http?: typeof fetch;
+};
+
+export type SameTenantProofResult = {
+  users: 2;
+  verifiedUploaderDownloads: 1;
+  blockedOtherContractorStorage: 1;
+  hiddenOtherContractorReceipts: 1;
+  blockedOtherContractorApplication: 1;
+};
+
+/**
+ * READ ONLY: prove privacy between two independent users in ONE tenant.
+ * Intended for an approved, genuine two-session API probe, not default CI.
+ * An outage or malformed response can never count as an access denial.
+ */
+export async function verifySameTenantEvidencePrivacy(
+  config: SameTenantProofConfig,
+): Promise<SameTenantProofResult> {
+  const uploader = config?.uploader;
+  const other = config?.otherContractor;
+  if (!config?.publishableKey?.startsWith("sb_publishable_") ||
+      !uploader || !other || !UUID.test(uploader.organizationId) ||
+      other.organizationId !== uploader.organizationId ||
+      !PATH.test(uploader.existingReceiptPath) ||
+      uploader.existingReceiptPath.split("/")[0] !== uploader.organizationId ||
+      !BEARER.test(uploader.authorization) || uploader.authorization.length > 8192 ||
+      !BEARER.test(other.authorization) || other.authorization.length > 8192 ||
+      uploader.authorization === other.authorization) {
+    throw new TypeError("Independent same-tenant user sessions and receipt required");
+  }
+  const http = config.http ?? fetch;
+  const first = await lookupAccount(uploader.authorization, config.publishableKey, http);
+  if (first.status !== 200) throw new Error("Uploader session unavailable");
+  const second = await lookupAccount(other.authorization, config.publishableKey, http);
+  if (second.status !== 200) throw new Error("Other-contractor session unavailable");
+  if (first.data.id === second.data.id ||
+      !first.data.memberships.some(m => m.organizationId === uploader.organizationId) ||
+      !second.data.memberships.some(m =>
+        m.organizationId === uploader.organizationId && m.role === "contractor") ||
+      second.data.memberships.some(m =>
+        m.organizationId === uploader.organizationId && m.role !== "contractor")) {
+    throw new Error("Distinct uploader and contractor role validation failed");
+  }
+
+  const own = await downloadMemberEvidence({
+    authorization: uploader.authorization,
+    organizationId: uploader.organizationId,
+    objectPath: uploader.existingReceiptPath,
+  }, { publishableKey: config.publishableKey, http });
+  if (own.status !== 200 || own.bytes.byteLength === 0) {
+    throw new Error("Uploader signed-in receipt and hash-verified Storage roundtrip failed");
+  }
+
+  // Raw Storage denial must be proven independently from the application.
+  let storage: Response;
+  try {
+    storage = await http(STORAGE_PREFIX + uploader.existingReceiptPath, {
+      method: "GET",
+      headers: { apikey: config.publishableKey, authorization: other.authorization },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch {
+    throw new Error("Cannot prove same-tenant Storage denial");
+  }
+  try { void storage.body?.cancel().catch(() => {}); } catch { /* do not await */ }
+  if (![401, 403, 404].includes(storage.status)) {
+    throw new Error("Other contractor could access private Storage or provider failed");
+  }
+
+  // The metadata RLS gate is distinct from the Storage byte gate.
+  const url = new URL("/rest/v1/bm_evidence_receipts", BIDMASON_SUPABASE_URL);
+  url.searchParams.set("select", "object_path");
+  url.searchParams.set("organization_id", "eq." + uploader.organizationId);
+  url.searchParams.set("object_path", "eq." + uploader.existingReceiptPath);
+  url.searchParams.set("limit", "2");
+  let metadata: unknown;
+  try {
+    const response = await http(url, {
+      method: "GET",
+      headers: {
+        apikey: config.publishableKey,
+        authorization: other.authorization,
+        accept: "application/json",
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status !== 200) throw new Error("Bad receipt response");
+    const length = response.headers.get("content-length");
+    if (length !== null && (!/^\d+$/.test(length) ||
+      !Number.isSafeInteger(Number(length)) || Number(length) > 8192)) {
+      throw new Error("Oversized receipt response");
+    }
+    metadata = await readBoundedProviderJson(response.body, 8192, 10_000);
+  } catch {
+    throw new Error("Cannot prove same-tenant receipt metadata denial");
+  }
+  if (!Array.isArray(metadata) || metadata.length !== 0) {
+    throw new Error("Other contractor could read private receipt metadata");
+  }
+
+  const app = await downloadMemberEvidence({
+    authorization: other.authorization,
+    organizationId: uploader.organizationId,
+    objectPath: uploader.existingReceiptPath,
+  }, { publishableKey: config.publishableKey, http });
+  if (app.status !== 404) {
+    throw new Error("Other contractor could use application evidence read");
+  }
+  return {
+    users: 2,
+    verifiedUploaderDownloads: 1,
+    blockedOtherContractorStorage: 1,
+    hiddenOtherContractorReceipts: 1,
+    blockedOtherContractorApplication: 1,
+  };
+}

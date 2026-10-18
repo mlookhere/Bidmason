@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { verifyLiveEvidenceIsolation } from "../lib/live-evidence-isolation.ts";
+import { verifyLiveEvidenceIsolation, verifySameTenantEvidencePrivacy } from "../lib/live-evidence-isolation.ts";
 
 const userA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const userB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -187,4 +187,114 @@ test("uncooperative denied Storage response cancellation cannot block cross-tena
   const result=await verifyLiveEvidenceIsolation({...base,http:intercepted});
   assert.equal(result.hiddenForeignReceipts,2);
   assert.equal(invoked,1);
+});
+
+
+const otherToken="Bearer token-D.test.session";
+const otherId="dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const sameTenant={
+  publishableKey:key,
+  uploader:base.first,
+  otherContractor:{authorization:otherToken,organizationId:orgA},
+};
+function sameTenantFixture(options={}){
+  const requests=[];
+  const http=async(raw,init={})=>{
+    const url=new URL(String(raw));
+    assert.equal(url.origin,"https://jgbogpunyzkoytrclqdl.supabase.co");
+    assert.equal(init.headers.apikey,key);
+    assert.equal(init.redirect,"error");
+    const bearer=init.headers.authorization??init.headers.Authorization;
+    const person=bearer===tokenA?"uploader":bearer===otherToken?"other":"unknown";
+    requests.push({path:url.pathname,person});
+    if(person==="unknown") return json({error:"no auth"},401);
+    if(url.pathname==="/auth/v1/user")return json({
+      id:options.sameIdentity?userA:(person==="uploader"?userA:otherId),
+    });
+    if(url.pathname==="/rest/v1/bm_memberships"){
+      return json(person==="uploader"?
+        [{organization_id:orgA,member_role:"owner"}]:
+        (options.otherAbsent?[]:[{organization_id:orgA,
+          member_role:options.otherReviewer?"operator":"contractor"}]));
+    }
+    if(url.pathname==="/rest/v1/bm_evidence_receipts"){
+      const target=url.searchParams.get("object_path");
+      const records=target==="eq."+pathA && (person==="uploader"||options.leakReceipt)
+        ? [receipt(orgA,pathA,bytesA)] : [];
+      return json(url.searchParams.get("select")==="object_path"
+        ? records.map(v=>({object_path:v.object_path})):records);
+    }
+    if(url.pathname.startsWith("/storage/v1/object/authenticated/bm-evidence/")){
+      if(person==="other"){
+        if(options.storageFailed)return json({message:"outage"},503);
+        if(!options.leakStorage)return json({message:"not found"},404);
+      }
+      return new Response(bytesA,{status:200});
+    }
+    throw Error("Unexpected provider path "+url.pathname);
+  };
+  return {http,requests};
+}
+
+test("live same-tenant fixture proof permits uploader but denies the other contractor on 3 independent paths",async()=>{
+  const {http,requests}=sameTenantFixture();
+  const result=await verifySameTenantEvidencePrivacy({...sameTenant,http});
+  assert.deepEqual(result,{
+    users:2,verifiedUploaderDownloads:1,blockedOtherContractorStorage:1,
+    hiddenOtherContractorReceipts:1,blockedOtherContractorApplication:1,
+  });
+  assert.equal(requests.filter(x=>x.path.startsWith("/storage/")).length,2);
+});
+
+test("same-tenant proof rejects cross-organization or reused sessions before any network",async()=>{
+  for(const patch of [
+    {otherContractor:{...sameTenant.otherContractor,organizationId:orgB}},
+    {otherContractor:{...sameTenant.otherContractor,authorization:tokenA}},
+    {uploader:{...sameTenant.uploader,existingReceiptPath:pathB}},
+    {publishableKey:"sb_secret_not_a_public_key"},
+  ]){
+    const {http,requests}=sameTenantFixture();
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,...patch,http}),TypeError);
+    assert.equal(requests.length,0);
+  }
+});
+
+test("same-tenant proof rejects duplicate identity, missing membership and operator masquerading as contractor",async()=>{
+  for(const mode of [{sameIdentity:true},{otherAbsent:true},{otherReviewer:true}]){
+    const {http,requests}=sameTenantFixture(mode);
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http}),
+      /Distinct uploader and contractor role validation failed/);
+    assert.equal(requests.some(x=>x.path.includes("/storage/")),false);
+  }
+});
+
+test("same-tenant proof detects Storage and receipt leaks, treating 5xx as unknown rather than denial",async()=>{
+  for(const mode of [
+    {leakStorage:true,regex:/Other contractor could access private Storage/},
+    {leakReceipt:true,regex:/Other contractor could read private receipt metadata/},
+    {storageFailed:true,regex:/Other contractor could access private Storage or provider failed/},
+  ]){
+    const {http}=sameTenantFixture(mode);
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http}),mode.regex);
+  }
+});
+
+test("same-tenant proof never treats malformed or excessive private receipt metadata as a denial",async()=>{
+  const {http}=sameTenantFixture();
+  for(const response of [
+    new Response("{invalid",{status:200}),
+    new Response("["+" ".repeat(9000)+"]",{status:200}),
+    new Response("[]",{status:200,headers:{"content-length":"900000"}}),
+  ]){
+    const intercepted=async(url,init)=>{
+      const parsed=new URL(String(url));
+      const bearer=init.headers?.authorization??init.headers?.Authorization;
+      if(parsed.pathname==="/rest/v1/bm_evidence_receipts" &&
+        parsed.searchParams.get("select")==="object_path" &&
+        bearer===otherToken)return response.clone();
+      return http(url,init);
+    };
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http:intercepted}),
+      /Cannot prove same-tenant receipt metadata denial/);
+  }
 });
