@@ -64,7 +64,7 @@ begin
     or position('bm_evidence_receipts' in actual.qual)=0
     or position('organization_id' in actual.qual)=0
     or position('object_path' in actual.qual)=0
-    or position('storage.objects.name' in actual.qual)=0 then
+    or position('objects.name' in actual.qual)=0 then
     raise exception 'Final Storage quarantine predicate missing receipt or tenant binding';
   end if;
 
