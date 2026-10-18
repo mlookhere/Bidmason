@@ -9,6 +9,7 @@ const ids = [
   "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
   "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222",
+  "33333333-3333-4333-8333-333333333333",
 ];
 const config = {
   approved: "temporary-auth-users-only",
@@ -77,6 +78,7 @@ function provider({ staleUser = false, failMembership = false,
         return empty(204);
       }
       if(method==="GET"){
+        if(!authUser&&url.searchParams.get("select")==="id")return json(memberships.slice(0,1));
         const foreign=url.searchParams.get("organization_id")?.slice(3);
         if(!authUser)return json([],401);
         const result=memberships.filter(x=>x.user_id===authUser.id &&
@@ -119,7 +121,7 @@ test("creates genuine-session-shaped tenant fixtures, verifies isolation, and cl
     foreignMembershipDenials:4,revokedMembershipsDenied:1,
     cleanedUsers:4,cleanedOrganizations:2});
   assert.deepEqual(fixture.getState(),{
-    users:0,organizations:0,memberships:0,mutated:18,cleanupAttempts:4,
+    users:0,organizations:0,memberships:0,mutated:23,cleanupAttempts:4,
   });
 });
 
