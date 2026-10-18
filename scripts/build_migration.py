@@ -46,6 +46,11 @@ MIGRATIONS = (
         "-- BidMason managed Supabase migration: 20261018100829 bidmason_scan_gate_storage_lockdown\n-- Additive client-write deny; preserve all previously applied migration history.\n",
         ("db/storage_insert_lockdown.sql",),
     ),
+    (
+        "supabase/migrations/20261018123000_bidmason_evidence_uploader_read_access.sql",
+        "-- BidMason candidate managed Supabase migration: 20261018123000 bidmason_evidence_uploader_read_access\n-- Additive receipt uploader attribution and narrowed read-only Storage policy.\n",
+        ("db/evidence_uploader_read_access.sql",),
+    ),
 )
 
 
