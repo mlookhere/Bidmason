@@ -53,6 +53,8 @@ export function createSupabaseEvidencePort(
       return await http(url, {
         ...init, headers: { ...headers, ...init.headers },
         cache: "no-store",
+        // No bearer/API-key replay to a server-selected redirect target.
+        redirect: "error",
         signal: AbortSignal.timeout(30000),
       });
     } catch {

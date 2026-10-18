@@ -26,6 +26,7 @@ function harness(config = {}) {
       assert.equal(options.headers.apikey, key);
       assert.equal(options.headers.Authorization, "Bearer " + token);
       assert.equal(options.cache, "no-store");
+      assert.equal(options.redirect, "error");
       if (path.pathname === "/auth/v1/user") {
         authCount++;
         return json({ id: config.mismatchAuth ? tenant : user });
@@ -178,4 +179,47 @@ test("rejects truncated private Storage responses rather than trusting a valid-l
     byte_length: document.length, content_type: "application/pdf",
     content_sha256: "a".repeat(64),
   }), /size mismatch/);
+});
+
+test("Auth, private Storage upload, and download reject redirect responses without receipt", async () => {
+  const fixtureReceipt = {
+    organization_id: tenant, object_path: tenant + "/" + fileId + ".pdf",
+    byte_length: document.length, content_type: "application/pdf",
+    content_sha256: createHash("sha256").update(document).digest("hex"),
+  };
+  for (const pathGroup of ["auth", "upload", "download"]) {
+    const requests = [];
+    let receipts = 0;
+    const port = createSupabaseEvidencePort({
+      accessToken: token,
+      publishableKey: key,
+      issueTrustedReceipt: async () => { receipts++; },
+      http: async (url, options) => {
+        const path = new URL(String(url)).pathname;
+        requests.push(path);
+        assert.equal(options.redirect, "error");
+        assert.equal(options.headers.Authorization, "Bearer " + token);
+        if (pathGroup === "auth" && path === "/auth/v1/user"
+          || pathGroup === "upload" && path.startsWith("/storage/v1/object/bm-evidence/")
+          || pathGroup === "download" && path.startsWith("/storage/v1/object/authenticated/")) {
+          return new Response(null, {
+            status: 302, headers: { location: "https://untrusted.invalid/collect" },
+          });
+        }
+        if (path === "/auth/v1/user") return json({ id: user });
+        if (path === "/rest/v1/bm_memberships") return json([{ organization_id: tenant }]);
+        throw new Error("Unexpected provider endpoint");
+      },
+    });
+    if (pathGroup === "auth") {
+      assert.equal(await port.authorize(user, tenant), false,
+        "a redirecting Auth response must not authenticate a user");
+    } else if (pathGroup === "upload") {
+      await assert.rejects(port.uploadPrivate(user, fixtureReceipt, document), /upload rejected/);
+    } else {
+      await assert.rejects(port.readBackPrivate(user, fixtureReceipt), /download rejected/);
+    }
+    assert.equal(requests.length, 1);
+    assert.equal(receipts, 0);
+  }
 });

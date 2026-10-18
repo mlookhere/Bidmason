@@ -10,3 +10,7 @@
 Tests in `tests-web/trusted-evidence-service.test.mjs` mock HTTP to check end-to-end call ordering, configuration rejection, wrong-organization membership, denied upload, tampered bytes, revoked membership and duplicate receipt denial.
 
 **Safety boundary:** The `sb_secret_` key must be set exclusively in an approved server environment and never be constructed from a user request. No actual key was created or used by these mocks. This function is not connected to the Next.js public app. A public route may be enabled **only after** rate limits, request size caps, real session handling, safe secret deployment, virus/file-content policy, orphan cleanup and two-user end-to-end live API tests (including signed URL and session revocation) are completed. The current project remains customer-upload-disabled.
+
+## Redirect prevention for bearer-authenticated provider calls
+
+All internal Supabase Auth, RLS membership, and private Storage requests now explicitly pass Fetch `redirect: "error"` (alongside the already-protected trusted quota/receipt requests). A provider HTTP redirect or redirect-follow error fails closed rather than following a new origin with an attached bearer token or API key. Tests check this for every authenticated request across both the member lookup and upload/readback chain, including malicious 302 replies. This is a defensive server transport contract, **not proof of a live authenticated Storage API test or a deployed service**. It creates no public route, user, or secret.

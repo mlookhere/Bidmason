@@ -24,6 +24,7 @@ function fixture(mode = {}) {
     calls.push({ parsed, options });
     assert.equal(parsed.hostname, "jgbogpunyzkoytrclqdl.supabase.co");
     assert.equal(options.cache, "no-store");
+    assert.equal(options.redirect, "error");
     assert.equal(options.headers.apikey, publishableKey);
     assert.equal(options.headers.authorization ?? options.headers.Authorization, auth);
     if (parsed.pathname === "/auth/v1/user") {

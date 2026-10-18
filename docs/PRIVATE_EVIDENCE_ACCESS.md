@@ -18,3 +18,7 @@ Tests: `tests-web/private-evidence-download.test.mjs` checks Auth → membership
 **Remaining before activation:** two genuine signed-in test accounts and organization assignments on the designated BidMason project; verify real RLS and Storage read behavior for owner/operator and uploader/non-uploader; validate actual session revocation limits, managed rate limits/abuse controls, private key deployment and operations monitoring. Uploading remains disabled until separate malware/file-processing, orphan cleanup, size/rate-limit and Auth tests pass. Avoid testing with real customer documents.
 
 Relevant vendor documentation: https://supabase.com/docs/guides/storage/serving/downloads and https://supabase.com/docs/guides/storage/buckets/fundamentals
+
+## Redirect-denial invariant
+
+Server-side Supabase Auth user checks, RLS membership lookups, and private Storage download transport now use `redirect: "error"`. The private receipt request and privileged quota/receipt providers already use this policy. Provider redirects cannot be silently followed with the user's `Authorization` or API-key header. This remains an internal, disabled-by-default download service; live session and revocation verification are still pending.

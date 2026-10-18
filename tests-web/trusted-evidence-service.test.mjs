@@ -22,6 +22,7 @@ function transport(mode={}) {
     calls.push({ parsed, options });
     assert.equal(parsed.hostname, "jgbogpunyzkoytrclqdl.supabase.co");
     assert.equal(options.cache, "no-store");
+    assert.equal(options.redirect, "error");
     if (parsed.pathname === "/auth/v1/user") {
       assert.equal(options.headers.authorization ?? options.headers.Authorization,
         input.authorization);

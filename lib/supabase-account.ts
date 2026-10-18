@@ -16,7 +16,7 @@ export async function lookupAccount(
   http: Http = fetch,
 ): Promise<Result> {
   // Deliberately disabled without the project-specific public key.
-  if (!publishableKey || !publishableKey.trim()) {
+  if (!publishableKey?.startsWith("sb_publishable_")) {
     return { status: 503, error: "Authenticated account access is not configured" };
   }
   if (!authorization || !/^Bearer [A-Za-z0-9._~+/-]+={0,2}$/.test(authorization) || authorization.length > 8192) {
@@ -31,6 +31,8 @@ export async function lookupAccount(
     const profile = await http(BIDMASON_SUPABASE_URL + "/auth/v1/user", {
       headers,
       cache: "no-store",
+      // Fail before any redirect is followed with the user JWT or API key.
+      redirect: "error",
       signal: AbortSignal.timeout(7000),
     });
     if (profile.status === 401 || profile.status === 403) {
@@ -48,6 +50,7 @@ export async function lookupAccount(
     const memberships = await http(url, {
       headers,
       cache: "no-store",
+      redirect: "error",
       signal: AbortSignal.timeout(7000),
     });
     if (memberships.status === 401 || memberships.status === 403) {

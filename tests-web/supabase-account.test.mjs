@@ -13,6 +13,8 @@ test("fails closed before network without configured public key or valid bearer"
   let calls = 0;
   const fake = async () => { calls++; throw Error("must not call"); };
   assert.equal((await lookupAccount(TOKEN, undefined, fake)).status, 503);
+  assert.equal((await lookupAccount(TOKEN, "not_a_publishable_key", fake)).status, 503);
+  assert.equal((await lookupAccount(TOKEN, "sb_secret_wrong_kind", fake)).status, 503);
   assert.equal((await lookupAccount(null, KEY, fake)).status, 401);
   assert.equal((await lookupAccount("Basic xyz", KEY, fake)).status, 401);
   assert.equal((await lookupAccount("Bearer evil\nanything", KEY, fake)).status, 401);
@@ -40,6 +42,7 @@ test("validates JWT with remote Auth endpoint then reads RLS memberships using S
     assert.equal(options.headers.authorization, TOKEN);
     assert.equal(options.headers.apikey, KEY);
     assert.equal(options.cache, "no-store");
+    assert.equal(options.redirect, "error");
   }
 });
 
@@ -64,4 +67,31 @@ test("new accounts without memberships return an authenticated but empty tenant 
   const result = await lookupAccount(TOKEN, KEY, async () => ++n === 1
     ? json({ id: ID }) : json([]));
   assert.deepEqual(result, { status: 200, data: { id: ID, memberships: [] } });
+});
+
+test("redirects from Auth or member RLS cannot trigger a second request with the JWT", async () => {
+  for (const redirectAt of [1, 2]) {
+    let calls = 0;
+    const http = async (_url, options) => {
+      calls++;
+      assert.equal(options.redirect, "error");
+      assert.equal(options.headers.authorization, TOKEN);
+      if (calls === redirectAt) {
+        return new Response(null, {
+          status: 302, headers: { location: "https://untrusted.invalid/capture" },
+        });
+      }
+      if (calls === 1) return json({ id: ID });
+      return json([{ organization_id: ORG, member_role: "owner" }]);
+    };
+    const response = await lookupAccount(TOKEN, KEY, http);
+    assert.equal(response.status, 502);
+    assert.equal(calls, redirectAt, "provider redirect must not be followed");
+  }
+  // Native fetch throws on redirect with this mode. That too fails closed.
+  const blocked = await lookupAccount(TOKEN, KEY, async (_url, options) => {
+    assert.equal(options.redirect, "error");
+    throw new TypeError("Fetch redirect disallowed");
+  });
+  assert.equal(blocked.status, 502);
 });
