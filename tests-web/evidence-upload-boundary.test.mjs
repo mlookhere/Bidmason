@@ -306,3 +306,32 @@ test("scanner cancellation due to disconnected client responds 408, not provider
   assert.equal((await processEvidenceUpload(req, deps)).status, 408);
   assert.equal(events.includes("ingest"), false);
 });
+
+test("request abort while trusted ingestion is pending cannot acknowledge a receipt", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = new Request(request(), { signal: controller.signal });
+  const originalIngest = deps.ingest;
+  deps.ingest = async (input, config) => {
+    assert.equal(input.signal, req.signal, "abort signal must be propagated into trusted ingestion");
+    controller.abort();
+    return originalIngest(input, config);
+  };
+  assert.equal((await processEvidenceUpload(req, deps)).status, 408);
+  assert.equal(events.includes("ingest"), true);
+});
+
+test("trusted ingestion aborted with error returns 408 without leaking details", async () => {
+  const { deps } = fixture();
+  const controller = new AbortController();
+  const req = new Request(request(), { signal: controller.signal });
+  deps.ingest = async input => {
+    assert.equal(input.signal, req.signal);
+    controller.abort();
+    throw Error("internal private provider detail");
+  };
+  assert.deepEqual(await processEvidenceUpload(req, deps), {
+    status: 408,
+    error: "Evidence request timed out or was cancelled",
+  });
+});

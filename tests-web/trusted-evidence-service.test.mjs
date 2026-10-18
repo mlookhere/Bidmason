@@ -106,3 +106,27 @@ test("rejected upload, tampered download, revocation or database conflict never 
     }
   }
 });
+
+test("trusted service refuses an already-aborted request without HTTP or Storage", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const { http, calls } = transport();
+  await assert.rejects(ingestForSignedInMember(
+    { ...input, signal: controller.signal }, cfg(http),
+  ), /Evidence ingestion cancelled/);
+  assert.equal(calls.length, 0);
+});
+
+test("trusted service refuses abort during initial membership lookup before Storage", async () => {
+  const controller = new AbortController();
+  const { http, calls } = transport();
+  const abortAfterMembership = async (url, options) => {
+    const result = await http(url, options);
+    if (new URL(String(url)).pathname === "/rest/v1/bm_memberships") controller.abort();
+    return result;
+  };
+  await assert.rejects(ingestForSignedInMember(
+    { ...input, signal: controller.signal }, cfg(abortAfterMembership),
+  ), /Evidence ingestion cancelled/);
+  assert.deepEqual(calls.map(c => c.parsed.pathname.split("/")[1]), ["auth", "rest"]);
+});

@@ -118,11 +118,17 @@ export async function processEvidenceUpload(
   // again after private Storage readback, before any privileged receipt write.
   try {
     const receipt = await (deps.ingest ?? ingestForSignedInMember)(
-      { authorization, organizationId, contentType, bytes },
+      { authorization, organizationId, contentType, bytes, signal: request.signal },
       { publishableKey: deps.publishableKey, secretKey: deps.secretKey, http: deps.http },
     );
+    if (request.signal.aborted) {
+      return fail(408, "Evidence request timed out or was cancelled");
+    }
     return { status: 201, receipt };
   } catch {
+    if (request.signal.aborted) {
+      return fail(408, "Evidence request timed out or was cancelled");
+    }
     return fail(502, "Verified evidence ingestion failed");
   }
 }

@@ -20,6 +20,8 @@ export type TrustedIngestionInput = {
   organizationId: string;
   contentType: EvidenceContentType;
   bytes: Uint8Array;
+  /** Trusted Request.signal, used only for cancellation, not authorization. */
+  signal?: AbortSignal;
 };
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -45,9 +47,11 @@ export async function ingestForSignedInMember(
     || input.authorization.length > 8192) {
     throw new Error("Authenticated member required");
   }
+  if (input.signal?.aborted) throw new Error("Evidence ingestion cancelled");
   const account = await lookupAccount(
     input.authorization, config.publishableKey, config.http,
   );
+  if (input.signal?.aborted) throw new Error("Evidence ingestion cancelled");
   if (account.status !== 200) {
     throw new Error("Authenticated member required");
   }
@@ -73,6 +77,6 @@ export async function ingestForSignedInMember(
   });
   return ingestVerifiedEvidence(
     account.data.id, input.organizationId, input.contentType,
-    input.bytes, port, config.createObjectId,
+    input.bytes, port, config.createObjectId, input.signal,
   );
 }

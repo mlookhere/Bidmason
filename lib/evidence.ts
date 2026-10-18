@@ -77,6 +77,7 @@ export async function ingestVerifiedEvidence(
   suppliedBytes: Uint8Array,
   port: EvidenceIngestionPort,
   createId: () => string = randomUUID,
+  signal?: AbortSignal,
 ): Promise<EvidenceReceipt> {
   if (!UUID.test(userId) || !UUID.test(organizationId)) {
     throw new TypeError("Invalid user or organization identifier");
@@ -85,6 +86,13 @@ export async function ingestVerifiedEvidence(
   if (!(suppliedBytes instanceof Uint8Array)) {
     throw new TypeError("Expected binary input");
   }
+  // This signal is server-owned (Request.signal), never a user-supplied
+  // authorization claim. Every asynchronous boundary must fail closed before
+  // starting the NEXT Storage or privileged-receipt operation.
+  function requireActive(): void {
+    if (signal?.aborted) throw new Error("Evidence ingestion cancelled");
+  }
+  requireActive();
   const bytes = Uint8Array.from(suppliedBytes);
   const objectId = createId();
   const prepared = prepareEvidenceReceipt(
@@ -93,8 +101,11 @@ export async function ingestVerifiedEvidence(
   if (await port.authorize(userId, organizationId) !== true) {
     throw new Error("Not authorized to ingest evidence");
   }
+  requireActive();
   await port.uploadPrivate(userId, prepared, bytes);
+  requireActive();
   const downloaded = await port.readBackPrivate(userId, prepared);
+  requireActive();
   if (!(downloaded instanceof Uint8Array)) {
     throw new Error("Private Storage readback failed");
   }
@@ -113,6 +124,7 @@ export async function ingestVerifiedEvidence(
   if (await port.authorize(userId, organizationId) !== true) {
     throw new Error("Evidence authorization was revoked");
   }
+  requireActive();
   await port.issueTrustedReceipt(prepared);
   return prepared;
 }
