@@ -61,7 +61,7 @@ test("unsupported, pending and excluded services never yield a quote", () => {
   assert.throws(()=>previewReviewedEconomics(original,review,[0,1],
     {...policy,excludedServiceCodes:[]}),/Unapproved service terms/);
   assert.throws(()=>previewReviewedEconomics(original,review,[0],
-    {...policy,pricing:{...policy.pricing,services:{}}}),/Unknown/);
+    {...policy,excludedServiceCodes:[],pricing:{...policy.pricing,services:{}}}),/Unknown/);
 });
 
 test("stale, tampered, absent and duplicated human selections fail closed", () => {
