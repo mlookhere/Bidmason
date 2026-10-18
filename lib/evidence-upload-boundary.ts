@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { EvidenceBodyInterrupted, readExactEvidenceBytes } from "./bounded-evidence-stream.ts";
 import { lookupAccount } from "./supabase-account.ts";
 import { prepareEvidenceReceipt } from "./evidence.ts";
 import type { EvidenceContentType, EvidenceReceipt } from "./evidence.ts";
@@ -24,41 +25,12 @@ export type EvidenceUploadDependencies = TrustedIngestionConfig & {
 
 export type UploadOutcome =
   | { status: 201; receipt: EvidenceReceipt }
-  | { status: 400 | 401 | 404 | 411 | 413 | 415 | 422 | 429 | 502 | 503; error: string };
+  | { status: 400 | 401 | 404 | 408 | 411 | 413 | 415 | 422 | 429 | 502 | 503; error: string };
 
 function fail(status: Exclude<UploadOutcome["status"], 201>, error: string): UploadOutcome {
   return { status, error };
 }
 
-async function exactBytes(request: Request, expected: number): Promise<Uint8Array | null> {
-  if (!request.body) return null;
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      size += value.byteLength;
-      if (size > expected) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  if (size !== expected) return null;
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
 
 /**
  * Bounded internal bridge between a raw authenticated HTTP request and the
@@ -110,8 +82,11 @@ export async function processEvidenceUpload(
 
   let bytes: Uint8Array | null;
   try {
-    bytes = await exactBytes(request, length);
-  } catch {
+    bytes = await readExactEvidenceBytes(request.body, length, request.signal);
+  } catch (error) {
+    if (error instanceof EvidenceBodyInterrupted) {
+      return fail(408, "Evidence request timed out or was cancelled");
+    }
     return fail(400, "Evidence request could not be read");
   }
   if (!bytes) return fail(400, "Evidence content length mismatch");
