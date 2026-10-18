@@ -87,3 +87,18 @@ checks both the reviewed source and ninth migration replay for missing
 receipts, owner access, and broad shadow policies. This candidate migration
 does **not** establish live multiuser Auth/Storage proof or deploy itself;
 customer upload/download endpoints remain disabled.
+
+## Final Storage policy-set audit (2026-10-18)
+
+The original Storage preflight audits the six historical policies **before**
+server-only uploads and receipt-gated reads were introduced. New
+`ci/db_storage_final_audit.sql` audits the complete eight-policy final state
+**after** all nine migrations, in both isolated direct-source and clean replay
+databases. It checks the private bucket, RLS on Storage and receipts, absence
+of client receipt writes, all eight policy roles/commands/restrictive kinds,
+the exact server-only INSERT lockdown, the tenant-scoped receipt SELECT gate
+and any additional unreviewed policies. Transaction-rolled-back adversarial
+tests prove that extra permissive policies, removed receipt quarantine, or
+relaxed raw-upload guards are never silently accepted. This is a read-only
+inspection tool for candidate deployments; actual live verification and
+genuine authenticated provider traffic remain mandatory.

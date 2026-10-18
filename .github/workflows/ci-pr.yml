@@ -186,6 +186,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/storage_receipt_read_gate.sql
       - name: Prove release quarantine for owners and permissive shadow policies
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_receipt_gate_test.sql
+      - name: Audit entire final Storage policy set and adverse mutations
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_final_audit.sql -f ci/db_storage_final_audit_test.sql
       - name: Verify deterministic candidate migration is up to date
         run: python3 scripts/build_migration.py --check
       - name: Create a second empty database for candidate migration replay
@@ -226,6 +228,8 @@ jobs:
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018181932_bidmason_verified_receipt_storage_read.sql
       - name: Verify migrated quarantine with real PostgreSQL RLS
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_receipt_gate_test.sql
+      - name: Re-audit every final Storage policy after nine-migration replay
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_final_audit.sql -f ci/db_storage_final_audit_test.sql
 
 
   av-real:
