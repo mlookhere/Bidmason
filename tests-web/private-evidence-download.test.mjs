@@ -121,3 +121,22 @@ test("revocation while evidence is streaming prevents any download bytes from re
   assert.equal("bytes" in result, false);
   assert.equal(calls.filter(c => c.parsed.pathname === "/rest/v1/bm_memberships").length, 2);
 });
+
+test("HTTP evidence route is disabled by default and exposes no data", async () => {
+  const { GET } = await import("../app/api/evidence/route.ts");
+  const prior = process.env.BIDMASON_PRIVATE_DOWNLOAD_ENABLED;
+  try {
+    delete process.env.BIDMASON_PRIVATE_DOWNLOAD_ENABLED;
+    const result = await GET(new Request(
+      "http://localhost:3000/api/evidence?organizationId=" + org + "&objectPath=" + encodeURIComponent(path),
+      { headers: { authorization: auth } },
+    ));
+    assert.equal(result.status, 503);
+    assert.equal(result.headers.get("cache-control"), "private, no-store, max-age=0");
+    assert.equal(result.headers.get("x-content-type-options"), "nosniff");
+    assert.equal("bytes" in (await result.json()), false);
+  } finally {
+    if (prior === undefined) delete process.env.BIDMASON_PRIVATE_DOWNLOAD_ENABLED;
+    else process.env.BIDMASON_PRIVATE_DOWNLOAD_ENABLED = prior;
+  }
+});
