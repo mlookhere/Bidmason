@@ -18,7 +18,7 @@ export type EvidenceUploadDependencies = TrustedIngestionConfig & {
   /** Mandatory durable/distributed quota. Never substitute process-local counters. */
   takePermit?: (userId: string, organizationId: string) => Promise<boolean>;
   /** Mandatory trusted malware scanner. Only an explicit clean result proceeds. */
-  scan?: (bytes: Uint8Array, contentType: EvidenceContentType) => Promise<"clean" | "unsafe">;
+  scan?: (bytes: Uint8Array, contentType: EvidenceContentType, signal?: AbortSignal) => Promise<"clean" | "unsafe">;
   /** Test seam for the existing trusted internal ingestion service. */
   ingest?: (input: TrustedIngestionInput, config: TrustedIngestionConfig) => Promise<EvidenceReceipt>;
 };
@@ -100,7 +100,7 @@ export async function processEvidenceUpload(
     return fail(422, "Evidence content type does not match file");
   }
   try {
-    if ((await deps.scan(bytes, contentType)) !== "clean") {
+    if ((await deps.scan(bytes, contentType, request.signal)) !== "clean") {
       return fail(422, "Evidence failed document safety review");
     }
   } catch {

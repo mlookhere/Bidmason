@@ -30,6 +30,7 @@ async function daemon(reply, action) {
         if (n === 0) {
           requests.push(total);
           if (reply === "close") socket.end();
+          else if (reply === "hold") return; // Simulate a scanner waiting indefinitely.
           else socket.end(Buffer.from(reply, "utf8"));
           return;
         }
@@ -105,4 +106,22 @@ test("scanner cannot reach non-local host, requires a valid port and rejects inv
 test("unavailable TCP scanner causes fail-closed rejection", async () => {
   const scanner = createLocalClamAvScanner({ port: 1 });
   await assert.rejects(scanner(PDF, MIME), /antivirus unavailable|Unable to stream/i);
+});
+
+test("abort during an in-flight scan closes the scanner connection promptly", async () => {
+  await daemon("hold", async scan => {
+    const controller = new AbortController();
+    const running = scan(PDF, MIME, controller.signal);
+    setTimeout(() => controller.abort(), 25);
+    await assert.rejects(running, /scan cancelled/i);
+  });
+});
+
+test("already-aborted scan refuses to create a scanner request", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  await daemon("stream: OK\\0", async (scan, requests) => {
+    await assert.rejects(scan(PDF, MIME, controller.signal), /scan cancelled/i);
+    assert.deepEqual(requests, []);
+  });
 });

@@ -18,12 +18,13 @@ const TERMINATOR = Buffer.alloc(4);
 export function createLocalClamAvScanner(config: {
   /** Port of a clamd daemon bound ONLY to 127.0.0.1 on this server. */
   port: number;
-}): (bytes: Uint8Array, contentType: EvidenceContentType) => Promise<"clean" | "unsafe"> {
+}): (bytes: Uint8Array, contentType: EvidenceContentType, signal?: AbortSignal) => Promise<"clean" | "unsafe"> {
   if (!Number.isSafeInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new TypeError("A valid local ClamAV port is required");
   }
 
-  return (bytes, contentType) => {
+  return (bytes, contentType, signal) => {
+    if (signal?.aborted) return Promise.reject(new Error("Evidence antivirus scan cancelled"));
     if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1
       || bytes.byteLength > MAX_BYTES || !TYPES.has(contentType)) {
       return Promise.reject(new TypeError("Invalid evidence to scan"));
@@ -39,10 +40,12 @@ export function createLocalClamAvScanner(config: {
         TIMEOUT_MS,
       );
 
+      const onAbort = () => finish(new Error("Evidence antivirus scan cancelled"));
       function finish(error?: Error, result?: "clean" | "unsafe"): void {
         if (finished) return;
         finished = true;
         clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
         socket.destroy();
         if (error || !result) reject(error ?? new Error("Invalid antivirus response"));
         else resolve(result);
@@ -54,6 +57,8 @@ export function createLocalClamAvScanner(config: {
         });
       }
 
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
       socket.on("error", () => finish(new Error("Evidence antivirus unavailable")));
       socket.on("end", () => finish(new Error("Antivirus ended without verdict")));
       socket.on("close", () => finish(new Error("Antivirus connection closed")));
