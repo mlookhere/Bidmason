@@ -1,4 +1,4 @@
-\\set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
 -- This runs AFTER every historical read/receipt test, against both the
 -- reviewed SQL source and the replay of all managed migrations.
 do $$
@@ -80,4 +80,4 @@ reset request.jwt.claim.sub;
 reset role;
 rollback;
 
-\\echo PASS: only receipt-backed evidence is visible to signed-in users; scanning-stage and orphan objects are quarantined
+\echo PASS: only receipt-backed evidence is visible to signed-in users; scanning-stage and orphan objects are quarantined
