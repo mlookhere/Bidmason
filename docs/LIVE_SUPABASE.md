@@ -26,3 +26,11 @@ There is no provisioned tenant owner/user, authenticated frontend, real two-user
 The preview remains `noindex`, but that is not access control. Keep PR #12 in **DRAFT** until real Auth, Storage API upload/download, policy isolation and deployment are tested with genuine sessions; PR #11 remains separately blocked on owner-approved quarterly pricing.
 
 **Client configuration:** the project URL is `https://jgbogpunyzkoytrclqdl.supabase.co`. Obtain the current **publishable** API key using a secure deployment configuration; do not commit service-role or secret keys. No real user identity, email or password has been invented.
+
+## Atomic quota migration — 2026-10-17 (2026-10-18 UTC)
+
+- Applied only to the dedicated BidMason Supabase project: managed migration `20261018064847`, name `bidmason_atomic_evidence_upload_quota`, sourced from `db/upload_quota.sql`; versioned replay file `supabase/migrations/20261018064847_bidmason_atomic_evidence_upload_quota.sql`. Installed database schema does **not** imply a live upload endpoint.
+- `bm_upload_quota` has RLS enabled, no client table privileges, and an atomic per-user/per-tenant hourly 12-attempt cap. `bm_reserve_upload_quota(uuid,uuid)` is SECURITY INVOKER, EXECUTE granted only to `service_role`, with narrowly scoped membership SELECT.
+- Live managed project privilege check showed no quota SELECT/EXECUTE access for `anon` or `authenticated`; the trusted role has EXECUTE. Live transaction-and-ROLLBACK fixture granted 12 attempts, denied #13 and a nonmember; observed the counter at 12 within the transaction, then rolled back all synthetic rows.
+- One security advisor **INFO** `rls_enabled_no_policy` finding is expected for the quota table, intentionally lacking client policies. Do not silence it by adding broad permissions. Previously reported zero findings do not apply to the new schema.
+- No real authenticated user, hosted quota RPC, malware scanner, public upload path or production secret integration has been tested; do not enable customer uploads.

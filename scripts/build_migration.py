@@ -1,6 +1,6 @@
 """Regenerate/check exact source-backed migrations applied to BidMason Supabase.
 
-This script performs no network or database operations. Four managed migrations
+This script performs no network or database operations. Five managed migrations
 already exist on BidMason project jgbogpunyzkoytrclqdl. The Storage collision
 auditor is a separate preflight, not a persisted schema migration.
 """
@@ -34,6 +34,12 @@ MIGRATIONS = (
         "-- BidMason applied managed Supabase migration: 20261017063426 bidmason_independent_fact_review\n"
         "-- Reproduced from db/review_independence.sql.\n",
         ("db/review_independence.sql",),
+    ),
+    (
+        "supabase/migrations/20261018064847_bidmason_atomic_evidence_upload_quota.sql",
+        "-- BidMason applied managed Supabase migration: 20261018064847 bidmason_atomic_evidence_upload_quota\n"
+        "-- Reproduced from reviewed db/upload_quota.sql; project jgbogpunyzkoytrclqdl.\n",
+        ("db/upload_quota.sql",),
     ),
 )
 
