@@ -282,3 +282,27 @@ test("an already-aborted request with full bytes does not issue a receipt", asyn
   assert.equal(outcome.status, 408);
   assert.equal(events.includes("ingest"), false);
 });
+
+test("scanner cancellation due to disconnected client responds 408, not provider outage", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = new Request("https://bidmason.invalid/api/evidence", {
+    method: "POST",
+    headers: {
+      authorization: TOKEN,
+      "x-bidmason-organization": ORG,
+      "content-type": "application/pdf",
+      "content-length": String(PDF.length),
+    },
+    body: PDF,
+    signal: controller.signal,
+  });
+  deps.scan = async (_bytes, _type, passedSignal) => {
+    events.push("scan");
+    assert.equal(passedSignal, req.signal);
+    controller.abort();
+    throw new Error("Evidence antivirus scan cancelled");
+  };
+  assert.equal((await processEvidenceUpload(req, deps)).status, 408);
+  assert.equal(events.includes("ingest"), false);
+});

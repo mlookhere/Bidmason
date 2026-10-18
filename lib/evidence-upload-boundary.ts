@@ -104,6 +104,9 @@ export async function processEvidenceUpload(
       return fail(422, "Evidence failed document safety review");
     }
   } catch {
+    if (request.signal.aborted) {
+      return fail(408, "Evidence request timed out or was cancelled");
+    }
     return fail(503, "Evidence safety scanner unavailable");
   }
   // A client can disconnect while malware scanning is in flight. An explicit
