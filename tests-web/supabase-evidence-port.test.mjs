@@ -212,8 +212,8 @@ test("Auth, private Storage upload, and download reject redirect responses witho
       },
     });
     if (pathGroup === "auth") {
-      assert.equal(await port.authorize(user, tenant), false,
-        "a redirecting Auth response must not authenticate a user");
+      await assert.rejects(port.authorize(user, tenant), /Auth provider unavailable/,
+        "a redirecting Auth response must never authenticate a user");
     } else if (pathGroup === "upload") {
       await assert.rejects(port.uploadPrivate(user, fixtureReceipt, document), /upload rejected/);
     } else {
