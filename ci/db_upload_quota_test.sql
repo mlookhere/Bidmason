@@ -1,4 +1,4 @@
-\\set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
 -- Runs in isolated PostgreSQL with synthetic tenant fixtures.
 begin;
 set role service_role;
@@ -99,4 +99,4 @@ begin
 end;
 $bm$;
 rollback;
-\\echo PASS: atomic hourly quota ceiling, cross-tenant denial, no direct client/RPC access
+\echo PASS: atomic hourly quota ceiling, cross-tenant denial, no direct client/RPC access
