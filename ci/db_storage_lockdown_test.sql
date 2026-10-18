@@ -13,10 +13,7 @@ begin
   if p.policyname is null or p.cmd <> 'INSERT'
      or p.permissive <> 'RESTRICTIVE'
      or p.roles <> array['public']::name[]
-     or p.with_check not in (
-       '(bucket_id <> ''bm-evidence''::text)',
-       '(bucket_id <> ''bm-evidence''::text)'
-     ) then
+     or p.with_check <> '(bucket_id <> ''bm-evidence''::text)' then
     raise exception 'Final evidence Storage client-upload lockdown is missing or modified';
   end if;
   if (select public from storage.buckets where id='bm-evidence') is distinct from false then
@@ -64,8 +61,10 @@ begin
   exception when insufficient_privilege then null;
   end;
   if inserted then raise exception 'Broad shadow policy bypassed scan-required Storage lockdown'; end if;
-  if (select count(*) from storage.objects where bucket_id='bm-evidence') != 1 then
-    raise exception 'Contractor visibility or existing owner data changed';
+  -- The prior mandatory revocation fixture removed contractor B's
+  -- membership, so this user must see ZERO existing files, not one.
+  if (select count(*) from storage.objects where bucket_id='bm-evidence') != 0 then
+    raise exception 'Revoked contractor regained Storage access';
   end if;
 end $$;
 reset request.jwt.claim.sub;
