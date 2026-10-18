@@ -171,6 +171,18 @@ export async function verifyLiveEvidenceIsolation(
       throw new Error("Cross-tenant application-level evidence was exposed");
     }
   }
+  // A denial from an expired test token is not proof of tenant RLS.
+  // Revalidate both original identities and memberships after all negative
+  // Storage, receipt and application probes, just before reporting success.
+  for (let i = 0; i < pairs.length; i++) {
+    const current = await lookupAccount(pairs[i].authorization, config.publishableKey, http);
+    if (current.status !== 200 || current.data.id !== accounts[i].id
+      || !current.data.memberships.some(m => m.organizationId === pairs[i].organizationId)
+      || current.data.memberships.some(m => m.organizationId === pairs[1 - i].organizationId)) {
+      throw new Error("Tenant proof session or membership changed during verification");
+    }
+  }
+
   return {
     users: 2,
     ownedVerifiedDownloads: 2,
@@ -274,6 +286,20 @@ export async function verifySameTenantEvidencePrivacy(
   if (app.status !== 404) {
     throw new Error("Other contractor could use application evidence read");
   }
+  // A contractor's token may expire or lose membership mid-proof. Verify
+  // both sessions remain distinct and authorized after the negative probes.
+  const finalUploader = await lookupAccount(uploader.authorization, config.publishableKey, http);
+  const finalOther = await lookupAccount(other.authorization, config.publishableKey, http);
+  if (finalUploader.status !== 200 || finalOther.status !== 200
+    || finalUploader.data.id !== first.data.id || finalOther.data.id !== second.data.id
+    || !finalUploader.data.memberships.some(m => m.organizationId === uploader.organizationId)
+    || !finalOther.data.memberships.some(m =>
+      m.organizationId === uploader.organizationId && m.role === "contractor")
+    || finalOther.data.memberships.some(m =>
+      m.organizationId === uploader.organizationId && m.role !== "contractor")) {
+    throw new Error("Same-tenant proof sessions or memberships changed during verification");
+  }
+
   return {
     users: 2,
     verifiedUploaderDownloads: 1,

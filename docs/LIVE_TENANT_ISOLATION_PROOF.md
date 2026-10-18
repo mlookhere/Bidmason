@@ -37,3 +37,18 @@ same-tenant probes use these rules. Expired replies, incomplete streams,
 provider failures and unintended visibility fail closed. Mocked deadline
 regressions do **not** replace approved genuine-session security verification
 and never enable customer evidence downloads.
+
+## End-of-proof session freshness (2026-10-18)
+
+In addition to validating both genuine test sessions before the security
+probes, the cross-tenant and same-tenant proof harnesses recheck both
+identities and their applicable memberships immediately before reporting
+success. Cross-tenant sessions must still be distinct, hold their expected
+tenant membership and have no membership in the other proof tenant; a
+same-tenant non-uploader must still be contractor-only. A session that
+expires, loses membership, or changes role during the negative probes
+invalidates the whole proof. This prevents an expired test JWT from
+producing a misleading successful 401 Storage-denial result. These extra
+checks cannot guarantee instantaneous Supabase JWT revocation and do not
+replace an independently approved live revocation test. CI covers only
+mocked mid-proof expiry and membership changes.

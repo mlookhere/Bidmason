@@ -78,7 +78,7 @@ test("isolated two-user mock reaches real app Auth/receipt/private Storage paths
     deniedCrossTenantStorageReads:2,hiddenForeignReceipts:2,
     deniedApplicationCrossTenantReads:2});
   assert.equal(requests.filter(x=>x.path.includes("/storage/")).length,4);
-  assert.equal(requests.filter(x=>x.path==="/auth/v1/user").length,8);
+  assert.equal(requests.filter(x=>x.path==="/auth/v1/user").length,10);
 });
 
 test("no real sessions, malformed receipt fixtures or shared tenants fail before network",async()=>{
@@ -388,5 +388,60 @@ test("stalled foreign receipt body shares the HTTP provider deadline",async()=>{
     }
   } finally {
     AbortSignal.timeout=original;
+  }
+});
+
+
+test("cross-tenant proof refuses success if a session expires after denial probes",async()=>{
+  const {http,requests}=fixture();
+  let secondAuthCalls=0;
+  const expiring=async(url,init)=>{
+    const bearer=init.headers?.authorization??init.headers?.Authorization;
+    if(new URL(String(url)).pathname==="/auth/v1/user" && bearer===tokenB){
+      secondAuthCalls++;
+      if(secondAuthCalls===5) return json({message:"expired"},401);
+    }
+    return http(url,init);
+  };
+  await assert.rejects(verifyLiveEvidenceIsolation({...base,http:expiring}),
+    /Tenant proof session or membership changed/);
+  assert.equal(secondAuthCalls,5);
+  assert.equal(requests.some(x=>x.path.includes("/storage/")),true);
+});
+
+test("cross-tenant proof refuses membership changes after negative checks",async()=>{
+  const {http}=fixture();
+  let secondMembershipCalls=0;
+  const changing=async(url,init)=>{
+    const parsed=new URL(String(url));
+    const bearer=init.headers?.authorization??init.headers?.Authorization;
+    if(parsed.pathname==="/rest/v1/bm_memberships" && bearer===tokenB){
+      secondMembershipCalls++;
+      if(secondMembershipCalls===5) return json([]);
+    }
+    return http(url,init);
+  };
+  await assert.rejects(verifyLiveEvidenceIsolation({...base,http:changing}),
+    /Tenant proof session or membership changed/);
+  assert.equal(secondMembershipCalls,5);
+});
+
+test("same-tenant proof refuses success after contractor revocation or role elevation",async()=>{
+  for(const mode of ["revoked","elevated"]){
+    const {http}=sameTenantFixture();
+    let otherMembershipCalls=0;
+    const changing=async(url,init)=>{
+      const parsed=new URL(String(url));
+      const bearer=init.headers?.authorization??init.headers?.Authorization;
+      if(parsed.pathname==="/rest/v1/bm_memberships" && bearer===otherToken){
+        otherMembershipCalls++;
+        if(otherMembershipCalls===3) return json(mode==="revoked"?[]:
+          [{organization_id:orgA,member_role:"operator"}]);
+      }
+      return http(url,init);
+    };
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http:changing}),
+      /Same-tenant proof sessions or memberships changed/);
+    assert.equal(otherMembershipCalls,3);
   }
 });
