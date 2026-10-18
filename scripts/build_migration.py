@@ -51,6 +51,11 @@ MIGRATIONS = (
         "-- BidMason candidate managed Supabase migration: 20261018104109 bidmason_evidence_uploader_read_access\n-- Additive receipt uploader attribution and narrowed read-only Storage policy.\n",
         ("db/evidence_uploader_read_access.sql",),
     ),
+    (
+        "supabase/migrations/20261018133000_bidmason_receipt_metadata_private_read.sql",
+        "-- BidMason managed migration: 20261018133000 bidmason_receipt_metadata_private_read\n-- Additive, restrictive signed-in receipt metadata visibility boundary.\n",
+        ("db/receipt_metadata_private_read.sql",),
+    ),
 )
 
 

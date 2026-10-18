@@ -178,6 +178,10 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/evidence_uploader_read_access.sql
       - name: Prove contractor own-receipt reads, revocation and shadow-policy denial
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_uploader_read_test.sql
+      - name: Restrict private receipt metadata to uploader or tenant reviewer
+        run: psql -X -v ON_ERROR_STOP=1 -f db/receipt_metadata_private_read.sql
+      - name: Prove receipt metadata privacy against other contractors and shadow policies
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_metadata_privacy_test.sql
       - name: Verify deterministic candidate migration is up to date
         run: python3 scripts/build_migration.py --check
       - name: Create a second empty database for candidate migration replay
@@ -210,6 +214,10 @@ jobs:
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018104109_bidmason_evidence_uploader_read_access.sql
       - name: Verify migrated uploader reads, revocation and shadow-policy denial
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_uploader_read_test.sql
+      - name: Replay eighth managed receipt metadata privacy migration
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018133000_bidmason_receipt_metadata_private_read.sql
+      - name: Verify migrated receipt metadata privacy and revocation
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_metadata_privacy_test.sql
 
 
   av-real:
