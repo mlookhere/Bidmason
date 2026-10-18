@@ -34,3 +34,29 @@ The preview remains `noindex`, but that is not access control. Keep PR #12 in **
 - Live managed project privilege check showed no quota SELECT/EXECUTE access for `anon` or `authenticated`; the trusted role has EXECUTE. Live transaction-and-ROLLBACK fixture granted 12 attempts, denied #13 and a nonmember; observed the counter at 12 within the transaction, then rolled back all synthetic rows.
 - One security advisor **INFO** `rls_enabled_no_policy` finding is expected for the quota table, intentionally lacking client policies. Do not silence it by adding broad permissions. Previously reported zero findings do not apply to the new schema.
 - No real authenticated user, hosted quota RPC, malware scanner, public upload path or production secret integration has been tested; do not enable customer uploads.
+
+## Ninth receipt-quarantine migration — October 18, 2026
+
+**Applied to dedicated BidMason project `jgbogpunyzkoytrclqdl` after explicit owner authorization and read-only preflight.** The managed migration tool assigned version
+`20261018185018`, named `bidmason_verified_receipt_storage_read`.
+The candidate SQL already reviewed in PR #12 was applied: an additive,
+restrictive `storage.objects` SELECT policy requiring a matching
+organization-scoped immutable receipt in `public.bm_evidence_receipts`
+before authenticated users, including owners, can access private objects.
+No underlying historical migration was rerun.
+
+**Postflight:** managed migration history lists nine total entries;
+`storage.objects` now has eight BidMason policies, including
+`bm_evidence_verified_receipt_read` with `RESTRICTIVE`, `SELECT`,
+role `public`, tenant/path receipt predicate; bucket `bm-evidence`
+remains private, RLS enabled, authenticated receipt INSERT not granted.
+The live project had **0 Auth users, organizations, memberships, receipts,
+and private Storage objects** immediately after deployment.
+Supabase security adviser still reports only the expected INFO on the
+intentionally server-only quota table.
+
+**Not release approval:** Real two-user Auth sessions, signed Storage HTTP
+GET, service-managed byte uploads, scanner freshness, abuse limits, and
+retention/incident response are still unverified. Customer-facing evidence
+upload/download endpoints remain disabled. No temporary Auth user accounts
+have been provisioned yet.

@@ -225,7 +225,7 @@ jobs:
       - name: Verify migrated receipt metadata privacy and revocation
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_metadata_privacy_test.sql
       - name: Replay ninth migration to quarantine objects without receipts
-        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018181932_bidmason_verified_receipt_storage_read.sql
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018185018_bidmason_verified_receipt_storage_read.sql
       - name: Verify migrated quarantine with real PostgreSQL RLS
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_receipt_gate_test.sql
       - name: Re-audit every final Storage policy after nine-migration replay
@@ -245,7 +245,7 @@ jobs:
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018100829_bidmason_scan_gate_storage_lockdown.sql
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018104109_bidmason_evidence_uploader_read_access.sql
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018111633_bidmason_receipt_metadata_private_read.sql
-          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018181932_bidmason_verified_receipt_storage_read.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018185018_bidmason_verified_receipt_storage_read.sql
       - name: Rehearse the live rollback-only Storage proof on an empty migrated database
         run: PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/live_storage_rls_rollback.sql
 

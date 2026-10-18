@@ -34,9 +34,9 @@ The `db-rls` job rehearses the exact script on a **third clean isolated**
 PostgreSQL database after replaying all nine migrations, so a mismatch in
 the actual live operator procedure blocks CI.
 
-**Do not run the updated script against the connected managed project yet:**
-the live ninth migration remains unapplied as of the last read-only policy
-inspection. The SQL is not a deployment mechanism. Even when the live RLS
+**Live ninth migration is now installed:** Supabase assigned managed version
+`20261018185018` to the reviewed additive policy. The full rollback-only
+proof is still not equivalent to genuine Auth/Storage HTTP acceptance. The SQL is not a deployment mechanism. Even when the live RLS
 rehearsal is eventually authorized and passes, genuine Supabase Auth sessions,
 actual Storage bytes, service-key handling and deployed malware scanning
 remain separately required for release.

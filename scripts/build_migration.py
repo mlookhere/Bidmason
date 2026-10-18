@@ -57,8 +57,8 @@ MIGRATIONS = (
         ("db/receipt_metadata_private_read.sql",),
     ),
     (
-        "supabase/migrations/20261018181932_bidmason_verified_receipt_storage_read.sql",
-        "-- BidMason candidate managed migration: 20261018181932 bidmason_verified_receipt_storage_read\n-- Additive RLS release gate: never expose uncommitted or unscanned evidence to signed-in clients.\n",
+        "supabase/migrations/20261018185018_bidmason_verified_receipt_storage_read.sql",
+        "-- BidMason managed migration: 20261018185018 bidmason_verified_receipt_storage_read\n-- Additive RLS release gate: never expose uncommitted or unscanned evidence to signed-in clients.\n",
         ("db/storage_receipt_read_gate.sql",),
     ),
 )

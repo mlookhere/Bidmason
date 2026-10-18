@@ -73,7 +73,7 @@ customer download endpoint without genuine live multiuser acceptance.
 The existing signed-in Storage read policies allowed owners/operators to GET
 private objects directly while antivirus scanning or trusted receipt insertion
 was still incomplete. The additive candidate migration
-`20261018181932_bidmason_verified_receipt_storage_read.sql` introduces a restrictive `SELECT` boundary:
+`20261018185018_bidmason_verified_receipt_storage_read.sql` introduces a restrictive `SELECT` boundary:
 `bm-evidence` objects need a matching tenant-scoped immutable
 `bm_evidence_receipts` row before **any** authenticated user's Storage
 access succeeds, including owners and the Storage `owner_id`.
