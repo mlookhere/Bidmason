@@ -118,9 +118,20 @@ export async function processEvidenceUpload(
   } catch {
     return fail(422, "Evidence content type does not match file");
   }
+  // Never let a scanner/provider adapter mutate the authoritative bytes
+  // that will later be written to private Storage. Scanners receive a
+  // separate snapshot and must not modify even that snapshot while claiming
+  // to have inspected the submitted file. The comparison is intentionally
+  // independent of a scanner's clean/unsafe verdict.
+  const scannedBytes = Uint8Array.from(bytes);
   try {
-    if ((await deps.scan(bytes, contentType, request.signal)) !== "clean") {
+    if ((await deps.scan(scannedBytes, contentType, request.signal)) !== "clean") {
       return fail(422, "Evidence failed document safety review");
+    }
+    for (let i = 0; i < bytes.byteLength; i++) {
+      if (scannedBytes[i] !== bytes[i]) {
+        return fail(503, "Evidence safety scanner unavailable");
+      }
     }
   } catch {
     if (request.signal.aborted) {

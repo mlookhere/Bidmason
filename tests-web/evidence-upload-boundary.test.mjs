@@ -410,3 +410,62 @@ test("successful quota RPC response arriving after client abort never advances t
   assert.equal(events.includes("scan"), false);
   assert.equal(events.includes("ingest"), false);
 });
+
+
+test("scanner sees a separate immutable-for-ingestion byte snapshot", async () => {
+  const { deps, events } = fixture();
+  const originalScan = deps.scan;
+  const originalIngest = deps.ingest;
+  let scannerInput;
+  deps.scan = async (bytes, type, signal) => {
+    scannerInput = bytes;
+    return originalScan(bytes, type, signal);
+  };
+  deps.ingest = async (input, config) => {
+    assert.ok(scannerInput instanceof Uint8Array);
+    assert.notStrictEqual(input.bytes, scannerInput,
+      "the scanner must not receive the authoritative private Storage buffer");
+    assert.deepEqual(Buffer.from(input.bytes), PDF);
+    return originalIngest(input, config);
+  };
+  const result = await processEvidenceUpload(request(), deps);
+  assert.equal(result.status, 201);
+  assert.equal(events.filter(event => event === "ingest").length, 1);
+});
+
+test("scanner mutating input while reporting clean cannot cause upload of unscanned bytes", async () => {
+  const { deps, events } = fixture();
+  const originalScan = deps.scan;
+  deps.scan = async (bytes, type, signal) => {
+    const decision = await originalScan(bytes, type, signal);
+    bytes[0] = 0x00;
+    return decision;
+  };
+  const result = await processEvidenceUpload(request(), deps);
+  assert.deepEqual(result, { status: 503, error: "Evidence safety scanner unavailable" });
+  assert.equal(events.includes("scan"), true);
+  assert.equal(events.includes("ingest"), false);
+});
+
+test("asynchronous scanner mutation before clean verdict cannot reach trusted ingestion", async () => {
+  const { deps, events } = fixture();
+  const originalScan = deps.scan;
+  deps.scan = async (bytes, type, signal) => {
+    const decision = await originalScan(bytes, type, signal);
+    await Promise.resolve();
+    bytes[bytes.byteLength - 1] ^= 0x01;
+    return decision;
+  };
+  assert.equal((await processEvidenceUpload(request(), deps)).status, 503);
+  assert.equal(events.includes("ingest"), false);
+});
+
+test("scan snapshot preserves original input even when scanner rejects with a mutation", async () => {
+  const { deps, events } = fixture();
+  deps.scan = async bytes => {
+    bytes.fill(0x00);
+    return "unsafe";
+  };
+  assert.equal((await processEvidenceUpload(request(), deps)).status, 422);
+  assert.equal(events.includes("ingest"), false);
+});
