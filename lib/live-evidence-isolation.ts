@@ -8,6 +8,55 @@ const BEARER = /^Bearer [A-Za-z0-9._~+/-]+={0,2}$/;
 const STORAGE_PREFIX = BIDMASON_SUPABASE_URL +
   "/storage/v1/object/authenticated/bm-evidence/";
 
+// Negative proof must never promote a late 403 or [] into verified RLS.
+async function rawStorageProofStatus(
+  http: typeof fetch, key: string, authorization: string, path: string,
+): Promise<number> {
+  const signal = AbortSignal.timeout(12_000);
+  const response = await http(STORAGE_PREFIX + path, {
+    method: "GET",
+    headers: { apikey: key, authorization },
+    cache: "no-store",
+    redirect: "error",
+    signal,
+  });
+  if (signal.aborted) throw new Error("Storage proof deadline expired");
+  // Cancellation may be hostile or uncooperative: do not await it.
+  try { void response.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
+  return response.status;
+}
+
+async function rawReceiptProofRows(
+  http: typeof fetch, key: string, authorization: string,
+  organizationId: string, objectPath: string,
+): Promise<unknown> {
+  const query = new URL("/rest/v1/bm_evidence_receipts", BIDMASON_SUPABASE_URL);
+  query.searchParams.set("select", "object_path");
+  query.searchParams.set("organization_id", "eq." + organizationId);
+  query.searchParams.set("object_path", "eq." + objectPath);
+  query.searchParams.set("limit", "2");
+  // One immutable 10-second provider budget covers headers AND body.
+  const signal = AbortSignal.timeout(10_000);
+  const response = await http(query, {
+    method: "GET",
+    headers: { apikey: key, authorization, accept: "application/json" },
+    cache: "no-store",
+    redirect: "error",
+    signal,
+  });
+  if (signal.aborted || response.status !== 200) {
+    throw new Error("Receipt proof provider unavailable");
+  }
+  const length = response.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length)
+    || !Number.isSafeInteger(Number(length)) || Number(length) > 8192)) {
+    throw new Error("Invalid receipt proof body length");
+  }
+  const rows = await readBoundedProviderJson(response.body, 8192, 10_000, signal);
+  if (signal.aborted) throw new Error("Receipt proof deadline expired");
+  return rows;
+}
+
 export type EvidenceProofSession = {
   authorization: string;
   organizationId: string;
@@ -86,53 +135,25 @@ export async function verifyLiveEvidenceIsolation(
   for (let i = 0; i < 2; i++) {
     const other = pairs[1 - i];
     const target = pairs[i];
-    let response: Response;
+    let storageStatus: number;
     try {
-      response = await http(STORAGE_PREFIX + target.existingReceiptPath, {
-        method: "GET",
-        headers: {
-          apikey: config.publishableKey,
-          authorization: other.authorization,
-        },
-        cache: "no-store",
-        redirect: "error",
-        signal: AbortSignal.timeout(12000),
-      });
+      storageStatus = await rawStorageProofStatus(
+        http, config.publishableKey, other.authorization, target.existingReceiptPath,
+      );
     } catch {
       throw new Error("Unable to verify live cross-tenant Storage access");
     }
-    // Never await a broken Storage provider's cancellation callback.
-    try { void response.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
-    if (![401, 403, 404].includes(response.status)) {
+    if (![401, 403, 404].includes(storageStatus)) {
       throw new Error("Cross-tenant private Storage access was not explicitly denied");
     }
 
-    // Test actual PostgREST receipt RLS as the foreign JWT, independently
-    // from the application middleware. An empty filtered result is required.
-    const query = new URL("/rest/v1/bm_evidence_receipts", BIDMASON_SUPABASE_URL);
-    query.searchParams.set("select", "object_path");
-    query.searchParams.set("organization_id", "eq." + target.organizationId);
-    query.searchParams.set("object_path", "eq." + target.existingReceiptPath);
-    const result = await http(query, {
-      method: "GET",
-      headers: {
-        apikey: config.publishableKey,
-        authorization: other.authorization,
-        accept: "application/json",
-      },
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(12000),
-    });
-    if (!result.ok) throw new Error("Unable to verify cross-tenant receipt RLS");
+    // Raw receipt metadata RLS is independent of application middleware.
     let records: unknown;
     try {
-      const length = result.headers.get("content-length");
-      if (length !== null && (!/^\d+$/.test(length)
-        || !Number.isSafeInteger(Number(length)) || Number(length) > 8192)) {
-        throw new Error("Invalid foreign receipt response length");
-      }
-      records = await readBoundedProviderJson(result.body, 8192, 10_000);
+      records = await rawReceiptProofRows(
+        http, config.publishableKey, other.authorization,
+        target.organizationId, target.existingReceiptPath,
+      );
     } catch {
       throw new Error("Unable to verify cross-tenant receipt RLS");
     }
@@ -220,49 +241,24 @@ export async function verifySameTenantEvidencePrivacy(
   }
 
   // Raw Storage denial must be proven independently from the application.
-  let storage: Response;
+  let storageStatus: number;
   try {
-    storage = await http(STORAGE_PREFIX + uploader.existingReceiptPath, {
-      method: "GET",
-      headers: { apikey: config.publishableKey, authorization: other.authorization },
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(12_000),
-    });
+    storageStatus = await rawStorageProofStatus(
+      http, config.publishableKey, other.authorization, uploader.existingReceiptPath,
+    );
   } catch {
     throw new Error("Cannot prove same-tenant Storage denial");
   }
-  try { void storage.body?.cancel().catch(() => {}); } catch { /* do not await */ }
-  if (![401, 403, 404].includes(storage.status)) {
+  if (![401, 403, 404].includes(storageStatus)) {
     throw new Error("Other contractor could access private Storage or provider failed");
   }
 
-  // The metadata RLS gate is distinct from the Storage byte gate.
-  const url = new URL("/rest/v1/bm_evidence_receipts", BIDMASON_SUPABASE_URL);
-  url.searchParams.set("select", "object_path");
-  url.searchParams.set("organization_id", "eq." + uploader.organizationId);
-  url.searchParams.set("object_path", "eq." + uploader.existingReceiptPath);
-  url.searchParams.set("limit", "2");
   let metadata: unknown;
   try {
-    const response = await http(url, {
-      method: "GET",
-      headers: {
-        apikey: config.publishableKey,
-        authorization: other.authorization,
-        accept: "application/json",
-      },
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (response.status !== 200) throw new Error("Bad receipt response");
-    const length = response.headers.get("content-length");
-    if (length !== null && (!/^\d+$/.test(length) ||
-      !Number.isSafeInteger(Number(length)) || Number(length) > 8192)) {
-      throw new Error("Oversized receipt response");
-    }
-    metadata = await readBoundedProviderJson(response.body, 8192, 10_000);
+    metadata = await rawReceiptProofRows(
+      http, config.publishableKey, other.authorization,
+      uploader.organizationId, uploader.existingReceiptPath,
+    );
   } catch {
     throw new Error("Cannot prove same-tenant receipt metadata denial");
   }

@@ -298,3 +298,95 @@ test("same-tenant proof never treats malformed or excessive private receipt meta
       /Cannot prove same-tenant receipt metadata denial/);
   }
 });
+
+
+test("expired direct-denial and receipt replies cannot satisfy live proof",async()=>{
+  const original=AbortSignal.timeout;
+  try {
+    for(const sameTenantProof of [false,true]){
+      for(const target of ["storage","receipt"]){
+        let deadline,count=0;
+        AbortSignal.timeout=ms=>{
+          if(ms===12_000||ms===10_000){
+            deadline=new AbortController();
+            return deadline.signal;
+          }
+          return original(ms);
+        };
+        const {http}=sameTenantProof?sameTenantFixture():fixture();
+        const attacker=sameTenantProof?otherToken:tokenB;
+        const intercepted=async(raw,init)=>{
+          const url=new URL(String(raw));
+          const bearer=init.headers?.authorization??init.headers?.Authorization;
+          const storage=url.pathname.startsWith("/storage/v1/object/authenticated/") &&
+            url.pathname.endsWith(pathA) && bearer===attacker;
+          const receipt=url.pathname==="/rest/v1/bm_evidence_receipts" &&
+            url.searchParams.get("select")==="object_path" &&
+            url.searchParams.get("object_path")==="eq."+pathA && bearer===attacker;
+          if((target==="storage"&&storage)||(target==="receipt"&&receipt)){
+            count++;
+            assert.equal(init.signal,deadline.signal);
+            deadline.abort();
+            return target==="storage"
+              ? new Response("denied",{status:403})
+              : new Response("[]",{status:200});
+          }
+          return http(raw,init);
+        };
+        const proof=sameTenantProof
+          ? verifySameTenantEvidencePrivacy({...sameTenant,http:intercepted})
+          : verifyLiveEvidenceIsolation({...base,http:intercepted});
+        await assert.rejects(proof,target==="storage"
+          ? /Storage access|Storage denial/
+          : /receipt RLS|receipt metadata denial/);
+        assert.equal(count,1);
+      }
+    }
+  } finally {
+    AbortSignal.timeout=original;
+  }
+});
+
+test("stalled foreign receipt body shares the HTTP provider deadline",async()=>{
+  const original=AbortSignal.timeout;
+  try {
+    for(const sameTenantProof of [false,true]){
+      let deadline,bodyStarted=false;
+      AbortSignal.timeout=ms=>{
+        if(ms===10_000){
+          deadline=new AbortController();
+          return deadline.signal;
+        }
+        return original(ms);
+      };
+      const {http}=sameTenantProof?sameTenantFixture():fixture();
+      const attacker=sameTenantProof?otherToken:tokenB;
+      const intercepted=async(raw,init)=>{
+        const url=new URL(String(raw));
+        const bearer=init.headers?.authorization??init.headers?.Authorization;
+        if(url.pathname==="/rest/v1/bm_evidence_receipts" &&
+          url.searchParams.get("select")==="object_path" &&
+          url.searchParams.get("object_path")==="eq."+pathA && bearer===attacker){
+          const current=deadline;
+          assert.equal(init.signal,current.signal);
+          return new Response(new ReadableStream({
+            start(stream){stream.enqueue(new TextEncoder().encode("["));},
+            pull(){
+              bodyStarted=true;
+              current.abort();
+              return new Promise(()=>{});
+            },
+          }),{status:200});
+        }
+        return http(raw,init);
+      };
+      const proof=sameTenantProof
+        ? verifySameTenantEvidencePrivacy({...sameTenant,http:intercepted})
+        : verifyLiveEvidenceIsolation({...base,http:intercepted});
+      await assert.rejects(proof,/receipt RLS|receipt metadata denial/);
+      assert.equal(bodyStarted,true);
+    }
+  } finally {
+    AbortSignal.timeout=original;
+  }
+});

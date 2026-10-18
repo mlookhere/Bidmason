@@ -24,3 +24,16 @@ Obtain two real approved synthetic Auth sessions, two separately provisioned tes
 Run \`node scripts/verify_live_evidence_isolation.mjs\` **only in the preapproved secured test session**. It intentionally exits nonzero when fixtures or the approval marker are absent. On success only count totals are reported; on failure no JWT or document contents are logged.
 
 **What remains even after a passing live read-only proof:** real signed-in create/upload path, anti-malware scanning with maintained production definition freshness, quota authenticated RPC with securely deployed service key, owner/operator vs uploader same-tenant cases, actual session revocation, deletion races/orphan retention and ingress protection. There are no fixture secrets or sign-in details committed in the repository. Do not count this as the complete Item 3 acceptance gate.
+
+
+## Deadline-consistent independent denial checks (2026-10-18)
+
+Direct authenticated Storage denial and foreign PostgREST receipt checks now
+share read-only proof helpers with the same deadline used for HTTP headers and
+response processing. Storage must return 401/403/404 before its 12-second
+provider signal expires; receipt metadata must return HTTP 200 with a complete,
+bounded [] body before its 10-second signal expires. Both cross-tenant and
+same-tenant probes use these rules. Expired replies, incomplete streams,
+provider failures and unintended visibility fail closed. Mocked deadline
+regressions do **not** replace approved genuine-session security verification
+and never enable customer evidence downloads.
