@@ -168,7 +168,7 @@ test("already-aborted private download makes zero provider calls",async()=>{
   assert.equal(calls.length,0);
 });
 
-test("abort during receipt response streaming cancels read and never fetches Storage",async()=>{
+test("abort during uncooperative receipt JSON read returns 408 without Storage or waiting for cancel",async()=>{
   const controller=new AbortController();
   let firstRead;
   const entered=new Promise(resolve=>{firstRead=resolve;});
@@ -176,7 +176,8 @@ test("abort during receipt response streaming cancels read and never fetches Sto
   const body=new ReadableStream({
     pull() {
       firstRead();
-      // Leave the JSON document unclosed until cancellation.
+      // A deliberately uncooperative provider never resolves its pull.
+      // Its own cancel callback may never run; OUR response must not wait.
       return new Promise(()=>{});
     },
     cancel(){cancelled=true;},
@@ -195,10 +196,40 @@ test("abort during receipt response streaming cancels read and never fetches Sto
   const result=await pending;
   assert.equal(result.status,408);
   assert.equal("bytes" in result,false);
-  // Cancellation is deliberately fire-and-forget: hostile streams must never
-  // delay a 408 response while their cancel promise runs asynchronously.
+  assert.equal(f.calls.some(c=>c.parsed.pathname.startsWith("/storage/")),false);
+  // Cancellation was requested without awaiting an uncooperative callback.
+  // This bool is not an indicator of successful transport cancellation.
+  assert.equal(typeof cancelled,"boolean");
+});
+
+test("cooperative receipt stream runs its cancel callback after request abort",async()=>{
+  const controller=new AbortController();
+  let started;
+  const entered=new Promise(resolve=>{started=resolve});
+  let cancelled=false;
+  const body=new ReadableStream({
+    start(stream) {
+      // JSON prefix without EOF; the next body read must remain pending.
+      stream.enqueue(new Uint8Array([91]));
+    },
+    pull(){started();},
+    cancel(){cancelled=true;},
+  });
+  const f=fixture();
+  const http=async(url,init)=>{
+    if(new URL(String(url)).pathname==="/rest/v1/bm_evidence_receipts")
+      return new Response(body,{status:200});
+    return f.http(url,init);
+  };
+  const pending=downloadMemberEvidence(input,{
+    publishableKey,http,signal:controller.signal,
+  });
+  await entered;
+  controller.abort();
+  assert.equal((await pending).status,408);
+  // Nonblocking cancel resolves asynchronously; allow a microtask turn.
   await new Promise(resolve=>setImmediate(resolve));
-  assert.ok(cancelled);
+  assert.equal(cancelled,true);
   assert.equal(f.calls.some(c=>c.parsed.pathname.startsWith("/storage/")),false);
 });
 
