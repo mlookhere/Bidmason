@@ -131,3 +131,60 @@ test("provider outages do not count as a denial",async()=>{
   await assert.rejects(verifyLiveEvidenceIsolation({...base,http:broken}),
     /Storage access was not explicitly denied/);
 });
+
+
+test("live proof fails closed on giant, invalid or duplicate foreign receipt responses",async()=>{
+  for(const payload of [
+    "["+" ".repeat(9000)+"]",
+    "{broken",
+    JSON.stringify([{object_path:pathA},{object_path:pathA}]),
+  ]){
+    const {http}=fixture();
+    const intercepted=async(raw,init)=>{
+      const url=new URL(String(raw));
+      const token=init.headers?.authorization??init.headers?.Authorization;
+      if(url.pathname==="/rest/v1/bm_evidence_receipts" &&
+        url.searchParams.get("select")==="object_path" &&
+        token===tokenB && url.searchParams.get("organization_id")==="eq."+orgA)
+        return new Response(payload,{status:200});
+      return http(raw,init);
+    };
+    await assert.rejects(verifyLiveEvidenceIsolation({...base,http:intercepted}),
+      /receipt RLS|receipt metadata was exposed/);
+  }
+});
+
+test("malformed foreign receipt Content-Length is not counted as evidence of isolation",async()=>{
+  const {http}=fixture();
+  const intercepted=async(raw,init)=>{
+    const url=new URL(String(raw));
+    const token=init.headers?.authorization??init.headers?.Authorization;
+    if(url.pathname==="/rest/v1/bm_evidence_receipts" &&
+      url.searchParams.get("select")==="object_path" &&
+      token===tokenB && url.searchParams.get("organization_id")==="eq."+orgA)
+      return new Response("[]",{status:200,headers:{"content-length":"9000000"}});
+    return http(raw,init);
+  };
+  await assert.rejects(verifyLiveEvidenceIsolation({...base,http:intercepted}),
+    /Unable to verify cross-tenant receipt RLS/);
+});
+
+test("uncooperative denied Storage response cancellation cannot block cross-tenant proof",async()=>{
+  const {http}=fixture();
+  let invoked=0;
+  const intercepted=async(raw,init)=>{
+    const url=new URL(String(raw));
+    if(url.pathname.startsWith("/storage/v1/object/authenticated/") &&
+      (init.headers?.authorization??init.headers?.Authorization)===tokenB &&
+      url.pathname.endsWith(pathA)){
+      const res=new Response("denied",{status:403});
+      // An asynchronous never-completing cancel MUST NOT become a proof timeout.
+      Object.defineProperty(res.body,"cancel",{value:()=>{invoked++;return new Promise(()=>{});}});
+      return res;
+    }
+    return http(raw,init);
+  };
+  const result=await verifyLiveEvidenceIsolation({...base,http:intercepted});
+  assert.equal(result.hiddenForeignReceipts,2);
+  assert.equal(invoked,1);
+});

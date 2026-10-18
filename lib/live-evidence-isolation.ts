@@ -1,5 +1,6 @@
 import { lookupAccount, BIDMASON_SUPABASE_URL } from "./supabase-account.ts";
 import { downloadMemberEvidence } from "./private-evidence-download.ts";
+import { readBoundedProviderJson } from "./bounded-provider-json.ts";
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const PATH = /^([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.(pdf|png|jpg)$/;
@@ -100,7 +101,8 @@ export async function verifyLiveEvidenceIsolation(
     } catch {
       throw new Error("Unable to verify live cross-tenant Storage access");
     }
-    await response.body?.cancel();
+    // Never await a broken Storage provider's cancellation callback.
+    try { void response.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
     if (![401, 403, 404].includes(response.status)) {
       throw new Error("Cross-tenant private Storage access was not explicitly denied");
     }
@@ -123,7 +125,17 @@ export async function verifyLiveEvidenceIsolation(
       signal: AbortSignal.timeout(12000),
     });
     if (!result.ok) throw new Error("Unable to verify cross-tenant receipt RLS");
-    const records: unknown = await result.json();
+    let records: unknown;
+    try {
+      const length = result.headers.get("content-length");
+      if (length !== null && (!/^\d+$/.test(length)
+        || !Number.isSafeInteger(Number(length)) || Number(length) > 8192)) {
+        throw new Error("Invalid foreign receipt response length");
+      }
+      records = await readBoundedProviderJson(result.body, 8192, 10_000);
+    } catch {
+      throw new Error("Unable to verify cross-tenant receipt RLS");
+    }
     if (!Array.isArray(records) || records.length !== 0) {
       throw new Error("Cross-tenant receipt metadata was exposed");
     }
