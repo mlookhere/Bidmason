@@ -78,7 +78,7 @@ test("isolated two-user mock reaches real app Auth/receipt/private Storage paths
     deniedCrossTenantStorageReads:2,hiddenForeignReceipts:2,
     deniedApplicationCrossTenantReads:2});
   assert.equal(requests.filter(x=>x.path.includes("/storage/")).length,4);
-  assert.equal(requests.filter(x=>x.path==="/auth/v1/user").length,6);
+  assert.equal(requests.filter(x=>x.path==="/auth/v1/user").length,8);
 });
 
 test("no real sessions, malformed receipt fixtures or shared tenants fail before network",async()=>{
