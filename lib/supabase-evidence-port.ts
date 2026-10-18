@@ -1,4 +1,5 @@
 import type { EvidenceIngestionPort, EvidenceReceipt } from "./evidence";
+import { readBoundedPrivateStorage } from "./bounded-private-storage.ts";
 
 // Pinned to the only approved BidMason project; no user-supplied host or bucket.
 const ORIGIN = "https://jgbogpunyzkoytrclqdl.supabase.co";
@@ -125,36 +126,10 @@ export function createSupabaseEvidencePort(
         !/^\d+$/.test(advertised) || !Number.isSafeInteger(Number(advertised))
         || Number(advertised) > limit
       )) {
-        await download.body?.cancel();
+        try { void download.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
         throw new Error("Private evidence exceeds expected size");
       }
-      if (!download.body) throw new Error("Private evidence download has no body");
-      const reader = download.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-          total += value.byteLength;
-          if (total > limit) {
-            await reader.cancel();
-            throw new Error("Private evidence exceeds expected size");
-          }
-          chunks.push(value);
-        }
-      } finally {
-        reader.releaseLock();
-      }
-      if (total !== limit) throw new Error("Private evidence size mismatch");
-      const result = new Uint8Array(total);
-      let offset = 0;
-      for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.byteLength;
-      }
-      return result;
+      return readBoundedPrivateStorage(download.body, limit);
     },
 
     issueTrustedReceipt: config.issueTrustedReceipt,

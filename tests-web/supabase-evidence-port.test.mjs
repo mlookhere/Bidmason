@@ -223,3 +223,66 @@ test("Auth, private Storage upload, and download reject redirect responses witho
     assert.equal(receipts, 0);
   }
 });
+
+test("private readback rejects a file that sends correct bytes but never EOF", async () => {
+  const { readBoundedPrivateStorage } = await import("../lib/bounded-private-storage.ts");
+  let cancelled = false;
+  const reader = new ReadableStream({
+    start(controller) { controller.enqueue(document); },
+    pull() { return new Promise(() => {}); },
+    cancel() { cancelled = true; },
+  });
+  await assert.rejects(readBoundedPrivateStorage(reader, document.length, 25),
+    /read timed out/);
+  assert.equal(cancelled, true);
+});
+
+test("private readback handles thousands of one-byte chunks without retained arrays", async () => {
+  const { readBoundedPrivateStorage } = await import("../lib/bounded-private-storage.ts");
+  const data = Buffer.alloc(8192);
+  for (let i=0;i<data.length;i++) data[i]=i%251;
+  const reader = new ReadableStream({
+    start(controller) { for (const byte of data) controller.enqueue(Uint8Array.of(byte)); controller.close(); },
+  });
+  assert.deepEqual(Buffer.from(await readBoundedPrivateStorage(reader, data.length)), data);
+});
+
+test("private readback rejects truncated, oversized, malformed and invalid budgets", async () => {
+  const { readBoundedPrivateStorage } = await import("../lib/bounded-private-storage.ts");
+  const body = items => new ReadableStream({
+    start(controller) { for (const item of items) controller.enqueue(item); controller.close(); },
+  });
+  await assert.rejects(readBoundedPrivateStorage(body([document]), 5), /exceeds expected size/);
+  await assert.rejects(readBoundedPrivateStorage(body([document.subarray(0,5)]), document.length), /size mismatch/);
+  for (const fragment of [new Uint8Array(0), "not binary"]) {
+    await assert.rejects(readBoundedPrivateStorage(body([fragment]), document.length), /invalid binary chunk/);
+  }
+  for (const size of [0, -1, NaN, 15 * 1024 * 1024 + 1]) {
+    await assert.rejects(readBoundedPrivateStorage(body([document]), size), RangeError);
+  }
+  for (const ms of [0, -1, NaN, 25001]) {
+    await assert.rejects(readBoundedPrivateStorage(body([document]), document.length, ms), RangeError);
+  }
+});
+
+test("private readback does not wait for provider cancel that never resolves", async () => {
+  const { readBoundedPrivateStorage } = await import("../lib/bounded-private-storage.ts");
+  const before = Date.now();
+  const reader = new ReadableStream({
+    start(controller) { controller.enqueue(document); },
+    pull() { return new Promise(() => {}); },
+    cancel() { return new Promise(() => {}); },
+  });
+  await assert.rejects(readBoundedPrivateStorage(reader, document.length, 25), /read timed out/);
+  assert.ok(Date.now() - before < 5000);
+});
+
+test("private readback copies bytes before returning to protect against input mutation", async () => {
+  const { readBoundedPrivateStorage } = await import("../lib/bounded-private-storage.ts");
+  const data=Uint8Array.from(document);
+  const output=await readBoundedPrivateStorage(new ReadableStream({
+    start(controller){controller.enqueue(data);controller.close();}
+  }),data.length);
+  data.fill(0);
+  assert.deepEqual(Buffer.from(output),document);
+});

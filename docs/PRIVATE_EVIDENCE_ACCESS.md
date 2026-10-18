@@ -22,3 +22,7 @@ Relevant vendor documentation: https://supabase.com/docs/guides/storage/serving/
 ## Redirect-denial invariant
 
 Server-side Supabase Auth user checks, RLS membership lookups, and private Storage download transport now use `redirect: "error"`. The private receipt request and privileged quota/receipt providers already use this policy. Provider redirects cannot be silently followed with the user's `Authorization` or API-key header. This remains an internal, disabled-by-default download service; live session and revocation verification are still pending.
+
+## Private Storage body boundedness (2026-10-18)
+
+`lib/bounded-private-storage.ts` now reads provider bodies into a single receipt-sized fixed buffer (1–15 MiB) and enforces a 25-second whole-stream deadline, rather than storing unbounded numbers of fragment arrays or waiting forever for a missing EOF. Incomplete, oversized, nonbinary or never-ending streams fail closed. Cancellation of a hostile provider's stream is attempted but never awaited indefinitely. HTTP Content-Length may reject a download early but cannot expand the receipt budget. Offline tests include 8,192 one-byte fragments, abandoned bodies, hostile cancellation hooks and mutation-safe copy semantics. **This does not establish genuine two-user Supabase Storage/Session proof or enable the private HTTP endpoint.**
