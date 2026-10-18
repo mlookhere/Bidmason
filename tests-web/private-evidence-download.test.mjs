@@ -261,12 +261,13 @@ test("receipt HTTP deadline signal continues through its streamed response body"
   let receivedSignal;
   let entered;
   const opened=new Promise(resolve=>{entered=resolve});
-  const body=new ReadableStream({
-    pull(){entered();return new Promise(()=>{});},
-  });
   const http=async(url,init)=>{
     if(new URL(String(url)).pathname==="/rest/v1/bm_evidence_receipts"){
       receivedSignal=init.signal;
+      // Do not let a pre-created stream pull before HTTP request capture.
+      const body=new ReadableStream({
+        pull(){entered();return new Promise(()=>{});},
+      });
       return new Response(body,{status:200});
     }
     return f.http(url,init);

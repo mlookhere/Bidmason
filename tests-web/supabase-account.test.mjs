@@ -199,14 +199,16 @@ test("Auth and membership provider deadlines apply to both headers and streamed 
     const started = new Promise(resolve=>{entered=resolve});
     let headersSignal;
     let calls=0;
-    const body = new ReadableStream({
-      pull(){entered();return new Promise(()=>{});},
-    });
     const http = async(url,init)=>{
       calls++;
       const path=new URL(String(url)).pathname;
       if (path===stallAt) {
         headersSignal=init.signal;
+        // A stream constructed earlier could pull before this HTTP request,
+        // falsely signalling that the provider response had been received.
+        const body = new ReadableStream({
+          pull(){entered();return new Promise(()=>{});},
+        });
         return new Response(body,{status:200});
       }
       return new Response(JSON.stringify({id:ID}),{status:200});

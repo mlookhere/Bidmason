@@ -140,11 +140,11 @@ test("advisory receipt lookup uses the same timeout signal for its HTTP and body
   let received;
   let entered;
   const opened=new Promise(resolve=>{entered=resolve});
-  const unreadable=new ReadableStream({
-    pull(){entered();return new Promise(()=>{});},
-  });
   const {options,requests}=context(async(_url,init)=>{
     received=init.signal;
+    const unreadable=new ReadableStream({
+      pull(){entered();return new Promise(()=>{});},
+    });
     return new Response(unreadable,{status:200});
   },{signal:controller.signal});
   const running=inspectAmbiguousReceiptCommit(receipt,options);
