@@ -1,5 +1,8 @@
-/** Safe bounded JSON provider body reader (never exposed to a browser). */
-const MAX_JSON_BYTES = 8 * 1024;
+/** Safe bounded JSON provider body reader (never exposed to a browser).
+ * Individual callers must supply their own lower cap; the maximum here is
+ * sized for a 100-organization membership list, not public HTTP payloads.
+ */
+const MAX_JSON_BYTES = 64 * 1024;
 const MAX_MS = 10_000;
 
 export async function readBoundedProviderJson(

@@ -1,5 +1,6 @@
 // Server-only authenticated account lookup. Never uses a Supabase service key.
 import { evidenceProviderSignal } from "./evidence-provider-signal.ts";
+import { readBoundedProviderJson } from "./bounded-provider-json.ts";
 export const BIDMASON_SUPABASE_URL = "https://jgbogpunyzkoytrclqdl.supabase.co";
 type Http = typeof fetch;
 type MemberRole = "owner" | "operator" | "contractor";
@@ -10,6 +11,26 @@ type Result =
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const ROLES = new Set<MemberRole>(["owner", "operator", "contractor"]);
+// Auth user profiles may include optional metadata; membership list may
+// contain up to 100 organizations. Neither provider may stream indefinitely.
+const MAX_AUTH_JSON = 64 * 1024;
+const MAX_MEMBERSHIP_JSON = 32 * 1024;
+const ACCOUNT_JSON_DEADLINE_MS = 7_000;
+
+async function boundedAccountJson(
+  response: Response,
+  maxBytes: number,
+  requestSignal?: AbortSignal,
+): Promise<unknown> {
+  const length = response.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length)
+    || !Number.isSafeInteger(Number(length)) || Number(length) > maxBytes)) {
+    throw new Error("Account provider body exceeds permitted size");
+  }
+  return readBoundedProviderJson(
+    response.body, maxBytes, ACCOUNT_JSON_DEADLINE_MS, requestSignal,
+  );
+}
 
 export async function lookupAccount(
   authorization: string | null,
@@ -44,7 +65,7 @@ export async function lookupAccount(
       return { status: 401, error: "Authentication failed" };
     }
     if (!profile.ok) return { status: 502, error: "Authentication service unavailable" };
-    const user: unknown = await profile.json();
+    const user: unknown = await boundedAccountJson(profile, MAX_AUTH_JSON, requestSignal);
     if (requestSignal?.aborted) throw new Error("Account lookup cancelled");
     if (!user || typeof user !== "object" || !("id" in user)
       || typeof user.id !== "string" || !UUID.test(user.id)) {
@@ -64,7 +85,7 @@ export async function lookupAccount(
       return { status: 401, error: "Authorization failed" };
     }
     if (!memberships.ok) return { status: 502, error: "Account memberships unavailable" };
-    const records: unknown = await memberships.json();
+    const records: unknown = await boundedAccountJson(memberships, MAX_MEMBERSHIP_JSON, requestSignal);
     if (requestSignal?.aborted) throw new Error("Account lookup cancelled");
     if (!Array.isArray(records) || records.length > 100) {
       return { status: 502, error: "Unexpected membership response" };

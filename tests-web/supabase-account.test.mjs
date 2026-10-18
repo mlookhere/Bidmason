@@ -95,3 +95,98 @@ test("redirects from Auth or member RLS cannot trigger a second request with the
   });
   assert.equal(blocked.status, 502);
 });
+
+
+test("provider Auth and membership bodies have independent fixed limits",async()=>{
+  const giantProfile=json({id:ID, user_metadata:{padding:"x".repeat(70*1024)}});
+  let calls=0;
+  const badProfile=await lookupAccount(TOKEN,KEY,async()=>{
+    calls++;
+    return giantProfile;
+  });
+  assert.equal(badProfile.status,502);
+  assert.equal(calls,1,"oversized Auth body must stop before membership");
+  const giantMembers=json([{organization_id:ORG,member_role:"owner",
+    extra:"x".repeat(40*1024)}]);
+  calls=0;
+  const badMember=await lookupAccount(TOKEN,KEY,async()=>{
+    calls++;return calls===1?json({id:ID}):giantMembers;
+  });
+  assert.equal(badMember.status,502);
+  assert.equal(calls,2);
+});
+
+test("large declared Content-Length and malformed JSON fail closed before tenant access",async()=>{
+  for(const response of [
+    new Response("{}",{status:200,headers:{"content-length":"9000000"}}),
+    new Response("{broken",{status:200}),
+    new Response("{}",{status:200,headers:{"content-length":"invalid"}}),
+  ]){
+    let n=0;
+    const result=await lookupAccount(TOKEN,KEY,async()=>{n++;return response;});
+    assert.equal(result.status,502);
+    assert.equal(n,1);
+  }
+});
+
+test("bounded provider accepts ordinary Auth metadata and multiple valid memberships",async()=>{
+  const many=Array.from({length:90},(_,index)=>({
+    organization_id:"10000000-0000-4000-8000-"+String(index+1).padStart(12,"0"),
+    member_role:"contractor",
+  }));
+  let calls=0;
+  const result=await lookupAccount(TOKEN,KEY,async()=>{
+    calls++;
+    return calls===1?json({id:ID,user_metadata:{display_name:"Synthetic Test"}}):json(many);
+  });
+  assert.equal(result.status,200);
+  assert.equal(result.data.memberships.length,90);
+  assert.equal(calls,2);
+});
+
+test("pre-aborted Auth rejects before provider contact",async()=>{
+  const controller=new AbortController();controller.abort();
+  let requests=0;
+  assert.equal((await lookupAccount(TOKEN,KEY,async()=>{requests++;throw Error("unexpected");},
+    controller.signal)).status,502);
+  assert.equal(requests,0);
+});
+
+test("client abort while Auth body stalls fails closed with no membership request",async()=>{
+  const controller=new AbortController();
+  let entered;
+  const begun=new Promise(resolve=>{entered=resolve});
+  const body=new ReadableStream({
+    pull(){entered();return new Promise(()=>{});},
+  });
+  const calls=[];
+  const pending=lookupAccount(TOKEN,KEY,async(url,options)=>{
+    calls.push(String(url));
+    assert.ok(options.signal instanceof AbortSignal);
+    return new Response(body,{status:200});
+  },controller.signal);
+  await begun;
+  controller.abort();
+  assert.equal((await pending).status,502);
+  assert.equal(calls.length,1,"aborted Auth body may not continue to membership");
+});
+
+test("client abort while membership body stalls returns no partial memberships",async()=>{
+  const controller=new AbortController();
+  let entered;
+  const begun=new Promise(resolve=>{entered=resolve});
+  const body=new ReadableStream({
+    start(c){c.enqueue(new TextEncoder().encode("["));},
+    pull(){entered();return new Promise(()=>{});},
+  });
+  const calls=[];
+  const pending=lookupAccount(TOKEN,KEY,async(url,options)=>{
+    calls.push(String(url));
+    assert.ok(options.signal instanceof AbortSignal);
+    return calls.length===1?json({id:ID}):new Response(body,{status:200});
+  },controller.signal);
+  await begun;
+  controller.abort();
+  assert.equal((await pending).status,502);
+  assert.equal(calls.length,2);
+});
