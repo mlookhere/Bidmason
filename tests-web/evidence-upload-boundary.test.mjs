@@ -109,7 +109,7 @@ test("missing scanner, durable quota or keys blocks upload without external call
 
 test("malformed organization, MIME and length are rejected before auth/network", async () => {
   const cases = [
-    [{ "x-bidmason-organization": FOREIGN.toUpperCase() }, 400],
+    [{ "x-bidmason-organization": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA" }, 400],
     [{ "content-type": "text/html" }, 415],
     [{ "content-type": "application/pdf; charset=utf-8" }, 415],
     [{ "content-length": null }, 411],
