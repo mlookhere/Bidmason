@@ -14,6 +14,14 @@ const TYPES: Record<string, EvidenceContentType> = {
 const MAX_BYTES = 15 * 1024 * 1024;
 const MAX_METADATA_BYTES = 8 * 1024;
 
+function mayReadReceipt(
+  memberships: readonly { organizationId: string; role: string }[],
+  organizationId: string, userId: string, uploadedBy: string,
+): boolean {
+  return memberships.some(member => member.organizationId === organizationId
+    && (member.role === "owner" || member.role === "operator" || uploadedBy === userId));
+}
+
 type DownloadResult =
   | { status: 200; bytes: Uint8Array; contentType: EvidenceContentType }
   | { status: 400 | 401 | 404 | 408 | 502 | 503; error: string };
@@ -43,7 +51,7 @@ export async function downloadMemberEvidence(
   const token = input.authorization!.slice("Bearer ".length);
   const http = config.http ?? fetch;
   const query = new URL("/rest/v1/bm_evidence_receipts", BIDMASON_SUPABASE_URL);
-  query.searchParams.set("select", "organization_id,object_path,content_sha256,byte_length,content_type");
+  query.searchParams.set("select", "organization_id,object_path,content_sha256,byte_length,content_type,uploaded_by");
   query.searchParams.set("organization_id", "eq." + organizationId);
   query.searchParams.set("object_path", "eq." + objectPath);
   query.searchParams.set("limit", "2");
@@ -80,14 +88,21 @@ export async function downloadMemberEvidence(
       return { status: 404, error: "Evidence not found" };
     }
     if (rows.length !== 1) return { status: 502, error: "Invalid evidence metadata" };
-    const receipt = rows[0] as Partial<EvidenceReceipt> | null;
+    const receipt = rows[0] as Partial<EvidenceReceipt & { uploaded_by: string }> | null;
     if (!receipt || receipt.organization_id !== organizationId
       || receipt.object_path !== objectPath
       || !SHA256.test(receipt.content_sha256 ?? "")
       || !Number.isSafeInteger(receipt.byte_length)
       || (receipt.byte_length ?? 0) < 1 || (receipt.byte_length ?? 0) > MAX_BYTES
-      || receipt.content_type !== TYPES[path[2]]) {
+      || receipt.content_type !== TYPES[path[2]]
+      || typeof receipt.uploaded_by !== "string" || !UUID.test(receipt.uploaded_by)) {
       return { status: 502, error: "Invalid evidence metadata" };
+    }
+    // Defense in depth: a signed-in contractor cannot read another user's
+    // receipt even if a provider mistakenly returns that receipt's metadata.
+    if (!mayReadReceipt(account.data.memberships, organizationId,
+      account.data.id, receipt.uploaded_by)) {
+      return { status: 404, error: "Evidence not found" };
     }
     // The existing port enforces the exact byte budget for private downloads.
     // This read-only operation cannot issue a privileged receipt.
@@ -107,7 +122,10 @@ export async function downloadMemberEvidence(
     const current = await lookupAccount(input.authorization, config.publishableKey, http, config.signal);
     if (config.signal?.aborted) return { status: 408, error: "Evidence request cancelled" };
     if (current.status !== 200 || current.data.id !== account.data.id
-      || !current.data.memberships.some(m => m.organizationId === organizationId)) {
+      || !mayReadReceipt(current.data.memberships, organizationId,
+        current.data.id, receipt.uploaded_by)) {
+      // Membership may still exist after an owner/operator is downgraded.
+      // The final role must still authorize this specific uploader receipt.
       return { status: 401, error: "Evidence authorization expired" };
     }
     return { status: 200, bytes, contentType: receipt.content_type! };

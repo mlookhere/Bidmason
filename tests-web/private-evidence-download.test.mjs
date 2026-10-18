@@ -33,7 +33,9 @@ function fixture(mode = {}) {
     if (parsed.pathname === "/rest/v1/bm_memberships") {
       membershipChecks++;
       return json(mode.denied || (mode.revoked && membershipChecks === 2) ? [] : [
-        { organization_id: mode.foreignMember ? foreignOrg : org, member_role: "contractor" },
+        { organization_id: mode.foreignMember ? foreignOrg : org,
+          member_role: mode.downgraded && membershipChecks === 2 ? "contractor"
+            : mode.role ?? "contractor" },
       ]);
     }
     if (parsed.pathname === "/rest/v1/bm_evidence_receipts") {
@@ -45,6 +47,7 @@ function fixture(mode = {}) {
         byte_length: bytes.length,
         content_type: "application/pdf",
         content_sha256: mode.badDigest ? "invalid" : sha,
+        uploaded_by: mode.uploaderId === undefined ? id : mode.uploaderId,
       };
       if (mode.metadataBody !== undefined) return new Response(mode.metadataBody, {status:200});
       if (mode.metadataResponse) return mode.metadataResponse;
@@ -279,4 +282,46 @@ test("receipt HTTP deadline signal continues through its streamed response body"
   assert.equal((await running).status,408);
   assert.equal(receivedSignal.aborted,true);
   assert.ok(!f.calls.some(x=>x.parsed.pathname.startsWith("/storage/")));
+});
+
+
+test("download refuses contractor access to another user's receipt before reading bytes",async()=>{
+  const {http,calls}=fixture({uploaderId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"});
+  const result=await downloadMemberEvidence(input,{publishableKey,http});
+  assert.equal(result.status,404);
+  assert.equal(calls.some(c=>c.parsed.pathname.startsWith("/storage/")),false);
+});
+
+test("owner and operator may read another uploader's receipt while role remains privileged",async()=>{
+  for(const role of ["owner","operator"]){
+    const {http}=fixture({role,uploaderId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"});
+    const result=await downloadMemberEvidence(input,{publishableKey,http});
+    assert.equal(result.status,200);
+    assert.deepEqual(Buffer.from(result.bytes),bytes);
+  }
+});
+
+test("downgrading owner/operator to contractor during download prevents foreign receipt release",async()=>{
+  for(const role of ["owner","operator"]){
+    const {http,calls}=fixture({role,downgraded:true,
+      uploaderId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"});
+    const result=await downloadMemberEvidence(input,{publishableKey,http});
+    assert.equal(result.status,401);
+    assert.equal("bytes" in result,false);
+    assert.equal(calls.some(c=>c.parsed.pathname.startsWith("/storage/")),true);
+  }
+});
+
+test("contractor remains authorized for own receipt after another user's role changes",async()=>{
+  const {http}=fixture({role:"owner",downgraded:true});
+  const result=await downloadMemberEvidence(input,{publishableKey,http});
+  assert.equal(result.status,200);
+});
+
+test("missing or forged immutable uploader identity never triggers Storage",async()=>{
+  for(const uploaderId of [null,"not-a-uuid",123]){
+    const {http,calls}=fixture({uploaderId});
+    assert.equal((await downloadMemberEvidence(input,{publishableKey,http})).status,502);
+    assert.equal(calls.some(c=>c.parsed.pathname.startsWith("/storage/")),false);
+  }
 });

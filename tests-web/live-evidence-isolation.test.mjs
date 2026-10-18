@@ -24,6 +24,7 @@ const receipt = (org, path, bytes) => ({
   organization_id: org, object_path: path,
   content_sha256: createHash("sha256").update(bytes).digest("hex"),
   byte_length: bytes.length, content_type: "application/pdf",
+  uploaded_by: org===orgA ? userA : userB,
 });
 
 function fixture(options={}) {

@@ -54,3 +54,16 @@ unrestricted `Response.json()` calls. Mocked stalled-stream/deadline and
 oversized-provider regressions run in normal web unit tests. These safeguards
 do not establish real Supabase Auth/Storage acceptance or authorize activation
 of customer evidence uploads/downloads.
+
+## Receipt-specific permission recheck after downloads (2026-10-18)
+
+A membership-only post-download check was insufficient when an owner or operator
+was demoted to contractor while the Storage stream was in progress. The private
+receipt query now includes the immutable `uploaded_by` identity. A contractor
+can read only their own receipt; current owners/operators can read other
+members' receipts. Both the initial metadata decision and the final
+post-download authorization recheck enforce this receipt-specific rule.
+A role downgrade therefore returns no evidence bytes even if the download
+already completed; incomplete or forged `uploaded_by` metadata fails closed.
+These are offline regression tests and do not authorize turning on the
+customer download endpoint without genuine live multiuser acceptance.
