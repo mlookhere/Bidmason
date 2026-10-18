@@ -13,6 +13,8 @@ create table public.bm_upload_quota (
 alter table public.bm_upload_quota enable row level security;
 revoke all on public.bm_upload_quota from public, anon, authenticated;
 grant select, insert, update on public.bm_upload_quota to service_role;
+-- The invoker checks the real membership roster under the trusted role.
+grant select on public.bm_memberships to service_role;
 
 -- A SECURITY INVOKER function, executable ONLY by the trusted service role.
 -- PostgreSQL's INSERT .. ON CONFLICT UPDATE is atomic across app instances.
