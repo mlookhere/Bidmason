@@ -23,6 +23,7 @@ test("only old receipt-less objects are sent to manual review, with no side effe
   const result = planEvidenceReconciliation(original);
   assert.deepEqual(result, {
     candidates: [{ organizationId: other, path: foreign, ageHours: 50 }],
+    missingObjects: [],
     retained: 2, reviewed: 3,
   });
   assert.equal(original.objects.length, 3);
@@ -72,4 +73,60 @@ test("exact 24-hour boundary is eligible for review only, never removal", () => 
   }));
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].ageHours, 24);
+});
+
+test("trusted receipt pointing to a deleted or absent object is flagged for investigation", () => {
+  const result = planEvidenceReconciliation(snapshot({
+    objects: [],
+    receipts: [{ organizationId: org, path }],
+  }));
+  assert.deepEqual(result, {
+    candidates: [],
+    missingObjects: [{ organizationId: org, path }],
+    retained: 0,
+    reviewed: 0,
+  });
+});
+
+test("missing-object receipts remain visible even while unrelated recent objects are retained", () => {
+  const result = planEvidenceReconciliation(snapshot({
+    objects: [object(more, older, recent)],
+    receipts: [
+      { organizationId: other, path: foreign },
+      { organizationId: org, path },
+    ],
+  }));
+  assert.deepEqual(result.missingObjects, [
+    { organizationId: org, path },
+    { organizationId: other, path: foreign },
+  ]);
+  assert.equal(result.retained, 1);
+  assert.deepEqual(result.candidates, []);
+});
+
+test("complete but empty inventory yields no candidates or missing receipts", () => {
+  assert.deepEqual(planEvidenceReconciliation(snapshot({
+    objects: [], receipts: [],
+  })), { candidates: [], missingObjects: [], retained: 0, reviewed: 0 });
+});
+
+test("receipt-only discrepancy does not authorize creation or deletion of files", () => {
+  const original = snapshot({
+    objects: [object(more, older, recent)],
+    receipts: [{ organizationId: org, path }],
+  });
+  const serialized = JSON.stringify(original);
+  const result = planEvidenceReconciliation(original);
+  assert.deepEqual(result.missingObjects, [{ organizationId: org, path }]);
+  assert.equal(JSON.stringify(original), serialized);
+});
+
+test("discrepancies require COMPLETE independent inventories; RLS-limited snapshots fail closed", () => {
+  for (const value of [
+    { objectsComplete: false, objects: [] },
+    { receiptsComplete: false, receipts: [] },
+  ]) {
+    assert.throws(() => planEvidenceReconciliation(snapshot(value)),
+      /Complete privileged evidence inventories required/);
+  }
 });

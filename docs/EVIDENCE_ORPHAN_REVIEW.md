@@ -15,3 +15,11 @@ The existing private evidence download and upload endpoints retain their separat
 ## Direct Storage bypass eliminated before release
 
 The additive `bm_evidence_server_only_insert` restrictive policy denies `bm-evidence` uploads made using any direct signed-in user token, including from a member of the correct tenant. Only a properly constrained server-managed upload design may eventually write to the bucket using a private elevated credential after the trust boundary. Existing private reads and manual-only receipt-less object triage remain unchanged. This intentionally blocks the previous user-JWT write adapter, which **must not** be exposed as a customer upload route. No blind retry, mutation or automatic orphan deletion is authorized.
+
+## Bidirectional reconciliation — October 18, 2026
+
+A trusted receipt can outlive its Storage object after an accidental deletion or a provider consistency failure. The old object-left-join audit could not report that class of integrity loss. The read-only `db/evidence_orphan_audit.sql` now uses a **full outer join** restricted to `bm-evidence`; it distinguishes `missing_object_review` (receipt present, object absent), `orphan_review_candidate` (object at least 24 hours old by latest update, no receipt), and `retain`. The pure `planEvidenceReconciliation()` exposes separate deterministic `missingObjects` and `candidates` lists while preserving existing retained/reviewed counts.
+
+**Policy:** Neither discrepancy category permits automatic repair, deletion, re-upload, receipt mutation or quota refund. A missing-object receipt may represent an inconsistent snapshot, an in-flight provider operation, an outage, or a genuinely deleted file. Confirm both inventories with fresh privileged reads, investigate blob/key existence and tenant history, check legal holds and independent approvals, then follow an audited incident/recovery process. Do not use RLS-filtered end-user results as complete inventories. The query and planner are advisory only; they do not run automatically or expose a public endpoint.
+
+Negative tests cover missing objects while no Storage rows exist, foreign-tenant and unordered receipts, unrelated recent objects, empty inventories and fail-closed partial snapshots. This does not prove real Storage blob integrity or resolve the still-blocked live Auth/Storage acceptance.

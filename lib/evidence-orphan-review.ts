@@ -24,6 +24,8 @@ export type EvidenceReceiptSnapshot = {
 export type ReconciliationResult = {
   // Only a review list; it never authorizes deletion.
   candidates: { organizationId: string; path: string; ageHours: number }[];
+  /** Trusted receipts without a matching Storage object; review immediately. */
+  missingObjects: { organizationId: string; path: string }[];
   retained: number;
   reviewed: number;
 };
@@ -80,7 +82,17 @@ export function planEvidenceReconciliation(input: {
       ageHours: Math.floor(ageMs / HOUR),
     });
   }
-  // Stable output for durable operator review; classification is advisory only.
+  // Compare in BOTH directions: a valid receipt cannot attest that its
+  // corresponding Storage object is still present. Do not retry a write or
+  // delete either record automatically when the inventories disagree.
+  const missingObjects: ReconciliationResult["missingObjects"] = [];
+  for (const path of receipts) {
+    if (!paths.has(path)) {
+      missingObjects.push({ organizationId: path.split("/")[0], path });
+    }
+  }
+  // Deterministic, tenant-aware operator review; never a delete instruction.
   candidates.sort((a, b) => a.path.localeCompare(b.path));
-  return { candidates, retained, reviewed: input.objects.length };
+  missingObjects.sort((a, b) => a.path.localeCompare(b.path));
+  return { candidates, missingObjects, retained, reviewed: input.objects.length };
 }
