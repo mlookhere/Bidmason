@@ -60,3 +60,33 @@ GET, service-managed byte uploads, scanner freshness, abuse limits, and
 retention/incident response are still unverified. Customer-facing evidence
 upload/download endpoints remain disabled. No temporary Auth user accounts
 have been provisioned yet.
+
+## Authorized migration and live rollback proof — October 18, 2026
+
+Control Issue #1 was updated directly in GitHub. On the existing draft
+Item 3 work branch, the migration file and deterministic generator were
+synchronized to Supabase-assigned version `20261018185018` and the
+unapplied candidate filename `20261018181932` was removed. The actual
+managed ninth migration history and eight-policy Storage boundary were
+independently verified. The current rollback-only proof executed on the
+dedicated project and returned
+`PASS live Supabase receipt-gated PostgreSQL RLS; rollback and cleanup verified`.
+An independent postflight confirmed **0** users, organizations,
+memberships, private evidence objects and receipts remaining.
+
+**Temporary Auth-user readiness:** The user explicitly authorized
+temporary synthetic security-test accounts, but the currently connected
+Supabase MCP actions expose project, SQL, migrations, Storage/publishable
+metadata and Edge Functions, **not Auth Admin create/delete users**.
+For correctness, no manual `auth.users` or `auth.identities` insertion,
+synthetic JWT, guessed password, public test endpoint or insecure
+service-role credential workaround was used. Provision real temporary
+identities through a supported Auth Admin endpoint in a trusted environment,
+with a documented deletion/revocation path; then seed approved synthetic
+receipt-backed files through the same malware-scanned server flow.
+Existing `scripts/verify_live_evidence_isolation.mjs` and
+`scripts/verify_live_same_tenant_receipt_isolation.mjs` run read-only
+positive/negative isolation tests only with genuine existing JWTs and
+receipts. Until that occurs the real-Auth/Storage gate remains BLOCKED,
+despite successful database and CI proofs. Customer upload and download
+routes stay disabled.

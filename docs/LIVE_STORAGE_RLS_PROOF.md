@@ -40,3 +40,21 @@ proof is still not equivalent to genuine Auth/Storage HTTP acceptance. The SQL i
 rehearsal is eventually authorized and passes, genuine Supabase Auth sessions,
 actual Storage bytes, service-key handling and deployed malware scanning
 remain separately required for release.
+
+## Managed ninth-migration rollback proof — verified October 18, 2026
+
+After owner-authorized deployment of version `20261018185018`, the
+**exact current** `ci/live_storage_rls_rollback.sql` was executed via the
+connected SQL interface against the dedicated BidMason project. Result:
+
+```text
+PASS live Supabase receipt-gated PostgreSQL RLS; rollback and cleanup verified
+```
+
+A separate postflight read-only query verified **zero** Auth users,
+organizations, memberships, evidence receipts and `bm-evidence` Storage
+objects. The restricted policy remains installed. This validates the
+managed PostgreSQL RLS evaluation with synthetic claims and deliberately
+transient database metadata only. It does **not** validate real GoTrue
+sessions/JWTs, PostgREST HTTP, actual Storage blob transfers, antivirus,
+or token revocation. Do not enable customer upload/download routes.
