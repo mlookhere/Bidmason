@@ -19,3 +19,24 @@ The proof exercised authentic PostgreSQL `authenticated` role and `auth.uid()` R
 The test **does not authenticate through Supabase Auth**, issue JWTs, perform genuine HTTP Storage object upload/download, verify body bytes or virus signature freshness, prove hosted `sb_secret_` handling, or establish token-session revocation. Genuine two-user, two-tenant Storage **API** positive/negative tests, deployed scanner, idempotent retry, retention/privacy signoff and production controls remain blocking. Keep PR #12 DRAFT and all customer upload endpoints disabled.
 
 This script is preserved as reproducible, non-production database-layer evidence; independently inspect the fixed project ID and use a separately approved genuine Auth/Storage integration harness for full release acceptance.
+
+## Ninth migration and rollback-proof update (October 18, 2026)
+
+The rollback-only diagnostic now **requires** the ninth
+`bm_evidence_verified_receipt_read` policy before inserting any synthetic
+objects. It rejects the older seven-policy state, where the tenant owner could
+read a staged, unscanned object without its trusted receipt. After the
+quarantine migration, the expected owner-visible count is **one verified
+object**, not two. The probe also tests immediate read revocation when the
+trusted receipt is removed, and verifies after `ROLLBACK` that all synthetic
+organizations, memberships, receipts and Storage metadata are absent.
+The `db-rls` job rehearses the exact script on a **third clean isolated**
+PostgreSQL database after replaying all nine migrations, so a mismatch in
+the actual live operator procedure blocks CI.
+
+**Do not run the updated script against the connected managed project yet:**
+the live ninth migration remains unapplied as of the last read-only policy
+inspection. The SQL is not a deployment mechanism. Even when the live RLS
+rehearsal is eventually authorized and passes, genuine Supabase Auth sessions,
+actual Storage bytes, service-key handling and deployed malware scanning
+remain separately required for release.

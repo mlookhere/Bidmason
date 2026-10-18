@@ -6,6 +6,19 @@
 BEGIN;
 DO $guard$
 BEGIN
+ -- Reject incomplete migration deployment, even for an empty project.
+ -- The old policy allowed the tenant owner to read unscanned staged objects.
+ IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname='storage' AND tablename='objects'
+      AND policyname='bm_evidence_verified_receipt_read'
+      AND cmd='SELECT' AND permissive='RESTRICTIVE'
+      AND roles=ARRAY['public']::name[]
+      AND position('bm_evidence_receipts' in qual)>0
+      AND position('object_path' in qual)>0
+ ) THEN
+   RAISE EXCEPTION 'Refusing live proof: final receipt-quarantine migration is missing';
+ END IF;
  IF (SELECT count(*) FROM auth.users) <> 0
   OR (SELECT count(*) FROM public.bm_organizations) <> 0
   OR (SELECT count(*) FROM public.bm_memberships) <> 0
@@ -50,8 +63,14 @@ DO $other$ BEGIN
 END $other$;
 SET LOCAL request.jwt.claim.sub='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 DO $owner$ BEGIN
- IF (SELECT count(*) FROM storage.objects WHERE bucket_id='bm-evidence') <> 2
- THEN RAISE EXCEPTION 'Organization A owner cannot review both A files'; END IF;
+ IF (SELECT count(*) FROM storage.objects WHERE bucket_id='bm-evidence') <> 1
+ THEN RAISE EXCEPTION 'Organization A owner saw unreceipted staged evidence or lost a verified file'; END IF;
+ IF EXISTS (
+   SELECT 1 FROM storage.objects WHERE name=
+    '10000000-0000-4000-8000-000000000001/50000000-0000-4000-8000-000000000082.pdf'
+ ) THEN
+   RAISE EXCEPTION 'Tenant owner read unscanned staging object without trusted receipt';
+ END IF;
 END $owner$;
 SET LOCAL request.jwt.claim.sub='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 DO $foreign$ BEGIN
@@ -88,6 +107,27 @@ DO $revoked$ BEGIN
 END $revoked$;
 RESET ROLE;
 
--- ALWAYS LAST before displaying result. Nothing above may persist.
+-- A trusted receipt's removal immediately revokes its object visibility.
+-- All modifications remain inside this transaction.
+DELETE FROM public.bm_evidence_receipts WHERE
+  object_path='10000000-0000-4000-8000-000000000001/50000000-0000-4000-8000-000000000081.pdf';
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+DO $retracted$ BEGIN
+ IF (SELECT count(*) FROM storage.objects WHERE bucket_id='bm-evidence') <> 0
+ THEN RAISE EXCEPTION 'Owner read object after receipt removal'; END IF;
+END $retracted$;
+RESET ROLE;
+
+-- ALWAYS LAST among mutations. Entire synthetic fixture is rolled back.
 ROLLBACK;
-SELECT 'PASS live Supabase PostgreSQL RLS; transaction rolled back' AS result;
+DO $clean$
+BEGIN
+ IF (SELECT count(*) FROM auth.users) <> 0
+   OR (SELECT count(*) FROM public.bm_organizations) <> 0
+   OR (SELECT count(*) FROM public.bm_memberships) <> 0
+   OR (SELECT count(*) FROM public.bm_evidence_receipts) <> 0
+   OR (SELECT count(*) FROM storage.objects WHERE bucket_id='bm-evidence') <> 0
+ THEN RAISE EXCEPTION 'Rollback-only live Storage probe persisted synthetic data'; END IF;
+END $clean$;
+SELECT 'PASS live Supabase receipt-gated PostgreSQL RLS; rollback and cleanup verified' AS result;

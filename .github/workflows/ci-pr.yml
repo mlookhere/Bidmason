@@ -230,6 +230,22 @@ jobs:
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_receipt_gate_test.sql
       - name: Re-audit every final Storage policy after nine-migration replay
         run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_final_audit.sql -f ci/db_storage_final_audit_test.sql
+      - name: Prepare clean database for rollback-only live proof rehearsal
+        run: |
+          createdb bm_live_probe_ci
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017063426_bidmason_independent_fact_review.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018064847_bidmason_atomic_evidence_upload_quota.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018100829_bidmason_scan_gate_storage_lockdown.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018104109_bidmason_evidence_uploader_read_access.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018111633_bidmason_receipt_metadata_private_read.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018181932_bidmason_verified_receipt_storage_read.sql
+      - name: Rehearse the live rollback-only Storage proof on an empty migrated database
+        run: PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/live_storage_rls_rollback.sql
 
 
   av-real:
