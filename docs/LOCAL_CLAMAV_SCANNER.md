@@ -1,0 +1,11 @@
+# Local ClamAV evidence scanner — not active in production
+
+**Status:** `lib/local-clamav-evidence-scanner.ts` provides an internal fail-closed adapter for the mandatory `scan` dependency in `processEvidenceUpload()`. **No public POST route is enabled, no daemon is installed by this change, and no real threat-signature scan has been performed.**
+
+The adapter uses ClamAV's documented [`clamd` INSTREAM protocol](https://docs.clamav.net/manual/Usage/ClamdProtocol.html): NUL-terminated `zINSTREAM`, 4-byte big-endian length prefixes for chunks up to 64 KiB, and a zero-length final chunk. It connects **only to 127.0.0.1**, to the trusted server-configured integer port. `clamd` TCP connections are **neither encrypted nor authenticated**; never bind the daemon to a public address or allow routing across untrusted networks. A colocated scanner sidecar or secured isolated host runtime is required.
+
+Only the daemon's exact `stream: OK\0` response, after the full file has been streamed, yields `clean`. A valid `stream: ... FOUND\0` yields `unsafe`. Timeouts, empty or truncated replies, oversized replies, malformed framing, scanner outages and other errors reject; **a missing scanner is never treated as approval**.
+
+`tests-web/local-clamav-evidence-scanner.test.mjs` exercises loopback TCP with a *protocol simulator* for multi-frame content, valid/invalid replies, detections, invalid inputs and connection failures. This tests transport/parser logic, **not malware-detection effectiveness**. ClamAV signatures, configuration, availability, false negatives, nested/archived content and definition freshness require dedicated operational validation. In particular, the ClamAV `StreamMaxLength` must be at least 15 MiB and clamd must actively monitor all accepted formats.
+
+**Before deployment:** provision and harden a maintained daemon on the same application host/network namespace, set the local-only port, verify up-to-date signed virus definitions, health checks and restart policy, exercise a known test signature end-to-end in isolated nonproduction, establish on-call fail-closed alerting, bind this adapter with the atomic quota in the private server composition, run two genuine tenant/Auth/Storage negative tests and obtain approval for upload retention/privacy. This module does not automatically grant cleanup or customer upload permissions.
