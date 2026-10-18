@@ -15,5 +15,12 @@ end
 $bm_ci_roles$;
 create function auth.uid() returns uuid language sql stable
   as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+do $bm_ci_service_role$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    execute 'create role service_role nologin bypassrls';
+  end if;
+end
+$bm_ci_service_role$;
 grant usage on schema auth to authenticated;
 grant execute on function auth.uid() to authenticated;
