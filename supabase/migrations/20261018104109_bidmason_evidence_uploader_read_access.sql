@@ -1,4 +1,4 @@
--- BidMason candidate managed Supabase migration: 20261018123000 bidmason_evidence_uploader_read_access
+-- BidMason candidate managed Supabase migration: 20261018104109 bidmason_evidence_uploader_read_access
 -- Additive receipt uploader attribution and narrowed read-only Storage policy.
 -- Trusted uploader attribution for server-created evidence files.
 -- The prior signed-in direct INSERT lockdown remains mandatory. Uploaded

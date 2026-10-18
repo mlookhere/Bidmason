@@ -47,8 +47,8 @@ MIGRATIONS = (
         ("db/storage_insert_lockdown.sql",),
     ),
     (
-        "supabase/migrations/20261018123000_bidmason_evidence_uploader_read_access.sql",
-        "-- BidMason candidate managed Supabase migration: 20261018123000 bidmason_evidence_uploader_read_access\n-- Additive receipt uploader attribution and narrowed read-only Storage policy.\n",
+        "supabase/migrations/20261018104109_bidmason_evidence_uploader_read_access.sql",
+        "-- BidMason candidate managed Supabase migration: 20261018104109 bidmason_evidence_uploader_read_access\n-- Additive receipt uploader attribution and narrowed read-only Storage policy.\n",
         ("db/evidence_uploader_read_access.sql",),
     ),
 )
