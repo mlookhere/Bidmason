@@ -40,14 +40,16 @@ function transport(mode={}) {
     if (parsed.pathname.startsWith("/storage/v1/object/bm-evidence/")) {
       assert.equal(options.method, "POST");
       assert.equal(options.headers["x-upsert"], "false");
-      assert.equal(options.headers.apikey, publishableKey);
-      assert.equal(options.headers.Authorization, input.authorization);
+      assert.equal(options.headers.apikey, secretKey);
+      assert.equal(options.headers.Authorization, undefined);
+      assert.equal(options.headers.authorization, undefined);
       assert.equal((await options.body.arrayBuffer()).byteLength, document.length);
       return json({ stored: true }, mode.rejectUpload ? 403 : 200);
     }
     if (parsed.pathname.startsWith("/storage/v1/object/authenticated/bm-evidence/")) {
-      assert.equal(options.headers.apikey, publishableKey);
-      assert.equal(options.headers.Authorization, input.authorization);
+      assert.equal(options.headers.apikey, secretKey);
+      assert.equal(options.headers.Authorization, undefined);
+      assert.equal(options.headers.authorization, undefined);
       return new Response(mode.tamper ? Buffer.from(document.map((value, index) => index === document.length - 1 ? value ^ 1 : value)) : document);
     }
     if (parsed.pathname === "/rest/v1/bm_evidence_receipts") {

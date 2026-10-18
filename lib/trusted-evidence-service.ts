@@ -1,7 +1,7 @@
 import { lookupAccount } from "./supabase-account.ts";
 import { ingestVerifiedEvidence } from "./evidence.ts";
 import type { EvidenceContentType, EvidenceReceipt } from "./evidence.ts";
-import { createSupabaseEvidencePort } from "./supabase-evidence-port.ts";
+import { createServerManagedStoragePort } from "./server-managed-storage-port.ts";
 import { createTrustedReceiptWriter } from "./supabase-receipt-writer.ts";
 
 /**
@@ -61,18 +61,21 @@ export async function ingestForSignedInMember(
     throw new Error("Organization membership required");
   }
 
-  // Bind the privileged operation to the already authenticated organization
-  // and give it only the 5-column receipt. The user token is used exclusively
-  // for Auth, membership and Storage; no client key can perform the insert.
+  // This method is INTERNAL ONLY: its caller must have reserved atomic quota
+  // and received an explicit clean verdict from the trusted malware scanner.
+  // Never expose this function as an independently callable HTTP route.
+  // Auth and membership use the real user JWT. Storage insert/readback uses
+  // only a private server key, preserving the restrictive direct-insert RLS.
   const issueTrustedReceipt = createTrustedReceiptWriter({
     secretKey: config.secretKey,
     organizationId: input.organizationId,
     http: config.http,
     signal: input.signal,
   });
-  const port = createSupabaseEvidencePort({
+  const port = createServerManagedStoragePort({
     accessToken: input.authorization.slice("Bearer ".length),
     publishableKey: config.publishableKey,
+    secretKey: config.secretKey,
     issueTrustedReceipt,
     http: config.http,
     signal: input.signal,

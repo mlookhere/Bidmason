@@ -11,3 +11,7 @@ Following the restrictive Storage INSERT lockdown, the old user-JWT upload fails
 **Ownership issue:** Per Supabase Storage ownership docs, objects created via service/secret key will have no end-user owner_id. Current RLS permits owner/operator or object uploader. Therefore contractor read access is NOT automatically preserved by server-managed uploads. A reviewed receipt-backed uploader attribution/read policy and genuine two-user Auth+Storage tests must precede enabling uploads. Do not mutate the Storage metadata schema or grant all contractors blanket access.
 
 Tests are offline simulations only; no production secret or user document is present. No signed URLs, public HTTP route, automatic deletion or release approval is introduced.
+
+## Internal chain composition checkpoint
+
+The trusted service now selects this server-managed Storage port after `processEvidenceUpload()` has enforced genuine Auth/membership, atomic quota and explicit clean malware-scanner verdict. The public upload API remains absent and the lower-level service is **not** independently exposed. Negative test cases show no server-key Storage request before the preflight+scan succeeds. This is an integration proof with fake provider responses, not live service-key Storage success, official current signatures or contractor owner/read RLS approval.
