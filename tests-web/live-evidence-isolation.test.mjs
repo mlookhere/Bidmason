@@ -32,8 +32,9 @@ function fixture(options={}) {
     const url=new URL(String(rawUrl));
     assert.equal(url.origin, "https://jgbogpunyzkoytrclqdl.supabase.co");
     assert.equal(init.headers.apikey, key);
-    const user=init.headers.authorization===tokenA ? "A"
-      : init.headers.authorization===tokenB ? "B" : "";
+    const bearer = init.headers.authorization ?? init.headers.Authorization;
+    const user=bearer===tokenA ? "A"
+      : bearer===tokenB ? "B" : "";
     requests.push({user,path:url.pathname,method:init.method??"GET"});
     if (!user) return json({message:"Unauthorized"},401);
     const org=user==="A"?orgA:orgB;
@@ -122,7 +123,8 @@ test("invalid own receipt integrity prevents success before foreign checks",asyn
 test("provider outages do not count as a denial",async()=>{
   const {http}=fixture();
   const broken=async (url,init)=>{
-    if(String(url).includes("/storage/") && init.headers.authorization===tokenB)
+    if(String(url).includes("/storage/") && String(url).includes(pathA) &&
+      (init.headers.authorization ?? init.headers.Authorization)===tokenB)
       return new Response("upstream error",{status:502});
     return http(url,init);
   };
