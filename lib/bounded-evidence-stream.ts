@@ -31,7 +31,6 @@ export async function readExactEvidenceBytes(
   requestSignal.addEventListener("abort", onRequestAbort, { once: true });
   if (requestSignal.aborted) controller.abort();
   const timeout = setTimeout(() => controller.abort(), deadlineMs);
-  const onDeadline = () => {};
   // One shared rejection signal for all chunk reads. Promise.race installs
   // rejection observers even when a read completes first; no orphan rejects.
   const interrupted = new Promise<never>((_resolve, reject) => {

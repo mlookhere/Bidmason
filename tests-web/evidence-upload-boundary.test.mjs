@@ -183,3 +183,64 @@ test("chunked request over a falsely small advertised length cancels without sca
   assert.equal(events.includes("scan"), false);
   assert.equal(events.includes("ingest"), false);
 });
+
+
+test("aborted authorized client request returns 408 without scanner or receipt insertion", async () => {
+  const { deps, events } = fixture();
+  const abort = new AbortController();
+  const reserve = deps.takePermit;
+  deps.takePermit = async (...args) => {
+    const granted = await reserve(...args);
+    abort.abort();
+    return granted;
+  };
+  const req = new Request("https://bidmason.invalid/api/evidence", {
+    method: "POST",
+    headers: {
+      authorization: TOKEN,
+      "x-bidmason-organization": ORG,
+      "content-type": "application/pdf",
+      "content-length": String(PDF.length),
+    },
+    body: new ReadableStream({
+      pull() { return new Promise(() => {}); },
+    }),
+    duplex: "half",
+    signal: abort.signal,
+  });
+  const outcome = await processEvidenceUpload(req, deps);
+  assert.equal(outcome.status, 408);
+  assert.deepEqual(events, [
+    "http:/auth/v1/user", "http:/rest/v1/bm_memberships", "quota",
+  ]);
+});
+
+test("body that streams declared bytes but never closes must not continue after disconnect", async () => {
+  const { deps, events } = fixture();
+  const abort = new AbortController();
+  const reserve = deps.takePermit;
+  deps.takePermit = async (...args) => {
+    const granted = await reserve(...args);
+    setTimeout(() => abort.abort(), 25);
+    return granted;
+  };
+  const req = new Request("https://bidmason.invalid/api/evidence", {
+    method: "POST",
+    headers: {
+      authorization: TOKEN,
+      "x-bidmason-organization": ORG,
+      "content-type": "application/pdf",
+      "content-length": String(PDF.length),
+    },
+    body: new ReadableStream({
+      start(controller) { controller.enqueue(PDF); },
+      pull() { return new Promise(() => {}); },
+    }),
+    duplex: "half",
+    signal: abort.signal,
+  });
+  const outcome = await processEvidenceUpload(req, deps);
+  assert.equal(outcome.status, 408);
+  assert.equal(events.includes("scan"), false);
+  assert.equal(events.includes("ingest"), false);
+});
