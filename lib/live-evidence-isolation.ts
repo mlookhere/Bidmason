@@ -29,9 +29,10 @@ async function rawStorageProofStatus(
 async function rawReceiptProofRows(
   http: typeof fetch, key: string, authorization: string,
   organizationId: string, objectPath: string,
+  columns: "object_path" | "object_path,uploaded_by" = "object_path",
 ): Promise<unknown> {
   const query = new URL("/rest/v1/bm_evidence_receipts", BIDMASON_SUPABASE_URL);
-  query.searchParams.set("select", "object_path");
+  query.searchParams.set("select", columns);
   query.searchParams.set("organization_id", "eq." + organizationId);
   query.searchParams.set("object_path", "eq." + objectPath);
   query.searchParams.set("limit", "2");
@@ -241,6 +242,25 @@ export async function verifySameTenantEvidencePrivacy(
       second.data.memberships.some(m =>
         m.organizationId === uploader.organizationId && m.role !== "contractor")) {
     throw new Error("Distinct uploader and contractor role validation failed");
+  }
+
+  // Owner/operator access alone does not establish the uploader's identity.
+  // Bind the proof fixture to the immutable receipt's actual uploaded_by
+  // using the same authenticated JWT and the existing bounded RLS read.
+  let uploaderRows: unknown;
+  try {
+    uploaderRows = await rawReceiptProofRows(
+      http, config.publishableKey, uploader.authorization,
+      uploader.organizationId, uploader.existingReceiptPath, "object_path,uploaded_by",
+    );
+  } catch {
+    throw new Error("Cannot verify actual evidence uploader");
+  }
+  if (!Array.isArray(uploaderRows) || uploaderRows.length !== 1
+    || !uploaderRows[0] || typeof uploaderRows[0] !== "object"
+    || uploaderRows[0].object_path !== uploader.existingReceiptPath
+    || uploaderRows[0].uploaded_by !== first.data.id) {
+    throw new Error("Evidence receipt uploader does not match signed-in proof user");
   }
 
   const own = await downloadMemberEvidence({

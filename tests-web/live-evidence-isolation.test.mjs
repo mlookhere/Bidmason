@@ -221,8 +221,13 @@ function sameTenantFixture(options={}){
       const target=url.searchParams.get("object_path");
       const records=target==="eq."+pathA && (person==="uploader"||options.leakReceipt)
         ? [receipt(orgA,pathA,bytesA)] : [];
-      return json(url.searchParams.get("select")==="object_path"
-        ? records.map(v=>({object_path:v.object_path})):records);
+      const select=url.searchParams.get("select");
+      return json(select==="object_path"
+        ? records.map(v=>({object_path:v.object_path}))
+        : select==="object_path,uploaded_by"
+          ? records.map(v=>({object_path:v.object_path,
+            uploaded_by:options.wrongUploader?otherId:userA}))
+          : records);
     }
     if(url.pathname.startsWith("/storage/v1/object/authenticated/bm-evidence/")){
       if(person==="other"){
@@ -443,5 +448,49 @@ test("same-tenant proof refuses success after contractor revocation or role elev
     await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http:changing}),
       /Same-tenant proof sessions or memberships changed/);
     assert.equal(otherMembershipCalls,3);
+  }
+});
+
+
+test("same-tenant proof binds claimed uploader to stored receipt author",async()=>{
+  const {http,requests}=sameTenantFixture({wrongUploader:true});
+  await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http}),
+    /Evidence receipt uploader does not match signed-in proof user/);
+  assert.equal(requests.some(x=>x.path.startsWith("/storage/")),false);
+});
+
+test("same-tenant proof fails closed on absent, duplicate, and malformed uploader receipts",async()=>{
+  for(const result of [[],
+    [{object_path:pathA,uploaded_by:userA},{object_path:pathA,uploaded_by:userA}],
+    [{object_path:pathB,uploaded_by:userA}],
+    [{object_path:pathA,uploaded_by:null}],
+  ]){
+    const {http}=sameTenantFixture();
+    const injected=async(raw,init)=>{
+      const url=new URL(String(raw));
+      if(url.pathname==="/rest/v1/bm_evidence_receipts" &&
+        url.searchParams.get("select")==="object_path,uploaded_by") return json(result);
+      return http(raw,init);
+    };
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http:injected}),
+      /Evidence receipt uploader does not match signed-in proof user/);
+  }
+});
+
+test("same-tenant proof rejects unavailable or oversized uploader attestation",async()=>{
+  for(const response of [
+    new Response("unavailable",{status:503}),
+    new Response("["+" ".repeat(9000)+"]",{status:200}),
+    new Response("[]",{status:200,headers:{"content-length":"999999"}}),
+  ]){
+    const {http}=sameTenantFixture();
+    const injected=async(raw,init)=>{
+      const url=new URL(String(raw));
+      if(url.pathname==="/rest/v1/bm_evidence_receipts" &&
+        url.searchParams.get("select")==="object_path,uploaded_by") return response.clone();
+      return http(raw,init);
+    };
+    await assert.rejects(verifySameTenantEvidencePrivacy({...sameTenant,http:injected}),
+      /Cannot verify actual evidence uploader/);
   }
 });

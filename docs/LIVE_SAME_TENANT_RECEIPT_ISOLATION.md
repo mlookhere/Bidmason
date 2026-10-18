@@ -9,3 +9,16 @@ The proof verifies one positive uploader download, then three independent denial
 Manual opt-in: set BIDMASON_LIVE_ISOLATION_APPROVED=read-only-existing-fixtures and supply BIDMASON_TEST_PUBLISHABLE_KEY, BIDMASON_TEST_TOKEN_UPLOADER, BIDMASON_TEST_TOKEN_OTHER_CONTRACTOR, BIDMASON_TEST_ORG, and BIDMASON_TEST_RECEIPT_PATH through an approved private secret injection method. Run node scripts/verify_live_same_tenant_receipt_isolation.mjs. Never paste bearer tokens into GitHub issues, CI logs, chat messages, PRs or customer-visible artifacts.
 
 Status: Tested offline with simulated HTTP responses ONLY. The dedicated Supabase project has no approved real Auth/evidence fixtures, so no genuine same-tenant API verification has been executed. The script must not be added as a falsely-green CI gate or used to declare production approval. Keep uploads/downloads disabled and PR #12 draft.
+
+## Authentic uploader attestation (2026-10-18)
+
+A same-tenant owner or operator may legitimately download another user's
+receipt, so a successful own-tenant download alone cannot establish that the
+test account is the original uploader. The read-only proof now retrieves the
+exact receipt's `object_path,uploaded_by` with the same signed-in JWT and
+verifies that the immutable `uploaded_by` equals the authenticated identity
+before testing the non-uploader's access. This uses the existing 8-KiB bounded
+metadata read and one 10-second provider budget across headers and body.
+Missing, conflicting, malformed, unavailable or overlarge metadata fails
+closed. These mocked regressions do not constitute genuine live Auth/Storage
+proof. No customer evidence endpoints are enabled.
