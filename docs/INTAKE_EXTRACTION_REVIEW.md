@@ -29,3 +29,21 @@ cleaning pricing scenarios remain independent regression fixtures.
 Tests: `tests-web/intake-review.test.mjs` covers explicit review,
 source-tampering, invalid provenance, failed transcription, pending services,
 company independence and preview-only semantics.
+
+## Untrusted extraction adapter and review snapshot checks
+
+`lib/intake-extraction-adapter.ts` accepts only a 32-KiB bounded strict JSON
+shape containing up to 50 candidates, each with **only** service code,
+positive integer units and exact source excerpt/span. Model-supplied pricing,
+approval, document changes, system-role claims and unknown output fields are
+rejected, not passed through. Markdown/partial JSON is rejected. A failed
+transcript cannot be extracted.
+
+`ExtractionReview.candidatesSha256` binds the suggested candidates to their
+original snapshot, and preview generation recomputes it before human
+selection. This detects accidental/in-place draft tampering; its checksum
+is **not a trusted server signature**. A malicious client can forge both
+data and checksum, so the future authenticated backend must bind the
+source and review to tenant-owned persisted records and authorize reviewers.
+Never mark parser output approved or sendable. Six adapter-specific and
+one snapshot-tampering regression test were added.

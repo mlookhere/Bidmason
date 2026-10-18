@@ -24,6 +24,7 @@ export type ExtractionReview = {
   state: "needs-human-review";
   kind: IntakeSource["kind"];
   sourceSha256: string;
+  candidatesSha256: string;
   candidates: ServiceCandidate[];
 };
 
@@ -65,17 +66,28 @@ function digest(source: IntakeSource): string {
   return createHash("sha256").update(source.kind + "\0" + source.text).digest("hex");
 }
 
+/** Detect accidental or unauthorized changes to a stored review snapshot.
+ * This is a consistency checksum, NOT a server signature or authorization.
+ */
+function candidatesDigest(candidates: ServiceCandidate[]): string {
+  return createHash("sha256").update(JSON.stringify(candidates.map(c => [
+    c.serviceCode, c.units, c.start, c.end, c.excerpt,
+  ]))).digest("hex");
+}
+
 /** Records untrusted model suggestions with character-exact source references. */
 export function prepareExtractionReview(
   source: IntakeSource, candidates: ServiceCandidate[],
 ): ExtractionReview {
   validateSource(source);
   validateCandidates(source, candidates);
+  const snapshot = candidates.map(c => ({ ...c }));
   return {
     state: "needs-human-review",
     kind: source.kind,
     sourceSha256: digest(source),
-    candidates: candidates.map(c => ({ ...c })),
+    candidatesSha256: candidatesDigest(snapshot),
+    candidates: snapshot,
   };
 }
 
@@ -102,6 +114,9 @@ export function previewReviewedQuote(
     throw new Error("Intake review does not match the immutable original");
   }
   validateCandidates(original, review.candidates);
+  if (review.candidatesSha256 !== candidatesDigest(review.candidates)) {
+    throw new Error("Reviewed candidate snapshot was modified");
+  }
   if (!Array.isArray(selectedIndices) || selectedIndices.length === 0
     || selectedIndices.length > review.candidates.length) {
     throw new TypeError("Explicit reviewed candidate selections are required");

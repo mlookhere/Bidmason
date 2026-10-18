@@ -79,3 +79,14 @@ test("different candidates cannot be silently duplicated or individually approve
   assert.equal(review.candidates[0].units, 2);
   assert.throws(() => previewReviewedQuote(note, review, [0, 0], painting), /selection|duplicated/);
 });
+
+
+test("editing selected units or service IDs after extraction invalidates the review snapshot", () => {
+  const review = prepareExtractionReview(note, [{...repaint}]);
+  assert.match(review.candidatesSha256, /^[0-9a-f]{64}$/);
+  review.candidates[0].units = 5;
+  assert.throws(() => previewReviewedQuote(note, review, [0], painting), /snapshot was modified/);
+  const second = prepareExtractionReview(note, [{...repaint}]);
+  second.candidates[0].serviceCode = "touchup";
+  assert.throws(() => previewReviewedQuote(note, second, [0], painting), /snapshot was modified/);
+});
