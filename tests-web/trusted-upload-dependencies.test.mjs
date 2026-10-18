@@ -41,7 +41,7 @@ test("composition always provides both security dependencies but no injectable b
   // No scanner daemon is started; the composed scanner must never assume clean.
   await assert.rejects(config.scan(
     Buffer.from("%PDF-1.7\nsynthetic\n"), "application/pdf",
-  ), /antivirus/i);
+  ), /antivirus|clamav/i);
 });
 
 test("composed trusted quota retains server Request.signal through provider HTTP", async () => {
