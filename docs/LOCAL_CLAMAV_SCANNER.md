@@ -13,3 +13,10 @@ Only the daemon's exact `stream: OK\0` response, after the full file has been st
 ## Single server-only upload composition
 
 `lib/trusted-upload-dependencies.ts` now composes the atomic quota callback and loopback ClamAV scan callback into `EvidenceUploadDependencies`. It rejects missing or wrong-format private/publishable keys and invalid scanner port, freezes the result, and does **not** expose a POST route. The scanner cannot be silently replaced by a no-op using this composition function; the existing request boundary retains a test injection seam for unit tests only. No service, daemon, key or user request has been configured by this commit. The mandatory two-user Storage/API validation and deployment review remain unfulfilled.
+
+
+## Real engine CI gate (not a production scanner)
+
+The additional, non-optional GitHub Actions **av-real** job installs the real OS-provided \`clamd\` engine and launches it bound only to 127.0.0.1. \`ci/clamav_real_integration.test.mjs\` constructs an isolated, temporary ClamAV body signature for the standard 68-byte EICAR **antivirus test string** (not actual malware), confirms a clean synthetic PDF returns \`clean\`, confirms the test string in synthetic PDF returns \`unsafe\`, and confirms daemon shutdown makes scans reject. Missing \`clamd\`, failed signature loading, a simulated/fake response, a clean result on the test fixture, or an unavailable socket must fail this required job. No signatures, scan files, or scanner port persist outside the ephemeral CI runner.
+
+This gate uses a **local test signature database rather than current official Cisco Talos definitions**. Therefore, even a green real-daemon test verifies only real engine/protocol integration, *not* production definitions, their freshness, malware-detection efficacy, deployment health or real user Storage access. No public upload route is enabled.

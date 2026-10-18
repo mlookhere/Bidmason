@@ -195,3 +195,22 @@ jobs:
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
           PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
 
+
+  av-real:
+    name: av-real
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install actual ClamAV daemon (no production signatures)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends clamav-daemon
+      - name: Require real ClamAV daemon detection of isolated EICAR fixture
+        env:
+          BIDMASON_REAL_CLAMAV_CI: "1"
+        run: node --test ci/clamav_real_integration.test.mjs
