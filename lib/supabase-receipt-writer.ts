@@ -1,4 +1,5 @@
 import type { EvidenceReceipt } from "./evidence";
+import { evidenceProviderSignal } from "./evidence-provider-signal.ts";
 
 /**
  * Privileged receiver for records that have ALREADY passed
@@ -25,6 +26,8 @@ export type TrustedReceiptWriterConfig = {
   /** Bind one backend operation to one pre-authorized organization. */
   organizationId: string;
   http?: typeof fetch;
+  /** Trusted server-side request cancellation; does not guarantee rollback. */
+  signal?: AbortSignal;
 };
 
 function assertReceipt(receipt: EvidenceReceipt, organizationId: string): void {
@@ -59,6 +62,9 @@ export function createTrustedReceiptWriter(
   const http = config.http ?? fetch;
   return async (receipt: EvidenceReceipt) => {
     assertReceipt(receipt, organizationId);
+    if (config.signal?.aborted) {
+      throw new Error("Trusted evidence receipt service unavailable");
+    }
     // Strict allowlist of insertable fields. No caller-provided ID, review
     // decision, audit timestamp, conflict resolution or organization switch.
     const record = {
@@ -80,10 +86,14 @@ export function createTrustedReceiptWriter(
         body: JSON.stringify(record),
         redirect: "error",
         cache: "no-store",
-        signal: AbortSignal.timeout(10000),
+        signal: evidenceProviderSignal(config.signal, 10_000),
       });
     } catch {
       // Do not forward provider response bodies/headers or privileged keys.
+      throw new Error("Trusted evidence receipt service unavailable");
+    }
+    // Cancellation cannot guarantee a remote DB write was rolled back.
+    if (config.signal?.aborted) {
       throw new Error("Trusted evidence receipt service unavailable");
     }
     // Reject duplicate conflicts and every unexpected status. Never upsert.

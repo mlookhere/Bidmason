@@ -49,7 +49,7 @@ export async function ingestForSignedInMember(
   }
   if (input.signal?.aborted) throw new Error("Evidence ingestion cancelled");
   const account = await lookupAccount(
-    input.authorization, config.publishableKey, config.http,
+    input.authorization, config.publishableKey, config.http, input.signal,
   );
   if (input.signal?.aborted) throw new Error("Evidence ingestion cancelled");
   if (account.status !== 200) {
@@ -68,12 +68,14 @@ export async function ingestForSignedInMember(
     secretKey: config.secretKey,
     organizationId: input.organizationId,
     http: config.http,
+    signal: input.signal,
   });
   const port = createSupabaseEvidencePort({
     accessToken: input.authorization.slice("Bearer ".length),
     publishableKey: config.publishableKey,
     issueTrustedReceipt,
     http: config.http,
+    signal: input.signal,
   });
   return ingestVerifiedEvidence(
     account.data.id, input.organizationId, input.contentType,

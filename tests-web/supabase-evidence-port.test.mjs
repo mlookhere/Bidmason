@@ -286,3 +286,29 @@ test("private readback copies bytes before returning to protect against input mu
   data.fill(0);
   assert.deepEqual(Buffer.from(output),document);
 });
+
+test("private readback cancels a stalled response body when the owning request aborts", async () => {
+  const { readBoundedPrivateStorage } = await import("../lib/bounded-private-storage.ts");
+  const controller = new AbortController();
+  let cancelled = false;
+  const response = new ReadableStream({
+    start(stream) { stream.enqueue(document); },
+    pull() { return new Promise(() => {}); },
+    cancel() { cancelled = true; },
+  });
+  const pending = readBoundedPrivateStorage(response, document.length, 25_000, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, /stream cancelled/);
+  assert.equal(cancelled, true);
+});
+
+test("provider request signal aborts with server request and retains its fixed timeout", async () => {
+  const { evidenceProviderSignal } = await import("../lib/evidence-provider-signal.ts");
+  const controller = new AbortController();
+  const composite = evidenceProviderSignal(controller.signal, 7_000);
+  assert.equal(composite.aborted, false);
+  controller.abort();
+  assert.equal(composite.aborted, true);
+  const later = evidenceProviderSignal(controller.signal, 30_000);
+  assert.equal(later.aborted, true);
+});

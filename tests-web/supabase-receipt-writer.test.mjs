@@ -135,3 +135,27 @@ test("successful full ingestion reaches privileged writer only after two authori
   assert.equal(requests.length,1);
   assert.deepEqual(JSON.parse(requests[0].options.body),saved);
 });
+
+test("privileged receipt transport observes the trusted abort signal and cannot acknowledge a pending insert", async () => {
+  const controller = new AbortController();
+  let signal;
+  const writer = createTrustedReceiptWriter({
+    secretKey: "sb_secret_ci_never_actual_secret",
+    organizationId: org,
+    signal: controller.signal,
+    http: async (_url, opts) => {
+      signal = opts.signal;
+      assert.equal(opts.redirect, "error");
+      return new Promise((_resolve, reject) => {
+        opts.signal.addEventListener("abort", () => reject(new Error("aborted privileged HTTP")), { once: true });
+      });
+    },
+  });
+  const pending = writer(receipt);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(signal instanceof AbortSignal);
+  controller.abort();
+  assert.equal(signal.aborted, true);
+  await assert.rejects(pending, /service unavailable/);
+  // Abort cannot prove remote DB rollback; receipt state must be reconciled.
+});

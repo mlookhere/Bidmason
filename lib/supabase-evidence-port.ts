@@ -1,5 +1,6 @@
 import type { EvidenceIngestionPort, EvidenceReceipt } from "./evidence";
 import { readBoundedPrivateStorage } from "./bounded-private-storage.ts";
+import { evidenceProviderSignal } from "./evidence-provider-signal.ts";
 
 // Pinned to the only approved BidMason project; no user-supplied host or bucket.
 const ORIGIN = "https://jgbogpunyzkoytrclqdl.supabase.co";
@@ -18,6 +19,8 @@ export interface SupabaseEvidenceConfig {
   // browser-supplied key or perform a membership-independent write.
   issueTrustedReceipt: (receipt: EvidenceReceipt) => Promise<void>;
   http?: typeof fetch;
+  /** Trusted caller-owned cancellation, never accepted from request JSON. */
+  signal?: AbortSignal;
 }
 
 function validPath(receipt: EvidenceReceipt): string {
@@ -50,13 +53,14 @@ export function createSupabaseEvidencePort(
   };
 
   async function response(url: string | URL, init: RequestInit): Promise<Response> {
+    if (config.signal?.aborted) throw new Error("Private evidence service unavailable");
     try {
       return await http(url, {
         ...init, headers: { ...headers, ...init.headers },
         cache: "no-store",
         // No bearer/API-key replay to a server-selected redirect target.
         redirect: "error",
-        signal: AbortSignal.timeout(30000),
+        signal: evidenceProviderSignal(config.signal, 30_000),
       });
     } catch {
       throw new Error("Private evidence service unavailable");
@@ -102,6 +106,7 @@ export function createSupabaseEvidencePort(
         headers: { "Content-Type": receipt.content_type, "x-upsert": "false" },
         body: new Blob([Uint8Array.from(bytes)], { type: receipt.content_type }),
       });
+      if (config.signal?.aborted) throw new Error("Private evidence service unavailable");
       if (!upload.ok) throw new Error("Private evidence upload rejected");
     },
 
@@ -112,6 +117,7 @@ export function createSupabaseEvidencePort(
         ORIGIN + "/storage/v1/object/authenticated/" + BUCKET + "/" + path,
         { method: "GET" },
       );
+      if (config.signal?.aborted) throw new Error("Private evidence service unavailable");
       if (!download.ok) throw new Error("Private evidence download rejected");
       // The expected size is known from the bytes we just uploaded. Bound
       // memory to that exact budget, even if Storage omits or lies about
@@ -129,7 +135,7 @@ export function createSupabaseEvidencePort(
         try { void download.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
         throw new Error("Private evidence exceeds expected size");
       }
-      return readBoundedPrivateStorage(download.body, limit);
+      return readBoundedPrivateStorage(download.body, limit, 25_000, config.signal);
     },
 
     issueTrustedReceipt: config.issueTrustedReceipt,

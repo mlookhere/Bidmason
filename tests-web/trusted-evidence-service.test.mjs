@@ -130,3 +130,48 @@ test("trusted service refuses abort during initial membership lookup before Stor
   ), /Evidence ingestion cancelled/);
   assert.deepEqual(calls.map(c => c.parsed.pathname.split("/")[1]), ["auth", "rest"]);
 });
+
+test("in-flight trusted Auth lookup receives the original abort signal and never reaches Storage", async () => {
+  const controller = new AbortController();
+  const calls = [];
+  const http = async (url, options) => {
+    calls.push(new URL(String(url)).pathname);
+    assert.equal(options.redirect, "error");
+    assert.ok(options.signal instanceof AbortSignal);
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(new Error("provider request aborted")), { once: true });
+      if (options.signal.aborted) reject(new Error("provider request aborted"));
+    });
+  };
+  const running = ingestForSignedInMember({ ...input, signal: controller.signal }, cfg(http));
+  // Let the first provider invocation attach its signal listener.
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(running, /Evidence ingestion cancelled/);
+  assert.deepEqual(calls, ["/auth/v1/user"]);
+});
+
+test("in-flight private Storage upload receives abort signal and cannot read back or issue receipt", async () => {
+  const controller = new AbortController();
+  const { http: normal, calls } = transport();
+  let uploadStarted;
+  const started = new Promise(resolve => { uploadStarted = resolve; });
+  const http = async (url, options) => {
+    if (new URL(String(url)).pathname.startsWith("/storage/v1/object/bm-evidence/")) {
+      assert.ok(options.signal instanceof AbortSignal);
+      const waiting = new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => reject(new Error("cancelled upload")), { once: true });
+      });
+      uploadStarted();
+      return waiting;
+    }
+    return normal(url, options);
+  };
+  const pending = ingestForSignedInMember({ ...input, signal: controller.signal }, cfg(http));
+  await started;
+  controller.abort();
+  await assert.rejects(pending, /Private evidence service unavailable/);
+  assert.equal(calls.some(x => x.parsed.pathname.startsWith("/storage/")), false,
+    "stalled upload mock is not a persisted Storage object");
+  assert.equal(calls.some(x => x.parsed.pathname === "/rest/v1/bm_evidence_receipts"), false);
+});
