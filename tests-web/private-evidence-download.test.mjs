@@ -195,6 +195,9 @@ test("abort during receipt response streaming cancels read and never fetches Sto
   const result=await pending;
   assert.equal(result.status,408);
   assert.equal("bytes" in result,false);
+  // Cancellation is deliberately fire-and-forget: hostile streams must never
+  // delay a 408 response while their cancel promise runs asynchronously.
+  await new Promise(resolve=>setImmediate(resolve));
   assert.ok(cancelled);
   assert.equal(f.calls.some(c=>c.parsed.pathname.startsWith("/storage/")),false);
 });
