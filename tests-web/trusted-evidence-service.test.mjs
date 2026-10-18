@@ -57,7 +57,7 @@ function transport(mode={}) {
       assert.equal(options.headers.apikey, secretKey);
       assert.equal(options.headers.Authorization, undefined);
       assert.deepEqual(Object.keys(JSON.parse(options.body)).sort(),
-        ["organization_id","object_path","content_sha256","byte_length","content_type"].sort());
+        ["organization_id","object_path","content_sha256","byte_length","content_type","uploaded_by"].sort());
       return new Response("", { status: mode.rejectReceipt ? 409 : 201 });
     }
     throw Error("Unexpected host or endpoint " + parsed);

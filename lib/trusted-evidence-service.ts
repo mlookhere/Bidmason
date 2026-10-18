@@ -69,6 +69,7 @@ export async function ingestForSignedInMember(
   const issueTrustedReceipt = createTrustedReceiptWriter({
     secretKey: config.secretKey,
     organizationId: input.organizationId,
+    uploaderId: account.data.id,
     http: config.http,
     signal: input.signal,
   });

@@ -25,6 +25,8 @@ export type TrustedReceiptWriterConfig = {
   secretKey: string;
   /** Bind one backend operation to one pre-authorized organization. */
   organizationId: string;
+  /** Verified Supabase Auth user ID, never read from receipt/request JSON. */
+  uploaderId: string;
   http?: typeof fetch;
   /** Trusted server-side request cancellation; does not guarantee rollback. */
   signal?: AbortSignal;
@@ -54,11 +56,13 @@ export function createTrustedReceiptWriter(
   config: TrustedReceiptWriterConfig,
 ): (receipt: EvidenceReceipt) => Promise<void> {
   if (!config.secretKey?.startsWith("sb_secret_")
-    || !UUID.test(config.organizationId)) {
+    || !UUID.test(config.organizationId)
+    || !UUID.test(config.uploaderId)) {
     throw new TypeError("Privileged receipt writer is not configured");
   }
   const secretKey = config.secretKey;
   const organizationId = config.organizationId;
+  const uploaderId = config.uploaderId;
   const http = config.http ?? fetch;
   return async (receipt: EvidenceReceipt) => {
     assertReceipt(receipt, organizationId);
@@ -73,6 +77,9 @@ export function createTrustedReceiptWriter(
       content_sha256: receipt.content_sha256,
       byte_length: receipt.byte_length,
       content_type: receipt.content_type,
+      // This identity comes only from lookupAccount(). It is NOT copied
+      // from any caller-provided evidence receipt metadata.
+      uploaded_by: uploaderId,
     };
     let response: Response;
     try {

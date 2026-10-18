@@ -22,6 +22,7 @@ function mockWriter(status=201) {
   const write = createTrustedReceiptWriter({
     secretKey: "sb_secret_ci_never_actual_secret",
     organizationId: org,
+    uploaderId: actor,
     http: async (url, options) => {
       requests.push({url: String(url), options});
       return new Response(status === 204 ? null : "", {status});
@@ -33,17 +34,17 @@ function mockWriter(status=201) {
 test("fails closed without a server secret key and canonical tenant", () => {
   for (const secretKey of ["", "sb_publishable_wrong", "Bearer user.jwt"]) {
     assert.throws(() => createTrustedReceiptWriter({
-      secretKey, organizationId: org,
+      secretKey, organizationId: org, uploaderId: actor,
     }), /not configured/);
   }
   assert.throws(() => createTrustedReceiptWriter({
-    secretKey: "sb_secret_looks_like_key", organizationId: "../unauthorized",
+    secretKey: "sb_secret_looks_like_key", organizationId: "../unauthorized", uploaderId: actor,
   }), /not configured/);
 });
 
 test("sends only validated immutable receipt fields to fixed BidMason server via secret-key apikey", async () => {
   const {write, requests} = mockWriter();
-  await write({...receipt, created_by: actor, id: object, received_at: "forged"});
+  await write({...receipt, created_by: actor, uploaded_by: wrong, id: object, received_at: "forged"});
   assert.equal(requests.length, 1);
   const [{url,options}] = requests;
   assert.equal(url, "https://jgbogpunyzkoytrclqdl.supabase.co/rest/v1/bm_evidence_receipts");
@@ -52,7 +53,7 @@ test("sends only validated immutable receipt fields to fixed BidMason server via
   assert.equal(options.headers.Authorization, undefined);
   assert.equal(options.redirect, "error");
   assert.equal(options.cache, "no-store");
-  assert.deepEqual(JSON.parse(options.body), receipt);
+  assert.deepEqual(JSON.parse(options.body), { ...receipt, uploaded_by: actor });
 });
 
 test("cross-tenant path, mismatched MIME, corrupt hash and impossible size cannot touch privileged endpoint", async () => {
@@ -78,6 +79,7 @@ test("duplicate conflicts, denied grants, upstream outages and network faults re
   const write = createTrustedReceiptWriter({
     secretKey: "sb_secret_ci_never_actual_secret",
     organizationId: org,
+    uploaderId: actor,
     http: async () => { throw Error("internal API key from provider"); },
   });
   await assert.rejects(write(receipt), err =>
@@ -133,7 +135,7 @@ test("successful full ingestion reaches privileged writer only after two authori
     bytes, port,()=>object);
   assert.deepEqual(steps, ["authorize","upload","readback","authorize","issue"]);
   assert.equal(requests.length,1);
-  assert.deepEqual(JSON.parse(requests[0].options.body),saved);
+  assert.deepEqual(JSON.parse(requests[0].options.body), { ...saved, uploaded_by: actor });
 });
 
 test("privileged receipt transport observes the trusted abort signal and cannot acknowledge a pending insert", async () => {
@@ -142,6 +144,7 @@ test("privileged receipt transport observes the trusted abort signal and cannot 
   const writer = createTrustedReceiptWriter({
     secretKey: "sb_secret_ci_never_actual_secret",
     organizationId: org,
+    uploaderId: actor,
     signal: controller.signal,
     http: async (_url, opts) => {
       signal = opts.signal;
@@ -158,4 +161,21 @@ test("privileged receipt transport observes the trusted abort signal and cannot 
   assert.equal(signal.aborted, true);
   await assert.rejects(pending, /service unavailable/);
   // Abort cannot prove remote DB rollback; receipt state must be reconciled.
+});
+
+test("receipt writer rejects unverified or malformed uploader identity before network", async () => {
+  for (const uploaderId of ["", "not-a-uuid", "../attacker", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"]) {
+    assert.throws(() => createTrustedReceiptWriter({
+      secretKey: "sb_secret_ci_never_actual_secret",
+      organizationId: org, uploaderId,
+      http: async () => assert.fail("Unverified actor must not reach provider"),
+    }), /not configured/);
+  }
+});
+
+test("forged receipt uploaded_by never changes independently authenticated attribution", async () => {
+  const { write, requests } = mockWriter();
+  await write({ ...receipt, uploaded_by: wrong, created_by: wrong });
+  assert.equal(JSON.parse(requests[0].options.body).uploaded_by, actor);
+  assert.equal(requests.length, 1);
 });

@@ -43,8 +43,9 @@ function session(mode={}) {
       assert.equal(init.method,"POST");
       if(mode.rejectReceipt)return new Response("",{status:409});
       events.push("receipt");
+      assert.equal(JSON.parse(init.body).uploaded_by, USER);
       assert.deepEqual(Object.keys(JSON.parse(init.body)).sort(),
-        ["organization_id","object_path","content_sha256","byte_length","content_type"].sort());
+        ["organization_id","object_path","content_sha256","byte_length","content_type","uploaded_by"].sort());
       return new Response("",{status:201});
     }
     if(path.startsWith("/storage/v1/object/")){
