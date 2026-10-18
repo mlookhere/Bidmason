@@ -59,9 +59,12 @@ export function createServerManagedStoragePort(
     signal: config.signal,
   });
   const http = config.http ?? fetch;
-  async function admin(path: string, init: RequestInit): Promise<Response> {
+  async function admin(
+    path: string, init: RequestInit,
+  ): Promise<{ result: Response; providerSignal: AbortSignal }> {
     if (config.signal?.aborted) throw new Error("Privileged Storage unavailable");
     let result: Response;
+    const providerSignal = evidenceProviderSignal(config.signal, 30_000);
     try {
       result = await http(BASE + path, {
         method: init.method,
@@ -71,14 +74,14 @@ export function createServerManagedStoragePort(
         headers: { ...init.headers, apikey: config.secretKey },
         cache: "no-store",
         redirect: "error",
-        signal: evidenceProviderSignal(config.signal, 30_000),
+        signal: providerSignal,
       });
     } catch {
       throw new Error("Privileged Storage unavailable");
     }
-    if (config.signal?.aborted) throw new Error("Privileged Storage unavailable");
+    if (providerSignal.aborted) throw new Error("Privileged Storage unavailable");
     if (!result.ok) throw new Error("Privileged Storage rejected operation");
-    return result;
+    return { result, providerSignal };
   }
   return {
     authorize: scoped.authorize,
@@ -94,7 +97,9 @@ export function createServerManagedStoragePort(
     async readBackPrivate(userId, receipt) {
       if (!UUID.test(userId)) throw new TypeError("Invalid authenticated reader");
       const path = checkedPath(receipt);
-      const response = await admin("authenticated/bm-evidence/" + path, { method: "GET" });
+      const { result: response, providerSignal } = await admin(
+        "authenticated/bm-evidence/" + path, { method: "GET" },
+      );
       const length = response.headers.get("content-length");
       if (length !== null && (
         !/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)) ||
@@ -103,7 +108,11 @@ export function createServerManagedStoragePort(
         try { void response.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
         throw new Error("Private evidence exceeds expected size");
       }
-      return readBoundedPrivateStorage(response.body, receipt.byte_length, 25_000, config.signal);
+      const bytes = await readBoundedPrivateStorage(
+        response.body, receipt.byte_length, 25_000, providerSignal,
+      );
+      if (providerSignal.aborted) throw new Error("Privileged Storage unavailable");
+      return bytes;
     },
     issueTrustedReceipt: config.issueTrustedReceipt,
   };

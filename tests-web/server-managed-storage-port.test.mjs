@@ -108,3 +108,37 @@ test("admin fetch refuses redirects and pre-aborted requests",async()=>{
   await assert.rejects(port.uploadPrivate(USER,receipt,BYTES),/unavailable/);
   assert.equal(paths.length,1);
 });
+
+
+test("privileged Storage read does not restart provider timeout after response headers",async()=>{
+  const originalTimeout=AbortSignal.timeout;
+  const deadline=new AbortController();
+  let resolveReading, observedSignal;
+  const reading=new Promise(resolve=>{resolveReading=resolve;});
+  const receipt={
+    organization_id:TENANT,object_path:TENANT+"/"+ID+".pdf",
+    byte_length:BYTES.length,content_type:"application/pdf",
+    content_sha256:createHash("sha256").update(BYTES).digest("hex"),
+  };
+  try{
+    AbortSignal.timeout=()=>deadline.signal;
+    const port=createServerManagedStoragePort({
+      accessToken:TOKEN,publishableKey:PUB,secretKey:SEC,
+      issueTrustedReceipt:async()=>assert.fail("No receipt"),
+      http:async(_url,init)=>{
+        observedSignal=init.signal;
+        return new Response(new ReadableStream({
+          start(stream){stream.enqueue(BYTES.subarray(0,2));},
+          pull(){resolveReading();return new Promise(()=>{});},
+        }),{status:200});
+      },
+    });
+    const pending=port.readBackPrivate(USER,receipt);
+    await reading;
+    deadline.abort();
+    await assert.rejects(pending,/cancelled/);
+    assert.equal(observedSignal,deadline.signal);
+  }finally{
+    AbortSignal.timeout=originalTimeout;
+  }
+});

@@ -38,3 +38,19 @@ User authentication and member lookup previously called `Response.json()` on unr
 ## One provider deadline across headers and body (2026-10-18)
 
 The Supabase Auth profile (7 seconds), membership PostgREST lookup (7 seconds) and private evidence receipt metadata lookup (10 seconds) now pass **the same composed provider AbortSignal** to both the HTTP request and the fixed-buffer streamed-body reader. Previously the HTTP timeout applied to the initial `fetch` and the body reader started a second full deadline, so slow headers could extend a sensitive authorization decision beyond its intended request budget. The internal read-only ambiguous-receipt inspection likewise uses one shared 7-second signal across headers and body. Abort or expiration is fail-closed: it cannot grant membership, return private evidence bytes, or treat an uncertain remote receipt as committed. The per-body limits remain 64 KiB Auth, 32 KiB memberships, and 8 KiB receipt metadata. Tests simulate a stalled body after headers and verify propagation of the exact same provider signal. These are offline/injected-provider tests, not real signed-in Supabase HTTP approval.
+
+
+## Private Storage stream deadline and scoped Auth caps (2026-10-18)
+
+Both the signed-user `createSupabaseEvidencePort()` and privileged
+`createServerManagedStoragePort()` now retain the exact provider AbortSignal
+used for the initial Storage GET and pass it through the bounded byte reader.
+A slow response cannot consume a full 30-second fetch budget and then restart
+another 25-second stream budget. Expiration, including expiration just before
+returning bytes, fails closed. The signed-user adapter's secondary Auth and
+membership checks now use bounded JSON (64 KiB user, 32 KiB membership) with
+one shared 7-second provider budget from HTTP headers through EOF, rather than
+unrestricted `Response.json()` calls. Mocked stalled-stream/deadline and
+oversized-provider regressions run in normal web unit tests. These safeguards
+do not establish real Supabase Auth/Storage acceptance or authorize activation
+of customer evidence uploads/downloads.

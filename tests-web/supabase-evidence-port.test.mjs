@@ -312,3 +312,61 @@ test("provider request signal aborts with server request and retains its fixed t
   const later = evidenceProviderSignal(controller.signal, 30_000);
   assert.equal(later.aborted, true);
 });
+
+
+test("Auth and membership deny oversized provider JSON rather than using unbounded Response.json", async () => {
+  for (const endpoint of ["/auth/v1/user", "/rest/v1/bm_memberships"]) {
+    const paths = [];
+    const port = createSupabaseEvidencePort({
+      accessToken: token, publishableKey: key,
+      issueTrustedReceipt: async () => assert.fail("No receipt should be issued"),
+      http: async (url) => {
+        const path = new URL(String(url)).pathname;
+        paths.push(path);
+        if (path === endpoint) {
+          const payload = path === "/auth/v1/user"
+            ? { id: user, extra: "a".repeat(70_000) }
+            : [{ organization_id: tenant, extra: "a".repeat(40_000) }];
+          return json(payload);
+        }
+        if (path === "/auth/v1/user") return json({ id: user });
+        throw Error("Unexpected provider request after oversized JSON");
+      },
+    });
+    assert.equal(await port.authorize(user, tenant), false);
+    assert.equal(paths.at(-1), endpoint);
+  }
+});
+
+test("authenticated Storage read uses its fetch deadline for the entire streamed body", async () => {
+  const originalTimeout = AbortSignal.timeout;
+  const deadline = new AbortController();
+  let signal, resolveReading;
+  const reading = new Promise(resolve => { resolveReading = resolve; });
+  const receipt = {
+    organization_id: tenant, object_path: tenant + "/" + fileId + ".pdf",
+    byte_length: document.length, content_type: "application/pdf",
+    content_sha256: createHash("sha256").update(document).digest("hex"),
+  };
+  try {
+    AbortSignal.timeout = () => deadline.signal;
+    const port = createSupabaseEvidencePort({
+      accessToken: token, publishableKey: key,
+      issueTrustedReceipt: async () => assert.fail("No receipt should be issued"),
+      http: async (_url, init) => {
+        signal = init.signal;
+        return new Response(new ReadableStream({
+          start(stream) { stream.enqueue(document.subarray(0, 2)); },
+          pull() { resolveReading(); return new Promise(() => {}); },
+        }), { status: 200 });
+      },
+    });
+    const pending = port.readBackPrivate(user, receipt);
+    await reading;
+    deadline.abort();
+    await assert.rejects(pending, /cancelled/);
+    assert.equal(signal, deadline.signal);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+});

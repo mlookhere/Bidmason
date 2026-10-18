@@ -1,6 +1,7 @@
 import type { EvidenceIngestionPort, EvidenceReceipt } from "./evidence";
 import { readBoundedPrivateStorage } from "./bounded-private-storage.ts";
 import { evidenceProviderSignal } from "./evidence-provider-signal.ts";
+import { readBoundedProviderJson } from "./bounded-provider-json.ts";
 
 // Pinned to the only approved BidMason project; no user-supplied host or bucket.
 const ORIGIN = "https://jgbogpunyzkoytrclqdl.supabase.co";
@@ -52,16 +53,36 @@ export function createSupabaseEvidencePort(
     Authorization: "Bearer " + config.accessToken,
   };
 
-  async function response(url: string | URL, init: RequestInit): Promise<Response> {
+  // Auth and membership responses are untrusted streams, not unrestricted
+  // Response.json() calls. Share the initial fetch's 7-second provider budget.
+  async function readProviderJson(
+    result: Response, maxBytes: number, signal: AbortSignal,
+  ): Promise<unknown> {
+    const length = result.headers.get("content-length");
+    if (length !== null && (!/^\d+$/.test(length)
+      || !Number.isSafeInteger(Number(length)) || Number(length) > maxBytes)) {
+      throw new Error("Invalid private provider response length");
+    }
+    const value = await readBoundedProviderJson(result.body, maxBytes, 7_000, signal);
+    if (signal.aborted) throw new Error("Private provider response expired");
+    return value;
+  }
+
+  async function response(
+    url: string | URL, init: RequestInit, timeoutMs: 7_000 | 30_000 = 30_000,
+  ): Promise<{ result: Response; providerSignal: AbortSignal }> {
     if (config.signal?.aborted) throw new Error("Private evidence service unavailable");
     try {
-      return await http(url, {
+      const providerSignal = evidenceProviderSignal(config.signal, timeoutMs);
+      const result = await http(url, {
         ...init, headers: { ...headers, ...init.headers },
         cache: "no-store",
         // No bearer/API-key replay to a server-selected redirect target.
         redirect: "error",
-        signal: evidenceProviderSignal(config.signal, 30_000),
+        signal: providerSignal,
       });
+      if (providerSignal.aborted) throw new Error("Provider response arrived after deadline");
+      return { result, providerSignal };
     } catch {
       throw new Error("Private evidence service unavailable");
     }
@@ -70,11 +91,15 @@ export function createSupabaseEvidencePort(
   return {
     async authorize(userId: string, organizationId: string): Promise<boolean> {
       if (!UUID.test(userId) || !UUID.test(organizationId)) return false;
-      const profile = await response(ORIGIN + "/auth/v1/user", { method: "GET" });
+      const { result: profile, providerSignal: authSignal } = await response(
+        ORIGIN + "/auth/v1/user", { method: "GET" }, 7_000,
+      );
       if (profile.status === 401 || profile.status === 403) return false;
       if (!profile.ok) throw new Error("Auth provider unavailable");
       let account: unknown;
-      try { account = await profile.json(); } catch { return false; }
+      try {
+        account = await readProviderJson(profile, 64 * 1024, authSignal);
+      } catch { return false; }
       if (!account || typeof account !== "object" || !("id" in account)
         || account.id !== userId) return false;
 
@@ -83,11 +108,15 @@ export function createSupabaseEvidencePort(
       query.searchParams.set("user_id", "eq." + userId);
       query.searchParams.set("organization_id", "eq." + organizationId);
       query.searchParams.set("limit", "1");
-      const membership = await response(query, { method: "GET" });
+      const { result: membership, providerSignal: memberSignal } = await response(
+        query, { method: "GET" }, 7_000,
+      );
       if (membership.status === 401 || membership.status === 403) return false;
       if (!membership.ok) throw new Error("Membership provider unavailable");
       let rows: unknown;
-      try { rows = await membership.json(); } catch { return false; }
+      try {
+        rows = await readProviderJson(membership, 32 * 1024, memberSignal);
+      } catch { return false; }
       return Array.isArray(rows) && rows.length === 1
         && rows[0] !== null && typeof rows[0] === "object"
         && rows[0].organization_id === organizationId;
@@ -101,7 +130,7 @@ export function createSupabaseEvidencePort(
       const path = validPath(receipt);
       const url = ORIGIN + "/storage/v1/object/" + BUCKET + "/" + path;
       // Default INSERT only; never request upsert/overwrite.
-      const upload = await response(url, {
+      const { result: upload } = await response(url, {
         method: "POST",
         headers: { "Content-Type": receipt.content_type, "x-upsert": "false" },
         body: new Blob([Uint8Array.from(bytes)], { type: receipt.content_type }),
@@ -113,7 +142,7 @@ export function createSupabaseEvidencePort(
     async readBackPrivate(userId: string, receipt: EvidenceReceipt): Promise<Uint8Array> {
       if (!UUID.test(userId)) throw new TypeError("Invalid actor");
       const path = validPath(receipt);
-      const download = await response(
+      const { result: download, providerSignal } = await response(
         ORIGIN + "/storage/v1/object/authenticated/" + BUCKET + "/" + path,
         { method: "GET" },
       );
@@ -135,7 +164,9 @@ export function createSupabaseEvidencePort(
         try { void download.body?.cancel().catch(() => {}); } catch { /* fail closed */ }
         throw new Error("Private evidence exceeds expected size");
       }
-      return readBoundedPrivateStorage(download.body, limit, 25_000, config.signal);
+      const bytes = await readBoundedPrivateStorage(download.body, limit, 25_000, providerSignal);
+      if (providerSignal.aborted) throw new Error("Private evidence service unavailable");
+      return bytes;
     },
 
     issueTrustedReceipt: config.issueTrustedReceipt,
