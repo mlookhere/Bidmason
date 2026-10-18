@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     authorization: request.headers.get("authorization"),
     organizationId: url.searchParams.get("organizationId"),
     objectPath: url.searchParams.get("objectPath"),
-  }, { publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY });
+  }, { publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY, signal: request.signal });
   if (result.status !== 200) {
     return Response.json({ error: result.error }, { status: result.status, headers: HEADERS });
   }

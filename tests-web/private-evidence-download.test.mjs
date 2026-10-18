@@ -46,7 +46,9 @@ function fixture(mode = {}) {
         content_type: "application/pdf",
         content_sha256: mode.badDigest ? "invalid" : sha,
       };
-      return json(mode.missing ? [] : [receipt]);
+      if (mode.metadataBody !== undefined) return new Response(mode.metadataBody, {status:200});
+      if (mode.metadataResponse) return mode.metadataResponse;
+      return json(mode.missing ? [] : mode.duplicate ? [receipt,receipt] : [receipt]);
     }
     if (parsed.pathname === "/storage/v1/object/authenticated/bm-evidence/" + path) {
       const payload = mode.tamper
@@ -140,4 +142,80 @@ test("HTTP evidence route is disabled by default and exposes no data", async () 
     if (prior === undefined) delete process.env.BIDMASON_PRIVATE_DOWNLOAD_ENABLED;
     else process.env.BIDMASON_PRIVATE_DOWNLOAD_ENABLED = prior;
   }
+});
+
+test("duplicate, oversized and invalid-JSON receipt responses are refused before Storage",async()=>{
+  for(const mode of [
+    { duplicate: true },
+    { metadataBody: "[" + " ".repeat(9000) + "]" },
+    { metadataBody: "{malformed" },
+    { metadataResponse: new Response("[]",{status:200,headers:{"content-length":"9000000"}}) },
+  ]) {
+    const {http,calls}=fixture(mode);
+    const result=await downloadMemberEvidence(input,{publishableKey,http});
+    assert.equal(result.status,502);
+    assert.equal(calls.filter(c=>c.parsed.pathname.startsWith("/storage/")).length,0);
+  }
+});
+
+test("already-aborted private download makes zero provider calls",async()=>{
+  const controller=new AbortController();
+  controller.abort();
+  const {http,calls}=fixture();
+  assert.equal((await downloadMemberEvidence(input,{
+    publishableKey,http,signal:controller.signal,
+  })).status,408);
+  assert.equal(calls.length,0);
+});
+
+test("abort during receipt response streaming cancels read and never fetches Storage",async()=>{
+  const controller=new AbortController();
+  let firstRead;
+  const entered=new Promise(resolve=>{firstRead=resolve;});
+  let cancelled=false;
+  const body=new ReadableStream({
+    pull() {
+      firstRead();
+      // Leave the JSON document unclosed until cancellation.
+      return new Promise(()=>{});
+    },
+    cancel(){cancelled=true;},
+  });
+  const f=fixture();
+  const http=async(url,init)=>{
+    if(new URL(String(url)).pathname==="/rest/v1/bm_evidence_receipts")
+      return new Response(body,{status:200});
+    return f.http(url,init);
+  };
+  const pending=downloadMemberEvidence(input,{
+    publishableKey,http,signal:controller.signal,
+  });
+  await entered;
+  controller.abort();
+  const result=await pending;
+  assert.equal(result.status,408);
+  assert.equal("bytes" in result,false);
+  assert.ok(cancelled);
+  assert.equal(f.calls.some(c=>c.parsed.pathname.startsWith("/storage/")),false);
+});
+
+test("abort during authenticated provider lookup never reaches receipt or Storage",async()=>{
+  const controller=new AbortController();
+  let active;
+  const entered=new Promise(resolve=>{active=resolve});
+  let requests=0;
+  const http=async(_url,init)=>{
+    requests++;
+    active();
+    return new Promise((_resolve,reject)=>{
+      init.signal.addEventListener("abort",()=>reject(Error("cancelled")),{once:true});
+    });
+  };
+  const pending=downloadMemberEvidence(input,{
+    publishableKey,http,signal:controller.signal,
+  });
+  await entered;
+  controller.abort();
+  assert.equal((await pending).status,408);
+  assert.equal(requests,1);
 });

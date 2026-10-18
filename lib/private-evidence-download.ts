@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { lookupAccount, BIDMASON_SUPABASE_URL } from "./supabase-account.ts";
+import { evidenceProviderSignal } from "./evidence-provider-signal.ts";
+import { readBoundedProviderJson } from "./bounded-provider-json.ts";
 import { createSupabaseEvidencePort } from "./supabase-evidence-port.ts";
 import type { EvidenceContentType, EvidenceReceipt } from "./evidence.ts";
 
@@ -10,10 +12,11 @@ const TYPES: Record<string, EvidenceContentType> = {
   pdf: "application/pdf", png: "image/png", jpg: "image/jpeg",
 };
 const MAX_BYTES = 15 * 1024 * 1024;
+const MAX_METADATA_BYTES = 8 * 1024;
 
 type DownloadResult =
   | { status: 200; bytes: Uint8Array; contentType: EvidenceContentType }
-  | { status: 400 | 401 | 404 | 502 | 503; error: string };
+  | { status: 400 | 401 | 404 | 408 | 502 | 503; error: string };
 
 /**
  * Private, member-authenticated alternative to nonrevocable signed URLs.
@@ -21,14 +24,18 @@ type DownloadResult =
  */
 export async function downloadMemberEvidence(
   input: { authorization: string | null; organizationId: string | null; objectPath: string | null },
-  config: { publishableKey: string | undefined; http?: typeof fetch },
+  config: { publishableKey: string | undefined; http?: typeof fetch; signal?: AbortSignal },
 ): Promise<DownloadResult> {
   const { organizationId, objectPath } = input;
   const path = objectPath && PATH.exec(objectPath);
   if (!organizationId || !UUID.test(organizationId) || !path || path[1] !== organizationId) {
     return { status: 400, error: "Invalid evidence reference" };
   }
-  const account = await lookupAccount(input.authorization, config.publishableKey, config.http);
+  if (config.signal?.aborted) return { status: 408, error: "Evidence request cancelled" };
+  const account = await lookupAccount(
+    input.authorization, config.publishableKey, config.http, config.signal,
+  );
+  if (config.signal?.aborted) return { status: 408, error: "Evidence request cancelled" };
   if (account.status !== 200) return { status: account.status, error: account.error };
   if (!account.data.memberships.some(m => m.organizationId === organizationId)) {
     return { status: 404, error: "Evidence not found" };
@@ -39,7 +46,7 @@ export async function downloadMemberEvidence(
   query.searchParams.set("select", "organization_id,object_path,content_sha256,byte_length,content_type");
   query.searchParams.set("organization_id", "eq." + organizationId);
   query.searchParams.set("object_path", "eq." + objectPath);
-  query.searchParams.set("limit", "1");
+  query.searchParams.set("limit", "2");
   try {
     const result = await http(query, {
       headers: {
@@ -49,13 +56,22 @@ export async function downloadMemberEvidence(
       },
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(10000),
+      signal: evidenceProviderSignal(config.signal, 10_000),
     });
     if (result.status === 401 || result.status === 403) {
       return { status: 401, error: "Authentication failed" };
     }
     if (!result.ok) return { status: 502, error: "Evidence metadata unavailable" };
-    const rows: unknown = await result.json();
+    const length = result.headers.get("content-length");
+    if (length !== null && (!/^\d+$/.test(length)
+      || !Number.isSafeInteger(Number(length))
+      || Number(length) > MAX_METADATA_BYTES)) {
+      return { status: 502, error: "Invalid evidence metadata" };
+    }
+    const rows: unknown = await readBoundedProviderJson(
+      result.body, MAX_METADATA_BYTES, 10_000, config.signal,
+    );
+    if (config.signal?.aborted) return { status: 408, error: "Evidence request cancelled" };
     if (!Array.isArray(rows) || rows.length === 0) {
       return { status: 404, error: "Evidence not found" };
     }
@@ -76,6 +92,7 @@ export async function downloadMemberEvidence(
       accessToken: token,
       issueTrustedReceipt: async () => { throw new Error("Read-only evidence access"); },
       http,
+      signal: config.signal,
     });
     const bytes = await port.readBackPrivate(account.data.id, receipt as EvidenceReceipt);
     if (createHash("sha256").update(bytes).digest("hex") !== receipt.content_sha256) {
@@ -83,13 +100,16 @@ export async function downloadMemberEvidence(
     }
     // Read membership again: revocation during the asynchronous download
     // must not result in the file being returned to the caller.
-    const current = await lookupAccount(input.authorization, config.publishableKey, http);
+    const current = await lookupAccount(input.authorization, config.publishableKey, http, config.signal);
+    if (config.signal?.aborted) return { status: 408, error: "Evidence request cancelled" };
     if (current.status !== 200 || current.data.id !== account.data.id
       || !current.data.memberships.some(m => m.organizationId === organizationId)) {
       return { status: 401, error: "Evidence authorization expired" };
     }
     return { status: 200, bytes, contentType: receipt.content_type! };
   } catch {
-    return { status: 502, error: "Private evidence service unavailable" };
+    return config.signal?.aborted
+      ? { status: 408, error: "Evidence request cancelled" }
+      : { status: 502, error: "Private evidence service unavailable" };
   }
 }

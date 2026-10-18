@@ -1,5 +1,6 @@
 import type { EvidenceReceipt } from "./evidence.ts";
 import { evidenceProviderSignal } from "./evidence-provider-signal.ts";
+import { readBoundedProviderJson } from "./bounded-provider-json.ts";
 
 /**
  * Read-only audit of an ambiguous privileged receipt INSERT.
@@ -56,46 +57,6 @@ function validExpected(receipt: EvidenceReceipt, config: ReceiptReconciliationCo
   return true;
 }
 
-async function readSmallJsonBody(body: ReadableStream<Uint8Array> | null, signal: AbortSignal): Promise<unknown> {
-  if (!body || signal.aborted) throw new Error("No bounded receipt body");
-  const reader = body.getReader();
-  const bytes = new Uint8Array(MAX_RESPONSE_BYTES);
-  let total = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-  let finished = false;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("Receipt read timed out")), READ_DEADLINE_MS);
-  });
-  const cancellation = new Promise<never>((_, reject) => {
-    onAbort = () => reject(new Error("Receipt read cancelled"));
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-  });
-  try {
-    while (true) {
-      const { done, value } = await Promise.race([reader.read(), deadline, cancellation]);
-      if (done) break;
-      if (!(value instanceof Uint8Array) || value.byteLength === 0
-        || value.byteLength > MAX_RESPONSE_BYTES - total) {
-        throw new Error("Malformed or oversized receipt response");
-      }
-      bytes.set(value, total);
-      total += value.byteLength;
-    }
-    if (total === 0 || signal.aborted) throw new Error("Empty or cancelled receipt response");
-    finished = true;
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, total)));
-  } finally {
-    clearTimeout(timer);
-    if (onAbort) signal.removeEventListener("abort", onAbort);
-    if (!finished) {
-      try { void reader.cancel().catch(() => {}); } catch { /* do not block */ }
-    }
-    reader.releaseLock();
-  }
-}
-
 /** An observational audit, not an automatic recovery operation. */
 export async function inspectAmbiguousReceiptCommit(
   expected: EvidenceReceipt,
@@ -135,7 +96,9 @@ export async function inspectAmbiguousReceiptCommit(
       || Number(length) > MAX_RESPONSE_BYTES || !Number.isSafeInteger(Number(length)))) {
       return reference;
     }
-    const rows = await readSmallJsonBody(response.body, evidenceProviderSignal(config.signal, 7_000));
+    const rows = await readBoundedProviderJson(
+      response.body, MAX_RESPONSE_BYTES, READ_DEADLINE_MS, config.signal,
+    );
     if (config.signal?.aborted || !Array.isArray(rows) || rows.length > 1) return reference;
     if (rows.length === 0) return { ...reference, status: "not_observed" };
 
