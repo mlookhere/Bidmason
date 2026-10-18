@@ -95,7 +95,7 @@ test("wrong Auth identity or unauthorized tenant is rejected without Storage acc
 });
 test("rejected upload, tampered download, revocation or database conflict never succeed", async () => {
   const cases = [
-    [{rejectUpload: true}, /upload rejected/],
+    [{rejectUpload: true}, /Privileged Storage rejected operation/],
     [{tamper: true}, /differ/],
     [{revoke: true}, /revoked/],
     [{rejectReceipt: true}, /insertion rejected/],
@@ -172,7 +172,7 @@ test("in-flight private Storage upload receives abort signal and cannot read bac
   const pending = ingestForSignedInMember({ ...input, signal: controller.signal }, cfg(http));
   await started;
   controller.abort();
-  await assert.rejects(pending, /Private evidence service unavailable/);
+  await assert.rejects(pending, /Privileged Storage unavailable/);
   assert.equal(calls.some(x => x.parsed.pathname.startsWith("/storage/")), false,
     "stalled upload mock is not a persisted Storage object");
   assert.equal(calls.some(x => x.parsed.pathname === "/rest/v1/bm_evidence_receipts"), false);
