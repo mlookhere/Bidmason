@@ -48,6 +48,8 @@ export async function downloadMemberEvidence(
   query.searchParams.set("object_path", "eq." + objectPath);
   query.searchParams.set("limit", "2");
   try {
+    // A single immutable deadline applies to the receipt headers AND body.
+    const receiptSignal = evidenceProviderSignal(config.signal, 10_000);
     const result = await http(query, {
       headers: {
         apikey: config.publishableKey!,
@@ -56,8 +58,9 @@ export async function downloadMemberEvidence(
       },
       cache: "no-store",
       redirect: "error",
-      signal: evidenceProviderSignal(config.signal, 10_000),
+      signal: receiptSignal,
     });
+    if (receiptSignal.aborted) return { status: 502, error: "Evidence metadata unavailable" };
     if (result.status === 401 || result.status === 403) {
       return { status: 401, error: "Authentication failed" };
     }
@@ -69,9 +72,10 @@ export async function downloadMemberEvidence(
       return { status: 502, error: "Invalid evidence metadata" };
     }
     const rows: unknown = await readBoundedProviderJson(
-      result.body, MAX_METADATA_BYTES, 10_000, config.signal,
+      result.body, MAX_METADATA_BYTES, 10_000, receiptSignal,
     );
     if (config.signal?.aborted) return { status: 408, error: "Evidence request cancelled" };
+    if (receiptSignal.aborted) return { status: 502, error: "Evidence metadata unavailable" };
     if (!Array.isArray(rows) || rows.length === 0) {
       return { status: 404, error: "Evidence not found" };
     }

@@ -83,23 +83,26 @@ export async function inspectAmbiguousReceiptCommit(
   });
   try {
     const http = config.http ?? fetch;
+    // The receipt is advisory, but even advisory reads must not turn
+    // a seven-second provider deadline into fetch time PLUS body time.
+    const providerSignal = evidenceProviderSignal(config.signal, 7_000);
     const response = await http(BASE + "?" + params.toString(), {
       method: "GET",
       headers: { apikey: config.secretKey, Accept: "application/json" },
       cache: "no-store",
       redirect: "error",
-      signal: evidenceProviderSignal(config.signal, 7_000),
+      signal: providerSignal,
     });
-    if (config.signal?.aborted || response.status !== 200) return reference;
+    if (providerSignal.aborted || response.status !== 200) return reference;
     const length = response.headers.get("content-length");
     if (length !== null && (!/^\d+$/.test(length)
       || Number(length) > MAX_RESPONSE_BYTES || !Number.isSafeInteger(Number(length)))) {
       return reference;
     }
     const rows = await readBoundedProviderJson(
-      response.body, MAX_RESPONSE_BYTES, READ_DEADLINE_MS, config.signal,
+      response.body, MAX_RESPONSE_BYTES, READ_DEADLINE_MS, providerSignal,
     );
-    if (config.signal?.aborted || !Array.isArray(rows) || rows.length > 1) return reference;
+    if (providerSignal.aborted || !Array.isArray(rows) || rows.length > 1) return reference;
     if (rows.length === 0) return { ...reference, status: "not_observed" };
 
     const row = rows[0];

@@ -133,3 +133,25 @@ test("abort during provider lookup returns unavailable, never retries or exposes
   assert.equal((await pending).status,"unavailable");
   assert.equal(requests.length,1);
 });
+
+
+test("advisory receipt lookup uses the same timeout signal for its HTTP and body stages",async()=>{
+  const controller=new AbortController();
+  let received;
+  let entered;
+  const opened=new Promise(resolve=>{entered=resolve});
+  const unreadable=new ReadableStream({
+    pull(){entered();return new Promise(()=>{});},
+  });
+  const {options,requests}=context(async(_url,init)=>{
+    received=init.signal;
+    return new Response(unreadable,{status:200});
+  },{signal:controller.signal});
+  const running=inspectAmbiguousReceiptCommit(receipt,options);
+  await opened;
+  assert.ok(received instanceof AbortSignal);
+  controller.abort();
+  assert.equal((await running).status,"unavailable");
+  assert.equal(received.aborted,true);
+  assert.equal(requests.length,1);
+});

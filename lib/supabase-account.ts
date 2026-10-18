@@ -54,19 +54,23 @@ export async function lookupAccount(
     accept: "application/json",
   };
   try {
+    // The SAME signal governs headers and streamed JSON. A slow HTTP
+    // response cannot reset the seven-second budget for the body.
+    const profileSignal = evidenceProviderSignal(requestSignal, 7_000);
     const profile = await http(BIDMASON_SUPABASE_URL + "/auth/v1/user", {
       headers,
       cache: "no-store",
       // Fail before any redirect is followed with the user JWT or API key.
       redirect: "error",
-      signal: evidenceProviderSignal(requestSignal, 7_000),
+      signal: profileSignal,
     });
+    if (profileSignal.aborted) throw new Error("Auth provider deadline expired");
     if (profile.status === 401 || profile.status === 403) {
       return { status: 401, error: "Authentication failed" };
     }
     if (!profile.ok) return { status: 502, error: "Authentication service unavailable" };
-    const user: unknown = await boundedAccountJson(profile, MAX_AUTH_JSON, requestSignal);
-    if (requestSignal?.aborted) throw new Error("Account lookup cancelled");
+    const user: unknown = await boundedAccountJson(profile, MAX_AUTH_JSON, profileSignal);
+    if (profileSignal.aborted) throw new Error("Auth provider deadline expired");
     if (!user || typeof user !== "object" || !("id" in user)
       || typeof user.id !== "string" || !UUID.test(user.id)) {
       return { status: 502, error: "Unexpected account response" };
@@ -75,18 +79,20 @@ export async function lookupAccount(
     url.searchParams.set("select", "organization_id,member_role");
     url.searchParams.set("user_id", "eq." + user.id);
     if (requestSignal?.aborted) throw new Error("Account lookup cancelled");
+    const membershipSignal = evidenceProviderSignal(requestSignal, 7_000);
     const memberships = await http(url, {
       headers,
       cache: "no-store",
       redirect: "error",
-      signal: evidenceProviderSignal(requestSignal, 7_000),
+      signal: membershipSignal,
     });
+    if (membershipSignal.aborted) throw new Error("Membership provider deadline expired");
     if (memberships.status === 401 || memberships.status === 403) {
       return { status: 401, error: "Authorization failed" };
     }
     if (!memberships.ok) return { status: 502, error: "Account memberships unavailable" };
-    const records: unknown = await boundedAccountJson(memberships, MAX_MEMBERSHIP_JSON, requestSignal);
-    if (requestSignal?.aborted) throw new Error("Account lookup cancelled");
+    const records: unknown = await boundedAccountJson(memberships, MAX_MEMBERSHIP_JSON, membershipSignal);
+    if (membershipSignal.aborted) throw new Error("Membership provider deadline expired");
     if (!Array.isArray(records) || records.length > 100) {
       return { status: 502, error: "Unexpected membership response" };
     }

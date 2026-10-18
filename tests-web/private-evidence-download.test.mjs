@@ -253,3 +253,29 @@ test("abort during authenticated provider lookup never reaches receipt or Storag
   assert.equal((await pending).status,408);
   assert.equal(requests,1);
 });
+
+
+test("receipt HTTP deadline signal continues through its streamed response body",async()=>{
+  const controller=new AbortController();
+  const f=fixture();
+  let receivedSignal;
+  let entered;
+  const opened=new Promise(resolve=>{entered=resolve});
+  const body=new ReadableStream({
+    pull(){entered();return new Promise(()=>{});},
+  });
+  const http=async(url,init)=>{
+    if(new URL(String(url)).pathname==="/rest/v1/bm_evidence_receipts"){
+      receivedSignal=init.signal;
+      return new Response(body,{status:200});
+    }
+    return f.http(url,init);
+  };
+  const running=downloadMemberEvidence(input,{publishableKey,http,signal:controller.signal});
+  await opened;
+  assert.ok(receivedSignal instanceof AbortSignal);
+  controller.abort();
+  assert.equal((await running).status,408);
+  assert.equal(receivedSignal.aborted,true);
+  assert.ok(!f.calls.some(x=>x.parsed.pathname.startsWith("/storage/")));
+});

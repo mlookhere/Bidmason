@@ -190,3 +190,33 @@ test("client abort while membership body stalls returns no partial memberships",
   assert.equal((await pending).status,502);
   assert.equal(calls.length,2);
 });
+
+
+test("Auth and membership provider deadlines apply to both headers and streamed body", async()=>{
+  for (const stallAt of ["/auth/v1/user","/rest/v1/bm_memberships"]) {
+    const controller = new AbortController();
+    let entered;
+    const started = new Promise(resolve=>{entered=resolve});
+    let headersSignal;
+    let calls=0;
+    const body = new ReadableStream({
+      pull(){entered();return new Promise(()=>{});},
+    });
+    const http = async(url,init)=>{
+      calls++;
+      const path=new URL(String(url)).pathname;
+      if (path===stallAt) {
+        headersSignal=init.signal;
+        return new Response(body,{status:200});
+      }
+      return new Response(JSON.stringify({id:ID}),{status:200});
+    };
+    const result = lookupAccount(TOKEN,KEY,http,controller.signal);
+    await started;
+    assert.ok(headersSignal instanceof AbortSignal);
+    controller.abort();
+    assert.equal((await result).status,502);
+    assert.equal(headersSignal.aborted,true);
+    assert.equal(calls,stallAt==="/auth/v1/user"?1:2);
+  }
+});
