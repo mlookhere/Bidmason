@@ -40,7 +40,9 @@ export async function readExactEvidenceBytes(
   });
 
   let done = false;
-  const chunks: Uint8Array[] = [];
+  // Preallocate no more than the authenticated, validated Content-Length.
+  // Holding one tiny array per incoming chunk is unsafe for fragmented bodies.
+  const output = new Uint8Array(expected);
   let total = 0;
   try {
     while (true) {
@@ -51,18 +53,12 @@ export async function readExactEvidenceBytes(
       }
       // Compare *before* addition; a bogus chunk length cannot overflow safely.
       if (next.value.byteLength > expected - total) return null;
+      // Copy synchronously before the next await: no mutable caller-owned
+      // chunks are retained, and memory is O(expected) not O(chunk-count).
+      output.set(next.value, total);
       total += next.value.byteLength;
-      // Snapshot each chunk rather than retaining possibly mutable stream
-      // storage while awaiting the next chunk.
-      chunks.push(Uint8Array.from(next.value));
     }
     if (total !== expected) return null;
-    const output = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      output.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
     // A disconnect between the final read and commit is never success.
     if (controller.signal.aborted) throw new EvidenceBodyInterrupted();
     done = true;

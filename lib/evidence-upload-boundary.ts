@@ -90,6 +90,9 @@ export async function processEvidenceUpload(
     return fail(400, "Evidence request could not be read");
   }
   if (!bytes) return fail(400, "Evidence content length mismatch");
+  if (request.signal.aborted) {
+    return fail(408, "Evidence request timed out or was cancelled");
+  }
   try {
     // Validate actual magic bytes using the existing centralized format policy.
     prepareEvidenceReceipt(organizationId, randomUUID(), contentType, bytes);
@@ -102,6 +105,11 @@ export async function processEvidenceUpload(
     }
   } catch {
     return fail(503, "Evidence safety scanner unavailable");
+  }
+  // A client can disconnect while malware scanning is in flight. An explicit
+  // clean verdict is not permission to persist an abandoned upload.
+  if (request.signal.aborted) {
+    return fail(408, "Evidence request timed out or was cancelled");
   }
   // Ingest reauthenticates the real user and rechecks tenant authorization
   // again after private Storage readback, before any privileged receipt write.

@@ -72,3 +72,18 @@ test("deadline override cannot disable or expand the hard 30-second budget", asy
       RangeError);
   }
 });
+
+test("thousands of single-byte chunks assemble exactly without per-chunk retention", async () => {
+  const bytes = Buffer.alloc(8192);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = i % 251;
+  const chunks = Array.from(bytes, b => Uint8Array.of(b));
+  const observed = await readExactEvidenceBytes(stream(chunks), bytes.length, active());
+  assert.deepEqual(Buffer.from(observed), bytes);
+});
+
+test("an accepted stream retains its own bytes when the source buffer mutates", async () => {
+  const input = Uint8Array.from(PDF);
+  const observed = await readExactEvidenceBytes(stream([input]), input.length, active());
+  input.fill(0);
+  assert.deepEqual(Buffer.from(observed), PDF);
+});

@@ -244,3 +244,41 @@ test("body that streams declared bytes but never closes must not continue after 
   assert.equal(events.includes("scan"), false);
   assert.equal(events.includes("ingest"), false);
 });
+
+test("client disconnect during successful scan never invokes trusted ingestion", async () => {
+  const { deps, events } = fixture();
+  const signal = new AbortController();
+  const req = new Request("https://bidmason.invalid/api/evidence", {
+    method: "POST",
+    headers: {
+      authorization: TOKEN,
+      "x-bidmason-organization": ORG,
+      "content-type": "application/pdf",
+      "content-length": String(PDF.length),
+    },
+    body: PDF,
+    signal: signal.signal,
+  });
+  const originalScan = deps.scan;
+  deps.scan = async (...args) => {
+    const verdict = await originalScan(...args);
+    signal.abort(); // Disconnect while scanner was processing.
+    return verdict; // Even a genuine clean verdict cannot authorize Storage.
+  };
+  const outcome = await processEvidenceUpload(req, deps);
+  assert.equal(outcome.status, 408);
+  assert.equal(events.includes("scan"), true);
+  assert.equal(events.includes("ingest"), false);
+});
+
+test("an already-aborted request with full bytes does not issue a receipt", async () => {
+  const { deps, events } = fixture();
+  const controller = new AbortController();
+  const req = request();
+  // A real Request exposes a separate signal; construct with the controller.
+  const abortable = new Request(req, { signal: controller.signal });
+  controller.abort();
+  const outcome = await processEvidenceUpload(abortable, deps);
+  assert.equal(outcome.status, 408);
+  assert.equal(events.includes("ingest"), false);
+});
