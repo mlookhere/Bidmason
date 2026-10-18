@@ -83,7 +83,7 @@ test("rejected Storage upload cannot mint a trusted receipt", async () => {
 });
 
 test("different bytes returned by private Storage cannot mint a receipt", async () => {
-  const { port, issued } = harness({ changedBytes: Buffer.from("%PDF-1.7\nmodified bytes\n") });
+  const { port, issued } = harness({ changedBytes: Buffer.from(document.map((value, index) => index === document.length - 1 ? value ^ 1 : value)) });
   await assert.rejects(ingestVerifiedEvidence(user, tenant, "application/pdf",
     document, port, () => fileId), /differ/);
   assert.equal(issued.length, 0);

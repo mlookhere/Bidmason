@@ -47,7 +47,7 @@ function transport(mode={}) {
     if (parsed.pathname.startsWith("/storage/v1/object/authenticated/bm-evidence/")) {
       assert.equal(options.headers.apikey, publishableKey);
       assert.equal(options.headers.Authorization, input.authorization);
-      return new Response(mode.tamper ? Buffer.from("%PDF-1.7\nmodified\n") : document);
+      return new Response(mode.tamper ? Buffer.from(document.map((value, index) => index === document.length - 1 ? value ^ 1 : value)) : document);
     }
     if (parsed.pathname === "/rest/v1/bm_evidence_receipts") {
       assert.equal(options.method, "POST");
