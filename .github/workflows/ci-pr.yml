@@ -114,3 +114,157 @@ jobs:
         run: python3 -m playwright install --with-deps chromium
       - name: Chromium mobile, keyboard and disabled-intake E2E
         run: python3 ci/browser_qa.py
+
+  db-rls:
+    name: db-rls
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci-isolated-database-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: ci-isolated-database-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Bootstrap isolated Supabase auth contract
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+      - name: Install proposed tenant tables and RLS
+        run: psql -X -v ON_ERROR_STOP=1 -f db/schema.sql
+      - name: Exercise two-tenant authorization and revision approval
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
+      - name: Install evidence receipt FK and authorization policy
+        run: psql -X -v ON_ERROR_STOP=1 -f db/evidence_receipts.sql
+      - name: Enforce independent verification of business facts
+        run: psql -X -v ON_ERROR_STOP=1 -f db/review_independence.sql
+      - name: Install atomic evidence upload quota
+        run: psql -X -v ON_ERROR_STOP=1 -f db/upload_quota.sql
+      - name: Test atomic quotas and untrusted role denials
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_upload_quota_test.sql
+      - name: Seed server-only synthetic ingestion receipts
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_seed.sql
+      - name: Verify independent evidence review and audit immutability
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql
+      - name: Stub Supabase Storage tables for isolated CI only
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
+      - name: Install tenant-private evidence storage rules
+        run: psql -X -v ON_ERROR_STOP=1 -f db/storage_policies.sql
+      - name: Verify storage RLS and unauthorized mutations
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql
+      - name: Audit the complete Storage policy set and inject unsafe policies
+        run: psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
+      - name: Deny forged, missing or cross-tenant evidence receipts
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
+      - name: Apply final restrictive Storage write lockdown
+        run: psql -X -v ON_ERROR_STOP=1 -f db/storage_insert_lockdown.sql
+      - name: Prove authenticated users cannot bypass server-side scanning
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_lockdown_test.sql
+      - name: Install trusted uploader-based Storage read policy
+        run: psql -X -v ON_ERROR_STOP=1 -f db/evidence_uploader_read_access.sql
+      - name: Prove contractor own-receipt reads, revocation and shadow-policy denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_uploader_read_test.sql
+      - name: Restrict private receipt metadata to uploader or tenant reviewer
+        run: psql -X -v ON_ERROR_STOP=1 -f db/receipt_metadata_private_read.sql
+      - name: Prove receipt metadata privacy against other contractors and shadow policies
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_metadata_privacy_test.sql
+      - name: Prevent authenticated reads of uncommitted Storage evidence
+        run: psql -X -v ON_ERROR_STOP=1 -f db/storage_receipt_read_gate.sql
+      - name: Prove release quarantine for owners and permissive shadow policies
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_receipt_gate_test.sql
+      - name: Audit entire final Storage policy set and adverse mutations
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_final_audit.sql -f ci/db_storage_final_audit_test.sql
+      - name: Verify deterministic candidate migration is up to date
+        run: python3 scripts/build_migration.py --check
+      - name: Create a second empty database for candidate migration replay
+        run: createdb bm_migration_ci
+      - name: Bootstrap only local auth and Storage compatibility stubs
+        run: |
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
+      - name: Replay the five historical managed migrations before final lockdown
+        run: |
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017063426_bidmason_independent_fact_review.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018064847_bidmason_atomic_evidence_upload_quota.sql
+      - name: Re-run all positive and adversarial tenant tests on the migration
+        run: |
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_upload_quota_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_seed.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_fact_review_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f db/storage_policy_audit.sql -f ci/db_storage_audit_test.sql
+          PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_test.sql
+      - name: Replay sixth managed migration to deny direct Storage uploads
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018100829_bidmason_scan_gate_storage_lockdown.sql
+      - name: Verify final migrated Storage lockdown and shadow-policy denial
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_lockdown_test.sql
+      - name: Replay seventh managed migration for trusted uploader reads
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018104109_bidmason_evidence_uploader_read_access.sql
+      - name: Verify migrated uploader reads, revocation and shadow-policy denial
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_uploader_read_test.sql
+      - name: Replay eighth managed receipt metadata privacy migration
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018111633_bidmason_receipt_metadata_private_read.sql
+      - name: Verify migrated receipt metadata privacy and revocation
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_receipt_metadata_privacy_test.sql
+      - name: Replay ninth migration to quarantine objects without receipts
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018185018_bidmason_verified_receipt_storage_read.sql
+      - name: Verify migrated quarantine with real PostgreSQL RLS
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_receipt_gate_test.sql
+      - name: Re-audit every final Storage policy after nine-migration replay
+        run: PGDATABASE=bm_migration_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_final_audit.sql -f ci/db_storage_final_audit_test.sql
+      - name: Prepare clean database for rollback-only live proof rehearsal
+        run: |
+          createdb bm_live_probe_ci
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+          # Real Supabase owns auth.users; isolated auth.uid() stub does not.
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -c 'CREATE TABLE auth.users (id uuid PRIMARY KEY)'
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035730_bidmason_evidence_review_fk_index.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017063426_bidmason_independent_fact_review.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018064847_bidmason_atomic_evidence_upload_quota.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018100829_bidmason_scan_gate_storage_lockdown.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018104109_bidmason_evidence_uploader_read_access.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018111633_bidmason_receipt_metadata_private_read.sql
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261018185018_bidmason_verified_receipt_storage_read.sql
+      - name: Rehearse the live rollback-only Storage proof on an empty migrated database
+        run: PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/live_storage_rls_rollback.sql
+
+
+  av-real:
+    name: av-real
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install actual ClamAV daemon (no production signatures)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends clamav-daemon
+      - name: Require real ClamAV daemon detection of isolated EICAR fixture
+        env:
+          BIDMASON_REAL_CLAMAV_CI: "1"
+        run: node --test ci/clamav_real_integration.test.mjs
