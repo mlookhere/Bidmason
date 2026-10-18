@@ -113,3 +113,69 @@ test("cannot configure service keys, missing bearer tokens, or arbitrary paths",
     byte_length: document.length,
   }, document), /tenant-scoped/);
 });
+
+
+test("rejects advertised oversize before consuming any response bytes", async () => {
+  let pulls = 0;
+  const port = createSupabaseEvidencePort({
+    accessToken: token,
+    publishableKey: key,
+    issueTrustedReceipt: async () => assert.fail("No receipt should be issued"),
+    http: async () => new Response(new ReadableStream({
+      pull(controller) { pulls++; controller.enqueue(Uint8Array.of(37, 80, 68, 70, 45)); controller.close(); },
+    }), { status: 200, headers: { "content-length": "999999999" } }),
+  });
+  await assert.rejects(port.readBackPrivate(user, {
+    organization_id: tenant, object_path: tenant + "/" + fileId + ".pdf",
+    byte_length: document.length, content_type: "application/pdf",
+    content_sha256: "a".repeat(64),
+  }), /exceeds expected size/);
+  // A Web Stream implementation can prefetch one chunk; it must not consume
+  // or allocate an arbitrarily large body before checking the advertised size.
+  assert.ok(pulls <= 1);
+});
+
+test("rejects oversized streamed data without trusting missing or false content-length", async () => {
+  for (const mode of ["absent", "underreported"]) {
+    let cancelled = false;
+    let chunks = 0;
+    const port = createSupabaseEvidencePort({
+      accessToken: token,
+      publishableKey: key,
+      issueTrustedReceipt: async () => assert.fail("No receipt should be issued"),
+      http: async () => new Response(new ReadableStream({
+        pull(controller) {
+          chunks++;
+          controller.enqueue(new Uint8Array(64));
+        },
+        cancel() { cancelled = true; },
+      }), {
+        status: 200,
+        headers: mode === "underreported" ? { "content-length": "5" } : {},
+      }),
+    });
+    await assert.rejects(port.readBackPrivate(user, {
+      organization_id: tenant, object_path: tenant + "/" + fileId + ".pdf",
+      byte_length: 30, content_type: "application/pdf",
+      content_sha256: "a".repeat(64),
+    }), /exceeds expected size/);
+    assert.equal(cancelled, true);
+    assert.ok(chunks <= 3, "must stop streaming at first oversized chunk");
+  }
+});
+
+test("rejects truncated private Storage responses rather than trusting a valid-looking header", async () => {
+  const port = createSupabaseEvidencePort({
+    accessToken: token,
+    publishableKey: key,
+    issueTrustedReceipt: async () => assert.fail("No receipt should be issued"),
+    http: async () => new Response(document.subarray(0, 8), {
+      status: 200, headers: { "content-length": String(document.length) },
+    }),
+  });
+  await assert.rejects(port.readBackPrivate(user, {
+    organization_id: tenant, object_path: tenant + "/" + fileId + ".pdf",
+    byte_length: document.length, content_type: "application/pdf",
+    content_sha256: "a".repeat(64),
+  }), /size mismatch/);
+});

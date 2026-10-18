@@ -110,13 +110,49 @@ export function createSupabaseEvidencePort(
         { method: "GET" },
       );
       if (!download.ok) throw new Error("Private evidence download rejected");
-      const advertised = download.headers.get("content-length");
-      if (advertised !== null && Number(advertised) > MAX_BYTES) {
-        throw new Error("Private evidence exceeds size limit");
+      // The expected size is known from the bytes we just uploaded. Bound
+      // memory to that exact budget, even if Storage omits or lies about
+      // Content-Length. Never read an unbounded provider response into RAM.
+      if (!Number.isSafeInteger(receipt.byte_length)
+        || receipt.byte_length < 1 || receipt.byte_length > MAX_BYTES) {
+        throw new TypeError("Invalid expected evidence byte length");
       }
-      const buffer = new Uint8Array(await download.arrayBuffer());
-      if (buffer.length > MAX_BYTES) throw new Error("Private evidence exceeds size limit");
-      return buffer;
+      const limit = receipt.byte_length;
+      const advertised = download.headers.get("content-length");
+      if (advertised !== null && (
+        !/^\d+$/.test(advertised) || !Number.isSafeInteger(Number(advertised))
+        || Number(advertised) > limit
+      )) {
+        await download.body?.cancel();
+        throw new Error("Private evidence exceeds expected size");
+      }
+      if (!download.body) throw new Error("Private evidence download has no body");
+      const reader = download.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          total += value.byteLength;
+          if (total > limit) {
+            await reader.cancel();
+            throw new Error("Private evidence exceeds expected size");
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      if (total !== limit) throw new Error("Private evidence size mismatch");
+      const result = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return result;
     },
 
     issueTrustedReceipt: config.issueTrustedReceipt,
