@@ -234,6 +234,8 @@ jobs:
         run: |
           createdb bm_live_probe_ci
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_stub.sql
+          # Real Supabase owns auth.users; isolated auth.uid() stub does not.
+          PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -c 'CREATE TABLE auth.users (id uuid PRIMARY KEY)'
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f ci/db_storage_stub.sql
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035109_bidmason_tenant_foundation.sql
           PGDATABASE=bm_live_probe_ci psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20261017035151_bidmason_evidence_storage.sql
