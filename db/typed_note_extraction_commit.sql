@@ -133,10 +133,16 @@ begin
    ) then
    raise exception 'Malformed extraction candidate snapshot' using errcode='22023';
  end if;
+ -- Recompute the exact ordered JavaScript candidate tuple digest. A caller
+ -- cannot invent a valid-looking hash for modified suggestions.
+ if p_review->>'candidatesSha256' is distinct from
+   bm_intake_private.canonical_candidate_sha256(p_review->'candidates') then
+   raise exception 'Candidate snapshot SHA-256 mismatch'
+     using errcode='22023';
+ end if;
 
- -- SQL independently checks exact UTF-16 excerpts against original text.
- -- The trusted JS parser MUST still compute the canonical candidates-array
- -- SHA-256; SQL does not independently verify that aggregate.
+ -- SQL independently checks exact UTF-16 excerpts and canonical candidates
+ -- SHA-256. Fresh server-side Auth and membership remain mandatory.
  update public.bm_intake_sources
  set revision=2,review=p_review,
      extraction_audit=jsonb_build_array(jsonb_build_object(
