@@ -84,7 +84,7 @@ test("fresh Auth + approved policy + private CAS + primary readback produce revi
   assert.equal(result.revision,3);
   assert.equal(result.reviewedBy,ACTOR);
   assert.equal(f.writes,1);
-  assert.equal(f.authCalls,7);
+  assert.equal(f.authCalls,6);
   assert.deepEqual(f.calls.map(x=>x.sql.includes("commit_typed_note_scope_review")),
     [false,false,true,false,false]);
   assert.deepEqual(f.calls[2].params.slice(0,5),[
