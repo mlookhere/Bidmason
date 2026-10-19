@@ -169,6 +169,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_read.sql
       - name: Prove original projection and revoked creator isolation
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_read_test.sql
+      - name: Prove correction preflight against real source, Auth, membership and write denial
+        run: node --test ci/intake_correction_preflight_bridge.test.mjs
       - name: Prove real JS extraction bridge against disposable PostgreSQL
         run: node --test ci/intake_extraction_bridge.test.mjs
       - name: Prove concurrent private extraction CAS and singular durable audit
