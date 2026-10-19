@@ -43,8 +43,21 @@ export interface TrustedExtractionStore {
 
 type Selector = { organizationId: string; sourceId: string };
 
-function selector(input: Selector): void {
-  if (!input || typeof input !== "object" || Array.isArray(input)
+/** These are authority-bearing JSON values: no inherited, hidden, symbol
+ * or accessor properties may be interpreted as valid selectors. */
+function exactData(value: unknown, keys: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== keys.length) return false;
+  return keys.every(key => {
+    const d = Object.getOwnPropertyDescriptor(value, key);
+    return d?.enumerable === true && Object.hasOwn(d, "value");
+  });
+}
+
+function selector(input: Selector, keys: readonly string[] =
+  ["organizationId", "sourceId"]): void {
+  if (!exactData(input, keys)
     || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
     || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)) {
     throw new TypeError("Invalid tenant extraction selector");
@@ -108,13 +121,16 @@ export async function readExtractionPreparation(
 ): Promise<{ state: "ready-for-extraction"; organizationId: string;
   sourceId: string; expectedRevision: number; expectedSnapshotSha256: string }> {
   selector(input);
-  const current = await store.readAuthorized({ ...input, session });
-  checkRecord(current, input);
+  const target: Selector = {
+    organizationId: input.organizationId, sourceId: input.sourceId,
+  };
+  const current = await store.readAuthorized({ ...target, session });
+  checkRecord(current, target);
   if (current.review || current.extractionAudit.length > 0) {
     throw new Error("Extraction snapshot has already been committed");
   }
   return {
-    state: "ready-for-extraction", ...input,
+    state: "ready-for-extraction", ...target,
     expectedRevision: current.revision,
     expectedSnapshotSha256: fingerprint(current),
   };
@@ -133,12 +149,9 @@ export async function commitAuthorizedExtraction(
   store: TrustedExtractionStore, session: unknown, request: ExtractionCommitRequest,
 ): Promise<{ state: "needs-human-review"; sourceId: string;
   revision: number; sourceSha256: string; candidatesSha256: string }> {
-  selector(request);
-  if (!request || Object.keys(request).length !== 5
-    || ["organizationId", "sourceId", "expectedRevision",
-        "expectedSnapshotSha256", "rawExtractionResponse"]
-      .some(key => !Object.hasOwn(request, key))
-    || !Number.isSafeInteger(request.expectedRevision)
+  selector(request, ["organizationId", "sourceId", "expectedRevision",
+    "expectedSnapshotSha256", "rawExtractionResponse"]);
+  if (!Number.isSafeInteger(request.expectedRevision)
     || request.expectedRevision < 1
     || typeof request.expectedSnapshotSha256 !== "string"
     || !HASH.test(request.expectedSnapshotSha256)
@@ -147,18 +160,26 @@ export async function commitAuthorizedExtraction(
     || Buffer.byteLength(request.rawExtractionResponse, "utf8") > 32768) {
     throw new TypeError("Invalid untrusted extraction commit request");
   }
+  // Validate the model response and bind every requested CAS field before
+  // awaiting the database. Mutating caller data cannot retarget the write.
+  const target: ExtractionCommitRequest = {
+    organizationId: request.organizationId, sourceId: request.sourceId,
+    expectedRevision: request.expectedRevision,
+    expectedSnapshotSha256: request.expectedSnapshotSha256,
+    rawExtractionResponse: request.rawExtractionResponse,
+  };
   const prepared: {record: TenantExtractionRecord | null} = {record:null};
   const committed = await store.mutateAuthorized({
-    organizationId: request.organizationId,
-    sourceId: request.sourceId, session, permission:"extract",
+    organizationId: target.organizationId,
+    sourceId: target.sourceId, session, permission:"extract",
     transform(current, authenticatedActorId) {
-      checkRecord(current, request);
+      checkRecord(current, target);
       if (typeof authenticatedActorId !== "string"
         || !UUID.test(authenticatedActorId)) {
         throw new Error("Verified extraction operator identity required");
       }
-      if (current.revision !== request.expectedRevision
-        || fingerprint(current) !== request.expectedSnapshotSha256) {
+      if (current.revision !== target.expectedRevision
+        || fingerprint(current) !== target.expectedSnapshotSha256) {
         throw new Error("Stale extraction source revision");
       }
       if (current.review || current.extractionAudit.length !== 0) {
@@ -169,7 +190,7 @@ export async function commitAuthorizedExtraction(
       }
       // Parse inside the locked CAS against the stored original. The extractor
       // cannot provide prices, an approval flag, or arbitrary source contents.
-      const review = parseUntrustedExtraction(current.original, request.rawExtractionResponse);
+      const review = parseUntrustedExtraction(current.original, target.rawExtractionResponse);
       const nextRevision = current.revision + 1;
       const next: TenantExtractionRecord = {
         ...current, revision:nextRevision, review,
@@ -186,7 +207,7 @@ export async function commitAuthorizedExtraction(
   // An invalid adapter acknowledgement is a failed confirmation, never
   // evidence of a rollback or an accepted extraction.
   try {
-    checkRecord(committed, request);
+    checkRecord(committed, target);
   } catch {
     throw new Error("Extraction write did not confirm authorized transition");
   }
@@ -196,10 +217,10 @@ export async function commitAuthorizedExtraction(
   // Require the current authorized primary, not an eventual-consistency replica.
   // Failure here is indeterminate: transaction may already have committed.
   const stored = await store.readAuthorized({
-    organizationId:request.organizationId, sourceId:request.sourceId, session,
+    organizationId:target.organizationId, sourceId:target.sourceId, session,
   });
   try {
-    checkRecord(stored, request);
+    checkRecord(stored, target);
   } catch {
     throw new Error("Extraction committed record not confirmed by read-back");
   }
@@ -208,7 +229,7 @@ export async function commitAuthorizedExtraction(
   }
   const review = stored.review!;
   return {
-    state:"needs-human-review", sourceId:request.sourceId,
+    state:"needs-human-review", sourceId:target.sourceId,
     revision:stored.revision, sourceSha256:review.sourceSha256,
     candidatesSha256:review.candidatesSha256,
   };
