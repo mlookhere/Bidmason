@@ -1,6 +1,7 @@
 import { readActivePolicy, type PolicyHistory } from "./company-policy-revisions.ts";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
-import type { ExtractionReview, IntakeSource } from "./intake-review.ts";
+import { selectReviewedServices,
+  type ExtractionReview, type IntakeSource } from "./intake-review.ts";
 import { previewReviewedEconomics, type ReviewedEconomicsPreview }
   from "./intake-quote-preview.ts";
 import { buildReviewWorkbench, type ReviewWorkbenchModel }
@@ -68,6 +69,11 @@ function snapshotContext(input: SourceContext, preview=false): SourceContext {
     || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)) {
     throw new TypeError("Invalid internal review source context");
   }
+  // Both fields may originate in user-controlled intake. structuredClone
+  // executes enumerable object getters: validate the complete original,
+  // candidate collection, source SHA and review SHA before cloning or Auth.
+  // Selecting candidate 0 is an internal provenance probe, not human approval.
+  selectReviewedServices(input.original, input.review, [0]);
   try {
     return {organizationId:input.organizationId,
       original:structuredClone(input.original),
