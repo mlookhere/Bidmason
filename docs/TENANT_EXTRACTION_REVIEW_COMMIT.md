@@ -984,3 +984,58 @@ source-review CAS and concurrency gates remain enabled.
 This remains **staging only**; a synthetic reviewer decision is not
 independent commercial consent or live Supabase approval. No public
 route, pricing publication, customer send or billing is enabled.
+
+
+## Read-only company-policy activation reconciliation after unknown outcomes
+
+`lib/trusted-company-policy-recovery.ts` now provides a separate
+**server-only, read-only** reconciliation API for a policy activation
+whose database acknowledgement may have been lost. Its selector
+contains only the tenant, opaque reviewer session, historical
+revision and canonical policy SHA; no client-provided actor, service
+rates, approval decision, write instruction or retry toggle is accepted.
+
+Each of **two independent observations** freshly authenticates the
+reviewer, reads the full authorized `TrustedPolicyStore` immutable
+history, requires the requested revision to have been independently
+approved by that same reviewer, and reads both the currently active
+approved policy and the exact immutable historical activated version
+from privileged **primary** PostgreSQL. The SQL queries independently
+bind current same-tenant `owner/operator` membership, and the
+adapter validates every persisted policy's canonical SHA, revision,
+submitter and reviewer against the durable history. It rejects
+forged historical versions, an activated pointer missing its
+immutable approval, a recorded future activation behind an older
+head, missing membership and any inconsistent history.
+
+The only permitted observations are:
+- `not-active-at-read`: the requested approved policy was not active
+  at the two observed instants; this does **not** prove an earlier
+  transaction rolled back or authorize a retry.
+- `matching-active-at-read`: the matching immutable approval was
+  active at both observation instants; this is **not** a customer
+  approval or proof of a particular invocation's authorship.
+- `historical-superseded-at-read`: this exact approved revision was
+  activated historically, but a subsequently approved revision is
+  the current head.
+- `changed-during-read`: the independently authorized observations
+  saw different head states or checksums; no successful outcome
+  may be inferred.
+
+No method executes a write, retries an unknown activation, produces
+a quote or authorizes a send. Every result is point-in-time evidence
+only. `tests-web/trusted-company-policy-recovery.test.mjs` covers
+two-pass observations, authorization, forged historical SHA, session
+identity changes, malformed selectors and active-head movement during
+the reads. `ci/intake_policy_store_bridge.test.mjs` now exercises
+actual isolated PostgreSQL initial approval, unactivated policy,
+activated v1, later active v2 with historical v1, membership
+revocation, and recovery after an intentionally lost v1 activation
+acknowledgement. The PostgreSQL test driver allowlist was expanded
+only for the exact new historical **SELECT**, not for any write.
+
+This remains a staged provider-contract integration with synthetic
+users. Live Supabase Auth, actual independent human approval,
+PostgREST/RLS/private Storage, antivirus, recovery/retention,
+privacy/legal and security acceptance under Item 3 are still
+mandatory before production exposure.
