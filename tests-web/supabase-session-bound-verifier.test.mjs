@@ -186,3 +186,32 @@ test("private session check supports ordinary PostgreSQL metadata but never miss
   assert.equal(y.state.dbCalls,1);
  }
 });
+
+test("private session receipt rejects contradictory or accessor-backed PostgreSQL metadata",async()=>{
+ let getterCalls=0;
+ const badReceipts=[
+  {rows:[{active:true}],rowCount:0,command:"SELECT"},
+  {rows:[{active:true}],rowCount:2,command:"SELECT"},
+  {rows:[{active:true}],rowCount:"1",command:"SELECT"},
+  {rows:[{active:true}],rowCount:null,command:"SELECT"},
+  {rows:[{active:true}],rowCount:1,command:"UPDATE"},
+  {rows:[{active:true}],rowCount:1,command:null},
+  Object.defineProperty({rows:[{active:true}],command:"SELECT"},
+   "rowCount",{enumerable:true,get(){
+    getterCalls++;throw Error("unsafe rowCount getter");
+   }}),
+  Object.defineProperty({rows:[{active:true}],rowCount:1},
+   "command",{enumerable:true,get(){
+    getterCalls++;throw Error("unsafe command getter");
+   }}),
+ ];
+ for(const result of badReceipts){
+  const x=setup();
+  x.db.query=async()=>{x.state.dbCalls++;return result;};
+  await assert.rejects(x.verifier.verifySessionBinding(jwt()),
+   /Current verified Supabase Auth session required/);
+  assert.equal(x.state.authCalls,1);
+  assert.equal(x.state.dbCalls,1);
+ }
+ assert.equal(getterCalls,0);
+});
