@@ -255,3 +255,24 @@ test("actual PG rechecks source ownership and reviewer permission for read-only 
    organizationId:h.org,sourceId:h.sourceId}),/not awaiting human review/);
  assert.equal(h.writes,1);
 });
+
+test("actual PostgreSQL read-only scope reconciliation after lost acknowledgement",async()=>{
+ const f=fixture({lostAck:true});
+ const initially=await f.api.reconcile(f.input);
+ assert.equal(initially.state,"unreviewed-at-read");
+ assert.equal(f.writes,0);
+ await assert.rejects(f.api.commit(f.input),/Simulated lost PostgreSQL/);
+ assert.equal(f.stored.revision,3);
+ const matching=await f.api.reconcile(f.input);
+ assert.equal(matching.state,"matching-scope-at-read");
+ assert.equal(matching.revision,3);
+ assert.equal(matching.reviewedSelectionSha256,
+   f.stored.scope_review.reviewedSelectionSha256);
+ assert.equal(f.writes,1);
+ assert.equal(f.calls.filter(x=>x.statement.includes("commit_typed_note_scope_review")).length,1);
+ const different=await f.api.reconcile({...f.input,reviewKey:"f".repeat(64)});
+ assert.equal(different.state,"different-scope-at-read");
+ f.revokeMember();
+ await assert.rejects(f.api.reconcile(f.input));
+ assert.equal(f.writes,1);
+});
