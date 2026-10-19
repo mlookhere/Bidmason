@@ -887,3 +887,53 @@ that verified provider integration and all Item 3 tenant security,
 private Storage, antivirus, privacy/legal and recovery acceptance,
 the activation remains unavailable to customers and cannot authorize
 a sendable quote.
+
+
+## Primary PostgreSQL TrustedPolicyStore adapter (staged)
+
+`lib/trusted-postgres-policy-store.ts` now implements the exact
+`TrustedPolicyStore` port used by `submitCompanyPolicyDraft`,
+`reviewCompanyPolicyDraft`, `previewAuthorizedReviewedEconomics`, and
+`createTrustedCompanyPolicyActivation`. The implementation depends on
+a freshly verified `ActiveSessionVerifier` and server-held
+`PrivateIntakeDatabase` primary connection; it does **not** define
+live Supabase credentials, a public RPC or a customer route.
+
+For every read, the adapter verifies the opaque session anew and executes
+`bm_intake_private.read_policy_history` with the authenticated actor.
+It validates the exact history/revision record shape and runs
+`assertValidCompanyPolicyHistory` even when no policy has yet been
+approved. An absent policy history returns null only after current
+membership checks in PostgreSQL; revoked or foreign actors are denied.
+
+For a mutation, the adapter treats its callback as **untrusted**.
+It supplies a copy of the current history and the freshly authenticated
+actor, then reconstructs the ONLY permissible submitted-draft or
+reviewed-draft transition with `submitPolicyDraft` or
+`reviewPolicyDraft`. It requires exact structural equality, preventing
+the callback from inventing a reviewer, decision, earlier revision,
+ratecard or active head. It reauthenticates immediately before one
+privileged PostgreSQL append-only submission/review CAS. Database
+functions again lock and authorize current membership and the
+submission head. After writing, it performs another fresh authorized
+history read, and returns only if the **entire** persisted history
+equals the validated expected transition. A changed identity, stale
+head, corrupted response or lost acknowledgement is an indeterminate
+failure, **never an automatic retry**.
+
+The mandatory `intake-db` gate now runs
+`ci/intake_policy_store_bridge.test.mjs` against real disposable
+PostgreSQL and the actual TypeScript policy-service operations.
+Coverage includes initial draft, independent approval, activation of
+the resulting durable approved policy, rejected successor retaining
+the previous active version, a later draft, malicious callback,
+self-review, stale head, outsider/revoked member, and post-write
+revocation or simulated lost acknowledgement with no replay.
+
+**Remaining boundary:** This is a valid stage-to-primary adapter,
+not live browser/authenticated proof of two distinct human decisions.
+The injected verifier and database driver still need genuine
+Supabase session validation, tenant-specific service-role isolation,
+production approval authorization, audit/recovery controls and Item 3
+security/privacy/legal acceptance. No customer-facing approval,
+quote sending or billing is enabled.
