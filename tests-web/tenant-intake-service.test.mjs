@@ -91,7 +91,11 @@ test("source revision changes mid-read invalidate review model",async()=>{
 test("evidence changes without revision bump invalidate a preview",async()=>{
  const f=fixture(),request=await selected(f);
  f.onRead(({sourceReads,records})=>{if(sourceReads===3){
- const changed=structuredClone(records.get(S));changed.review.candidates[0].units=3;
+ const changed=structuredClone(records.get(S));
+ // Simulate a fresh internally consistent review replacing the prior
+ // snapshot without a revision bump; the second read must still detect it.
+ changed.review=prepareExtractionReview(changed.original,
+   changed.review.candidates.map((row,i)=>i===0?{...row,units:3}:row));
  records.set(S,changed);}});
  await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
  {...selector,request}),/changed during preview/);
