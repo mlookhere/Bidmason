@@ -106,3 +106,70 @@ test("corrected transcript cannot exceed the source text limit",()=>{
   uncertaintyIndex:0,replacement:"additional text",explanation:"Checked"}]),
   /unbounded/);
 });
+
+
+test("untrusted transcript outcome and uncertainty getters never execute",()=>{
+ let getterCalls=0;
+ const bad=[
+  ()=>Object.defineProperty(blocked(),"state",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe state getter");}}),
+  ()=>{const b=blocked();Object.defineProperty(b.original,"text",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe transcript getter");}});return b;},
+  ()=>{const b=blocked();Object.defineProperty(b,"approved",{value:true});return b;},
+  ()=>{const b=blocked();b[Symbol("send")]=true;return b;},
+  ()=>Object.setPrototypeOf(blocked(),{approved:true}),
+  ()=>{const b=blocked();Object.defineProperty(b.original,"hidden",{value:true});return b;},
+  ()=>{const b=blocked();Object.defineProperty(b.uncertainties,"0",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe span index");}});return b;},
+  ()=>{const b=blocked();delete b.uncertainties[0];return b;},
+  ()=>{const b=blocked();b.uncertainties[Symbol("send")]=true;return b;},
+  ()=>{const b=blocked();Object.setPrototypeOf(b.uncertainties,
+    Object.create(Array.prototype));return b;},
+  ()=>{const b=blocked();Object.defineProperty(b.uncertainties[0],"reason",{
+    enumerable:true,get(){getterCalls++;throw Error("unsafe span reason");}});return b;},
+  ()=>{const b=blocked();Object.defineProperty(b.uncertainties[0],"hidden",{
+    value:"approved"});return b;},
+ ];
+ for(const make of bad){
+  const candidate=make();
+  assert.throws(()=>listTranscriptClarifications(candidate));
+  assert.throws(()=>prepareTranscriptCorrectionDraft(candidate,changes));
+ }
+ assert.equal(getterCalls,0);
+});
+
+test("untrusted correction decisions must be plain dense data before fingerprinting",()=>{
+ let getterCalls=0;
+ const base=()=>structuredClone(changes);
+ const bad=[
+  ()=>{const c=base();Object.defineProperty(c,"0",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe decision index");}});return c;},
+  ()=>{const c=base();delete c[0];return c;},
+  ()=>{const c=base();c[Symbol("approved")]=true;return c;},
+  ()=>{const c=base();Object.setPrototypeOf(c,
+    Object.create(Array.prototype));return c;},
+  ()=>{const c=base();Object.defineProperty(c[0],"replacement",{
+    enumerable:true,get(){getterCalls++;throw Error("unsafe replacement");}});return c;},
+  ()=>{const c=base();Object.defineProperty(c[0],"explanation",{
+    enumerable:true,get(){getterCalls++;throw Error("unsafe explanation");}});return c;},
+  ()=>{const c=base();Object.defineProperty(c[0],"approved",{value:true});return c;},
+  ()=>{const c=base();c[0][Symbol("send")]=true;return c;},
+  ()=>{const c=base();Object.setPrototypeOf(c[0],{approved:true});return c;},
+ ];
+ for(const make of bad){
+  assert.throws(()=>prepareTranscriptCorrectionDraft(blocked(),make()));
+ }
+ assert.equal(getterCalls,0);
+});
+
+test("plain null-prototype transcript and correction records preserve pending draft semantics",()=>{
+ const r=Object.assign(Object.create(null),blocked());
+ r.original=Object.assign(Object.create(null),r.original);
+ r.uncertainties=r.uncertainties.map(x=>Object.assign(Object.create(null),x));
+ const decisions=changes.map(x=>Object.assign(Object.create(null),x));
+ const out=prepareTranscriptCorrectionDraft(r,decisions);
+ assert.equal(out.state,"awaiting-authorized-correction");
+ assert.equal(out.proposedSource.transcriptionSucceeded,false);
+ assert.equal(out.proposedSource.text,"Paint 15 units, install 40 fixtures.");
+ assert.equal(listTranscriptClarifications(r).length,2);
+});
