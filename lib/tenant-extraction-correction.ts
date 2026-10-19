@@ -529,3 +529,47 @@ export async function commitAuthorizedExtractionActivation(
     sourceId:last.sourceId,revision:last.revision,
     activatedBy:saved.activatedBy,activationSha256:saved.activationSha256};
 }
+
+/** Pure consistency verification for a separately activated human correction.
+ * Not an authentication claim: callers must obtain the record through a
+ * trusted tenant-authorized primary read or locked transaction. */
+export function verifyActivatedCorrectionLineage(
+  record: TenantExtractionCorrectionRecord, target: Selector,
+): {correctedReview: ExtractionReview; activationSha256: string} {
+  selector(target);
+  const active = record?.activatedCorrection;
+  if (!active || record.organizationId !== target.organizationId
+    || record.sourceId !== target.sourceId
+    || !Number.isSafeInteger(record.revision) || record.revision < 4
+    || record.scopeReview !== null || record.pendingCorrection != null
+    || active.state !== "awaiting-renewed-human-scope-review"
+    || active.sourceRevision !== record.revision
+    || typeof active.activatedBy !== "string" || !UUID.test(active.activatedBy)) {
+    throw new Error("Activated correction and source lineage are inconsistent");
+  }
+  // A reconstructable pre-activation record must still contain the original
+  // extractor evidence, singular audit, and exact reasoned pending correction.
+  const before: TenantExtractionCorrectionRecord = {
+    ...record,
+    revision: record.revision - 1,
+    activatedCorrection: null,
+    pendingCorrection: active.priorCorrection,
+    scopeReview: null,
+  };
+  checkRecord(before, target, true);
+  const {pending, correctedReview} = verifiedPending(before);
+  const expectedActivationSha256 = createHash("sha256").update(JSON.stringify([
+    record.organizationId,record.sourceId,record.revision,active.activatedBy,
+    fingerprint(before),pending.correctionSha256,correctedReview.candidatesSha256,
+  ])).digest("hex");
+  const expected: ActivatedExtractionCorrection = {
+    state:"awaiting-renewed-human-scope-review",
+    sourceRevision:record.revision,activatedBy:active.activatedBy,
+    activationSha256:expectedActivationSha256,
+    priorCorrection:pending,correctedReview,
+  };
+  if (!isDeepStrictEqual(active, expected)) {
+    throw new Error("Activated correction audit does not match original evidence");
+  }
+  return {correctedReview, activationSha256:expectedActivationSha256};
+}
