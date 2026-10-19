@@ -280,3 +280,66 @@ test("corrected proposal selector rejects inherited or symbol approval directive
  }
  assert.equal(calls,0);
 });
+
+
+test("hostile corrected draft readback cannot execute stored getters or custom serializers",async()=>{
+ const f=fixture();await reviewed(f);
+ const baseline=f.get();
+ let getters=0,policyReads=0,sourceReads=0;
+ const policies={readAuthorized:async()=>{policyReads++;
+  throw Error("Unexpected company policy lookup");}};
+ const mutations=[
+  row=>Object.defineProperty(row,"organizationId",{enumerable:true,
+   get(){getters++;throw Error("Unsafe organization getter");}}),
+  row=>Object.defineProperty(row,"correctedScopeReview",{enumerable:true,
+   get(){getters++;throw Error("Unsafe corrected scope getter");}}),
+  row=>Object.defineProperty(row.correctedScopeReview,"reviewedBy",{enumerable:true,
+   get(){getters++;throw Error("Unsafe reviewer getter");}}),
+  row=>Object.defineProperty(row.correctedScopeReview.selectedIndices,"0",{
+   enumerable:true,get(){getters++;throw Error("Unsafe selection index");}}),
+  row=>{delete row.correctedScopeReview.selectedIndices[0];},
+  row=>{row.correctedScopeReview.acceptedAddonCodes[Symbol("send")]=true;},
+  row=>Object.setPrototypeOf(row.correctedScopeReview.selectedIndices,
+   Object.create(Array.prototype)),
+  row=>Object.defineProperty(row.activatedCorrection.priorCorrection,"toJSON",{
+   enumerable:true,value(){getters++;throw Error("Unsafe serializer");}}),
+  row=>Object.defineProperty(row.activatedCorrection.correctedReview.candidates,"0",{
+   enumerable:true,get(){getters++;throw Error("Unsafe candidate index");}}),
+  row=>Object.defineProperty(row.extractionAudit[0],"actorId",{enumerable:true,
+   get(){getters++;throw Error("Unsafe audit actor");}}),
+  row=>Object.defineProperty(row.review.candidates[0],"hiddenApproval",{value:true}),
+  row=>{row[Symbol("approve")]=true;},
+  row=>{row.correctedScopeReview.next=row.correctedScopeReview;},
+  row=>{row.correctedScopeReview.policyRevision=Number.POSITIVE_INFINITY;},
+ ];
+ for(const mutate of mutations){
+  const stored=structuredClone(baseline);mutate(stored);
+  const source={readAuthorized:async()=>{sourceReads++;return stored;}};
+  await assert.rejects(draft(f,source,policies),
+   /Unsafe corrected proposal evidence/);
+ }
+ assert.equal(sourceReads,mutations.length);
+ assert.equal(policyReads,0);
+ assert.equal(getters,0);
+});
+
+test("unsafe evidence introduced only on second corrected draft read fails closed",async()=>{
+ const f=fixture();await reviewed(f);
+ let reads=0,getters=0,policyReads=0;
+ const source={async readAuthorized(input){
+  const record=await f.store.readAuthorized(input);
+  if(++reads===2){
+   Object.defineProperty(record.correctedScopeReview,"toJSON",{
+    enumerable:true,value(){getters++;throw Error("Unsafe late serializer");}});
+  }
+  return record;
+ }};
+ const policies={readAuthorized:async input=>{
+  policyReads++;return f.policyStore.readAuthorized(input);
+ }};
+ await assert.rejects(draft(f,source,policies),
+  /Unsafe corrected proposal evidence/);
+ assert.equal(reads,2);
+ assert.equal(policyReads,1);
+ assert.equal(getters,0);
+});
