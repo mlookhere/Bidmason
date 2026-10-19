@@ -107,9 +107,9 @@ test("invalid client selectors cannot trigger Auth or private SQL",async()=>{
 });
 test("revocation or actor switch between reads blocks any recovery classification",async()=>{
  for(const mode of ["revoke","switchActor"]){
-   const f=fixture([row(),()=>{f[mode]();return {rows:[row()]};}]);
+   const f=fixture([()=>{f[mode]();return {rows:[row()]};},row()]);
    await assert.rejects(f.api.reconcile(input),/Auth revoked|identity changed/);
-   assert.equal(f.calls.length,2);
+   assert.equal(f.calls.length,1);
  }
  // The session can also be invalidated after the FIRST successful SQL read,
  // before verifying the second identity.
