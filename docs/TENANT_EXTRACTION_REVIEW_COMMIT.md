@@ -1039,3 +1039,62 @@ users. Live Supabase Auth, actual independent human approval,
 PostgREST/RLS/private Storage, antivirus, recovery/retention,
 privacy/legal and security acceptance under Item 3 are still
 mandatory before production exposure.
+
+
+## Read-only receipt recovery for uncertain policy submissions and reviews
+
+`lib/trusted-company-policy-event-recovery.ts` provides a server-only,
+read-only, **two-observation** recovery workflow for the append-only
+durable policy submission and independently reviewed decision ledger.
+The existing `TrustedPostgresPolicyStore` still executes at most one
+private write per submit/review operation and NEVER retries a write
+after a lost acknowledgement. This recovery implementation supplies
+point-in-time ledger evidence without adding a write path.
+
+The selector accepts only organization UUID, opaque active session,
+revision, policy SHA-256, and either `kind: "submission"` or
+`kind: "review"` with explicit `decision: "approve" | "reject"`.
+The actor is ALWAYS derived from fresh server-side verification,
+never supplied by the caller. Every observation uses a separately
+authorized `TrustedPolicyStore.readAuthorized` and validates the
+**entire** immutable history before looking up its revision.
+
+For submission recovery, an observed matching record must have
+the same submitter UUID and canonical SHA-256. Its status may have
+progressed from `draft` to `approved` or `rejected`; this is
+still the original durable submission receipt, not a new approval.
+For review recovery, the adapter independently checks current
+`owner/operator` membership using a restricted read-only
+PostgreSQL `FOR SHARE` query, including when a review decision
+has not yet been recorded. A recorded review must match this
+authenticated reviewer's UUID, the exact SHA and the requested
+approval/rejection decision. A self-review cannot be treated as
+an unrecorded legitimate review.
+
+Two observations of matching identity and evidence return
+`matching-record-at-read` or `not-recorded-at-read`, with
+`observedStatus` (null, draft, approved or rejected). Different
+observations produce `changed-during-read` with no success claim.
+Conflicting SHA, wrong submitter or reviewer, permission loss,
+bad selector, malformed history, or other ambiguity fails closed.
+In particular, **not recorded at two instants is NOT proof that the
+original write was rolled back, and NEVER licenses a retry**.
+
+`tests-web/trusted-company-policy-event-recovery.test.mjs` checks
+both observations, draft→decision races, wrong reviewer decisions,
+forged source SHA, changed session, self-review, revoked reviewer
+permission and malformed selectors without SQL writes. The mandatory
+real-PostgreSQL `ci/intake_policy_store_bridge.test.mjs` now
+simulates separately lost submit and approve acknowledgements
+**after durable commits** and confirms recovery reads the correct
+immutable receipts while issuing zero additional writes. A real
+database membership downgrade from owner to contractor is also
+tested: the reviewer can still read ordinary tenant history but
+cannot claim independent reviewer privileges in recovery.
+
+These are staging tests with injected synthetic session verification
+and disposable PostgreSQL. Genuine Supabase authentication,
+independent human signatures, RLS/private evidence, antivirus,
+retention/recovery, privacy/legal and security acceptance under
+Item 3 remain mandatory. No customer-facing approval, retry,
+send, billing or production route is enabled.
