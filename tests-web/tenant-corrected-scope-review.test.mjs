@@ -233,3 +233,89 @@ test("reviewed scope cannot falsify the immutable activation revision",async()=>
  await assert.rejects(commitAuthorizedCorrectedScopeReview(
   second.store,second.policyStore,"reviewer",initial));
 });
+
+
+test("corrected scope commit freezes decision and selected arrays before policy Auth await",async()=>{
+ const f=fixture();await activated(f);
+ const req=await request(f);
+ const originally={...req,selectedIndices:[...req.selectedIndices],
+  acceptedAddonCodes:[...req.acceptedAddonCodes]};
+ let policyReads=0;
+ f.hooks.policy(()=>{
+  if(++policyReads===1){
+   req.organizationId=FOREIGN;
+   req.sourceId="22222222-2222-4222-8222-222222222222";
+   req.expectedRevision=99;
+   req.expectedSnapshotSha256="0".repeat(64);
+   req.activationSha256="0".repeat(64);
+   req.reviewKey="0".repeat(64);
+   req.selectedIndices[0]=1;
+   req.acceptedAddonCodes.push("floor");
+  }
+ });
+ const result=await commitAuthorizedCorrectedScopeReview(
+  f.store,f.policyStore,"reviewer",req);
+ assert.equal(result.state,"reviewed-corrected-scope-internal-only");
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.revision,5);
+ assert.equal(f.counts().writes,3);
+ assert.deepEqual(f.get().correctedScopeReview.selectedIndices,
+  originally.selectedIndices);
+ assert.deepEqual(f.get().correctedScopeReview.acceptedAddonCodes,
+  originally.acceptedAddonCodes);
+ assert.equal(f.get().correctedScopeReview.reviewKey,originally.reviewKey);
+ assert.ok(policyReads>=2);
+});
+
+test("corrected scope context snapshots tenant and source before first read",async()=>{
+ const f=fixture();await activated(f);
+ const selected={...selector};
+ let seen=0;
+ f.hooks.read(()=>{if(++seen===1){
+  selected.organizationId=FOREIGN;
+  selected.sourceId="22222222-2222-4222-8222-222222222222";
+ }});
+ const result=await readCorrectedScopeContext(
+  f.store,f.policyStore,"reviewer",selected);
+ assert.equal(result.organizationId,ORG);
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.state,"requires-renewed-human-corrected-scope-review");
+ assert.ok(seen>=2);
+});
+
+test("corrected scope rejects forged selection arrays and selector getters before providers",async()=>{
+ const f=fixture();await activated(f);
+ const valid=await request(f);
+ const before=f.counts();
+ let called=0;
+ const indexedGetter={...valid,selectedIndices:[0]};
+ Object.defineProperty(indexedGetter.selectedIndices,"0",{enumerable:true,
+  get(){called++;throw Error("unsafe selected index getter");}});
+ const addonGetter={...valid,acceptedAddonCodes:["floor"]};
+ Object.defineProperty(addonGetter.acceptedAddonCodes,"0",{enumerable:true,
+  get(){called++;throw Error("unsafe optional acknowledgement getter");}});
+ const extra={...valid,selectedIndices:[0]};
+ Object.defineProperty(extra.selectedIndices,"send",{value:true});
+ const sparse={...valid,selectedIndices:new Array(1)};
+ const altered={...valid,acceptedAddonCodes:[]};
+ Object.setPrototypeOf(altered.acceptedAddonCodes,Object.create(Array.prototype));
+ for(const invalid of [indexedGetter,addonGetter,extra,sparse,altered]){
+  await assert.rejects(commitAuthorizedCorrectedScopeReview(
+   f.store,f.policyStore,"reviewer",invalid),
+   /Invalid corrected scope commit request/);
+ }
+ const hiddenSelector={...selector};
+ Object.defineProperty(hiddenSelector,"approved",{value:true});
+ const getterSelector={...selector};
+ Object.defineProperty(getterSelector,"organizationId",{enumerable:true,
+  get(){called++;throw Error("unsafe selector getter");}});
+ // The read context allows its legacy extra data keys, but not accessors.
+ for(const invalid of [getterSelector]){
+  await assert.rejects(readCorrectedScopeContext(
+   f.store,f.policyStore,"reviewer",invalid),
+   /Invalid corrected scope selector/);
+ }
+ assert.equal(called,0);
+ assert.deepEqual(f.counts(),before);
+ assert.equal(f.get().correctedScopeReview,null);
+});
