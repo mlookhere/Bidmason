@@ -7,7 +7,7 @@ declare
  v_policy jsonb;v_modified jsonb;v_sha text;v_receipt record;
 begin
  insert into public.bm_organizations(id,slug,name)
- values(v_org,'proof-'+v_org::text,'Independent policy approval proof');
+ values(v_org,'proof-'||v_org::text,'Independent policy approval proof');
  insert into public.bm_memberships(organization_id,user_id,member_role)
  values(v_org,v_submitter,'operator'),(v_org,v_reviewer,'owner'),
        (v_org,v_other,'owner');
