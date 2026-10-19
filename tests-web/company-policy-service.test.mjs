@@ -233,7 +233,8 @@ test("review CAS preserves the original human decision and expected head",async(
 test("economics preview binds original tenant, evidence and selection before authorized reads",async()=>{
   const f=fixture();await approved(f);
   const baseline=await previewAuthorizedReviewedEconomics(f.port,"readonlyA",request());
-  const input={...request(),selection:[0],acceptedAddonCodes:[]};
+  const input={...request(),review:structuredClone(review),
+    original:structuredClone(text),selection:[0],acceptedAddonCodes:[]};
   let reads=0;
   const store={...f.port,readAuthorized:async args=>{
     const data=await f.port.readAuthorized(args);
