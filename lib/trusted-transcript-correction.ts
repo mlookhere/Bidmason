@@ -130,6 +130,9 @@ export async function commitAuthorizedTranscriptCorrection(
     || !Array.isArray(request.decisions)) {
     throw new TypeError("Invalid transcript correction request");
   }
+  // Capture the only transition approved by this trusted callback. A backend
+  // response alone is not proof that this transition was durably committed.
+  const prepared: { record: TenantTranscriptRecord | null } = { record: null };
   const committed = await store.mutateAuthorized({
     session, organizationId: request.organizationId, sourceId: request.sourceId,
     permission: "correct-transcript",
@@ -164,7 +167,7 @@ export async function commitAuthorizedTranscriptCorrection(
         correctionSha256: draft.correctionSha256,
         changes: draft.corrections,
       };
-      return {
+      const next: TenantTranscriptRecord = {
         ...current, revision: nextRevision,
         activeSource: {
           kind: "transcript", text: draft.proposedSource.text,
@@ -172,15 +175,29 @@ export async function commitAuthorizedTranscriptCorrection(
         },
         correctionAudit: [...current.correctionAudit, audit],
       };
+      prepared.record = next;
+      return next;
     },
   });
   checkRecord(committed, request);
   const audit = committed.correctionAudit[0];
-  if (committed.revision !== request.expectedRevision + 1
+  if (!prepared.record || committed.revision !== request.expectedRevision + 1
     || !audit || audit.sourceRevision !== committed.revision
     || audit.correctionSha256 !== request.expectedCorrectionSha256
-    || !committed.activeSource || !committed.activeSource.transcriptionSucceeded) {
+    || !committed.activeSource || !committed.activeSource.transcriptionSucceeded
+    || fingerprint(committed) !== fingerprint(prepared.record)) {
     throw new Error("Trusted transcript persistence did not confirm commit");
+  }
+  // A successful mutation response can be fabricated or lost. Require a fresh,
+  // currently authorized, primary/linearizable read of the exact committed
+  // source revision and audit before reporting a confirmed correction. If ACLs
+  // change immediately after the write, fail closed without claiming success.
+  const stored = await store.readAuthorized({
+    session, organizationId: request.organizationId, sourceId: request.sourceId,
+  });
+  checkRecord(stored, request);
+  if (fingerprint(stored) !== fingerprint(prepared.record)) {
+    throw new Error("Trusted transcript read-back does not match committed correction");
   }
   return {
     state: "corrected-for-human-review", sourceId: request.sourceId,

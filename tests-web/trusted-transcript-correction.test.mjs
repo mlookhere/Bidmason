@@ -161,3 +161,36 @@ test("server-derived actor identity fails closed if absent or invalid",async()=>
  await assert.rejects(commitAuthorizedTranscriptCorrection(f.store,"editor",input),/Authenticated reviewer/);
  assert.equal(f.get().revision,1);
 });
+
+test("fabricated success response with correct fields but no database write is rejected",async()=>{
+ const f=fixture(),input=await prepare(f);
+ const liar={readAuthorized:f.store.readAuthorized,
+  async mutateAuthorized({transform}){return transform(f.get(),ACTOR);}};
+ await assert.rejects(commitAuthorizedTranscriptCorrection(liar,"editor",input),/read-back does not match/);
+ assert.equal(f.get().revision,1);
+ assert.equal(f.get().activeSource,null);
+});
+test("backend cannot return a different reviewer or modified audit as success",async()=>{
+ const f=fixture(),input=await prepare(f);
+ const forged={readAuthorized:f.store.readAuthorized,
+  async mutateAuthorized({transform}){const result=transform(f.get(),ACTOR);
+   return {...result,correctionAudit:[{...result.correctionAudit[0],actorId:OTHER}]};}};
+ await assert.rejects(commitAuthorizedTranscriptCorrection(forged,"editor",input),/did not confirm commit/);
+ assert.equal(f.get().correctionAudit.length,0);
+});
+test("committed data altered before authorized read-back is never confirmed",async()=>{
+ const f=fixture(),input=await prepare(f);
+ const store={readAuthorized:f.store.readAuthorized,
+  async mutateAuthorized(args){const result=await f.store.mutateAuthorized(args);
+   const changed=f.get();changed.activeSource.text="changed by another writer";f.put(changed);
+   return result;}};
+ await assert.rejects(commitAuthorizedTranscriptCorrection(store,"editor",input),/read-back does not match/);
+});
+test("permission revocation after write but before read-back prevents confirmation",async()=>{
+ const f=fixture(),input=await prepare(f);
+ const store={readAuthorized:f.store.readAuthorized,
+  async mutateAuthorized(args){const result=await f.store.mutateAuthorized(args);
+   f.grants.delete("editor");return result;}};
+ await assert.rejects(commitAuthorizedTranscriptCorrection(store,"editor",input),/Unauthorized/);
+ assert.equal(f.get().correctionAudit.length,1); // Durable commit may have happened.
+});

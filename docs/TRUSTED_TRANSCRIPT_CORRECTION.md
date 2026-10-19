@@ -36,3 +36,20 @@ Regression tests include race collisions, reviewer revocation before a queued
 transaction, cross-tenant/role denial, actor forgery, original tampering,
 unversioned changes, missing/dishonest persisted results and replay rejection.
 No customer upload/download, paid action or proposal send was enabled.
+
+## Durable read-back validation
+
+The server contract does not trust `mutateAuthorized` returning an apparently
+valid record. It compares the full returned transition to the exact transition
+calculated by the authorized callback, then performs a **fresh authorized,
+primary/linearizable** `readAuthorized` of the same tenant/source revision,
+including all correction audit fields and original provenance. If the store
+returns success without persisting, returns modified reviewer/audit data,
+changes immediately after the commit or revokes read access, this call **does
+not claim success**. The read must not use an eventually consistent replica.
+
+A final read failure **does not imply rollback**: the transaction may have
+already committed. Operators must reconcile this indeterminate result by
+reading durable source and audit state with proper authorization, not blindly
+retrying the same source mutation or charging/sending a customer. Backend
+atomicity, RLS and audit append-only enforcement remain mandatory.
