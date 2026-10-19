@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
+import {readFileSync, mkdtempSync, writeFileSync, rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {spawnSync} from "node:child_process";
 
 const text=path=>readFileSync(path,"utf8");
 const workflow=text(".github/workflows/ci-pr.yml");
@@ -81,4 +84,49 @@ test("omitting hardened session-lock or sealing migration fails closed",()=>{
   "psql -X -v ON_ERROR_STOP=1 -f db/staged_seal_legacy_corrected_preview.sql >/dev/null",
   "echo not-installed");
  assert.throws(()=>compare(workflow,wrong),/Required Auth\/lock\/seal install missing/);
+});
+
+test("combined installer actually runs all migrations and refuses unsafe database targets",()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bidmason-sql-parity-"));
+ const capture=join(dir,"calls");
+ try{
+  writeFileSync(join(dir,"psql"),'#!/bin/sh\nprintf "%s\\n" "$*" >> "$BIDMASON_PARITY_CAPTURE"\n',{mode:0o755});
+  const allowed={
+   ...process.env,
+   PATH:dir+":"+process.env.PATH,
+   BIDMASON_PARITY_CAPTURE:capture,
+   BIDMASON_CI_DISPOSABLE_POSTGRES:"1",
+   PGHOST:"127.0.0.1",PGPORT:"5432",PGUSER:"postgres",PGDATABASE:"postgres"
+  };
+  const run=env=>spawnSync("bash",["ci/install_item4_on_item3_disposable.sh"],{
+   env,encoding:"utf8",timeout:15000
+  });
+  const success=run(allowed);
+  assert.equal(success.status,0,success.stderr);
+  const invocations=readFileSync(capture,"utf8").trim().split("\n");
+  const executed=invocations.filter(line=>line.includes(" -f "))
+   .map(line=>line.split(" -f ")[1]);
+  assert.deepEqual(executed,[
+   ...helperPaths(),
+   "ci/db_auth_session_revocation_test.sql",
+   "db/staged_corrected_preview_session_lock.sql",
+   "db/staged_seal_legacy_corrected_preview.sql"
+  ],"SQL file names must be executed in the same order, not just present as text");
+  assert.equal(invocations.length,executed.length+1,"Expected one additional inline Auth grant guard");
+  for(const [key,value] of [
+   ["BIDMASON_CI_DISPOSABLE_POSTGRES","0"],
+   ["PGHOST","production.example"],
+   ["PGPORT","5433"],
+   ["PGUSER","service_role"],
+   ["PGDATABASE","customer_database"]
+  ]){
+   writeFileSync(capture,"");
+   const denied=run({...allowed,[key]:value});
+   assert.equal(denied.status,1,`Unsafe ${key} unexpectedly passed: ${denied.stderr}`);
+   assert.match(denied.stderr,/REFUSED: this migration integration/);
+   assert.equal(readFileSync(capture,"utf8"),"",`Unsafe ${key} invoked SQL`);
+  }
+ }finally{
+  rmSync(dir,{recursive:true,force:true});
+ }
 });
