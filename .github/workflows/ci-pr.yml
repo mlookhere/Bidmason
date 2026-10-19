@@ -179,6 +179,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/staged_policy_review_history.sql
       - name: Install isolated synthetic two-actor policy approval fixture
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_policy_approved_fixture.sql
+      - name: Deny all unreviewed initial and adjacent policy activations and direct head forgery
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_policy_activation_requires_review_test.sql
       - name: Install private review selection fingerprint validators
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_review_fingerprint.sql
       - name: Install narrow private human scope-draft CAS
