@@ -225,6 +225,6 @@ revoke all on function bm_intake_private.submit_policy_history_draft(
  bm_intake_private.review_policy_history_draft(uuid,uuid,integer,text,text),
  bm_intake_private.read_policy_history(uuid,uuid) from public,anon,authenticated;
 grant execute on function bm_intake_private.submit_policy_history_draft(
- uuid,uuid,integer,text),
+ uuid,uuid,integer,text,text),
  bm_intake_private.review_policy_history_draft(uuid,uuid,integer,text,text),
  bm_intake_private.read_policy_history(uuid,uuid) to service_role;
