@@ -103,3 +103,17 @@ test("optional service needs human add-on acknowledgement separate from extracti
         ...config.pricing.services,repaint:{...config.pricing.services.repaint,
           optionalAddon:false}}}}).reviewedSelectionSha256);
 });
+
+test("direct economics preview rejects reordered selection without changing pricing policy", () => {
+  const review=prepareExtractionReview(original,[repaint,quarterly]);
+  const approved={...policy,excludedServiceCodes:[],
+    pricing:{...policy.pricing,services:{...policy.pricing.services,
+      quarterly:{...policy.pricing.services.quarterly,billing:"charged"}}}};
+  const valid=previewReviewedEconomics(original,review,[0,1],approved);
+  assert.deepEqual(valid.selectedServices.map(x=>x.serviceCode),
+    ["repaint","quarterly"]);
+  assert.throws(()=>previewReviewedEconomics(original,review,[1,0],approved),
+    /noncanonical/);
+  assert.throws(()=>previewReviewedEconomics(original,review,[0,0],approved),
+    /duplicated/);
+});
