@@ -196,3 +196,43 @@ test("untrusted line collections cannot execute array or item getters",()=>{
  const nullProto=Object.assign(Object.create(null),baseline()[0]);
  assert.equal(quoteFromPolicy(cleaning,[nullProto]).totalCents,14000);
 });
+
+
+test("direct quote rejects hostile policy fields without running provider getters or serializers",()=>{
+ let executed=0;
+ const cloned=()=>structuredClone(cleaning);
+ const fake=[
+  ()=>{const p=cloned();Object.defineProperty(p,"currency",{
+    enumerable:true,get(){executed++;throw Error("malicious currency getter");}});return p;},
+  ()=>{const p=cloned();Object.defineProperty(p.minimum,"cents",{
+    enumerable:true,get(){executed++;throw Error("malicious minimum getter");}});return p;},
+  ()=>{const p=cloned();Object.defineProperty(p.services.visit,"rateCents",{
+    enumerable:true,get(){executed++;throw Error("malicious price getter");}});return p;},
+  ()=>{const p=cloned();Object.defineProperty(p.services.visit,"discountBps",{
+    enumerable:true,get(){executed++;throw Error("malicious discount getter");}});return p;},
+  ()=>{const p=cloned();Object.defineProperty(p.services.visit,"toJSON",{
+    enumerable:true,value(){executed++;return {rateCents:1};}});return p;},
+  ()=>{const p=cloned();Object.defineProperty(p.services.visit,"hiddenPrice",{
+    value:1});return p;},
+  ()=>{const p=cloned();p.services.visit[Symbol("send")]=true;return p;},
+  ()=>{const p=cloned();Object.setPrototypeOf(p.services.visit,{rateCents:1});return p;},
+ ];
+ for(const make of fake) {
+  assert.throws(()=>quoteFromPolicy(make(),[{serviceCode:"visit",units:1}]),
+   /Policy must contain|Policy contains/);
+ }
+ assert.equal(executed,0);
+});
+
+test("direct quote snapshots normal plain and null-prototype company policy",()=>{
+ const clone=structuredClone(cleaning);
+ const plain=quoteFromPolicy(clone,[{serviceCode:"visit",units:2}]);
+ assert.equal(plain.totalCents,14000);
+ const nullRule=Object.assign(Object.create(null),clone.services.visit);
+ const nullServices=Object.assign(Object.create(null),clone.services);
+ nullServices.visit=nullRule;
+ const nullPolicy=Object.assign(Object.create(null),clone);
+ nullPolicy.services=nullServices;
+ assert.equal(quoteFromPolicy(nullPolicy,[{serviceCode:"visit",units:2}]).totalCents,
+  plain.totalCents);
+});
