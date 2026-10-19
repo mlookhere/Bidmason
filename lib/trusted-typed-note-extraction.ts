@@ -21,10 +21,22 @@ type Request = {
   rawExtractionResponse: string;
 };
 
+/** Disallow fake authority and SQL receipts before reading their values. */
 function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(k => Object.hasOwn(value, k));
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== keys.length) return false;
+  return keys.every(k => {
+    const d = Object.getOwnPropertyDescriptor(value, k);
+    return d?.enumerable === true && Object.hasOwn(d, "value");
+  });
+}
+function oneRow(value: unknown): value is unknown[] {
+  if (!Array.isArray(value) || value.length !== 1
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== 2) return false;
+  const d = Object.getOwnPropertyDescriptor(value, "0");
+  return d?.enumerable === true && Object.hasOwn(d, "value");
 }
 
 function digest(text: string): string {
@@ -33,6 +45,7 @@ function digest(text: string): string {
 
 function validateRequest(input: Request): void {
   if (!exact(input, ["session", "organizationId", "sourceId", "rawExtractionResponse"])
+    || input.session === null || input.session === undefined
     || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
     || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)
     || typeof input.rawExtractionResponse !== "string"
@@ -78,13 +91,18 @@ export function createTrustedTypedNoteExtraction(
     // The private read checks current membership before source existence,
     // and restricts results to the original source creator.
     const response = await db.query(READ, [organizationId, actor, sourceId]);
-    if (!response || !Array.isArray(response.rows) || response.rows.length !== 1
+    if (!response || !oneRow(response.rows)
       || !exact(response.rows[0], ["record"])) {
       throw new Error("Authorized typed-note source unavailable");
     }
     const record = response.rows[0].record as TypedNoteSourceRecord;
-    if (!record || record.organizationId !== organizationId
-      || record.sourceId !== sourceId || !record.creationAudit
+    if (!exact(record, ["organizationId", "sourceId", "revision", "original",
+        "review", "extractionAudit", "scopeReview", "creationAudit"])
+      || !exact(record.creationAudit, ["actorId", "requestId", "textSha256"])
+      || !exact(record.original, ["kind", "text"])
+      || typeof record.original.text !== "string"
+      || record.organizationId !== organizationId
+      || record.sourceId !== sourceId
       || record.creationAudit.actorId !== actor) {
       throw new Error("Typed-note identity or owner mismatch");
     }
@@ -107,8 +125,13 @@ export function createTrustedTypedNoteExtraction(
       revision: 2; sourceSha256: string; candidatesSha256: string;
     }> {
       validateRequest(input);
+      // Authenticate and execute using the exact original request; the caller
+      // can mutate its object while the provider/primary PostgreSQL awaits.
+      const target: Request = {session:input.session,
+        organizationId:input.organizationId, sourceId:input.sourceId,
+        rawExtractionResponse:input.rawExtractionResponse};
       const {actor,record,textSha256} = await readSource(
-        input.session, input.organizationId, input.sourceId,
+        target.session, target.organizationId, target.sourceId,
       );
       if (record.revision !== 1) {
         throw new Error("Extraction source is stale or already reviewed");
@@ -117,20 +140,19 @@ export function createTrustedTypedNoteExtraction(
       // This validates every UTF-16 excerpt and calculates the canonical
       // candidates SHA; raw model/browser JSON is NEVER sent to SQL.
       const review = parseUntrustedExtraction(
-        record.original, input.rawExtractionResponse,
+        record.original, target.rawExtractionResponse,
       );
       if (!SHA.test(review.sourceSha256) || !SHA.test(review.candidatesSha256)) {
         throw new Error("Invalid extraction provenance");
       }
-      if (await actorFor(input.session) !== actor) {
+      if (await actorFor(target.session) !== actor) {
         throw new Error("Authenticated extractor identity changed");
       }
       const committed = await db.query(COMMIT, [
-        input.organizationId, actor, input.sourceId,
+        target.organizationId, actor, target.sourceId,
         textSha256, JSON.stringify(review),
       ]);
-      if (!committed || !Array.isArray(committed.rows)
-        || committed.rows.length !== 1
+      if (!committed || !oneRow(committed.rows)
         || !exact(committed.rows[0],
           ["source_revision", "original_sha256", "candidates_sha256"])
         || committed.rows[0].source_revision !== 2
@@ -142,7 +164,7 @@ export function createTrustedTypedNoteExtraction(
       // A new primary read must independently reauthorize membership and
       // confirm exactly the same immutable original and reviewed candidates.
       const checked = await readSource(
-        input.session, input.organizationId, input.sourceId, actor,
+        target.session, target.organizationId, target.sourceId, actor,
       );
       if (checked.record.revision !== 2
         || checked.textSha256 !== textSha256
@@ -151,8 +173,8 @@ export function createTrustedTypedNoteExtraction(
         throw new Error("Extraction CAS read-back is indeterminate");
       }
       return {
-        state:"needs-human-review", organizationId:input.organizationId,
-        sourceId:input.sourceId, revision:2,
+        state:"needs-human-review", organizationId:target.organizationId,
+        sourceId:target.sourceId, revision:2,
         sourceSha256:review.sourceSha256,
         candidatesSha256:review.candidatesSha256,
       };
@@ -169,18 +191,21 @@ export function createTrustedTypedNoteExtraction(
      */
     async reconcile(input: Request): Promise<ExtractionReadOnlyReconciliation> {
       validateRequest(input);
+      const target: Request = {session:input.session,
+        organizationId:input.organizationId, sourceId:input.sourceId,
+        rawExtractionResponse:input.rawExtractionResponse};
       const first = await readSource(
-        input.session, input.organizationId, input.sourceId,
+        target.session, target.organizationId, target.sourceId,
       );
       // No browser-provided digest, raw source, actor or pricing data.
       const expected = parseUntrustedExtraction(
-        first.record.original, input.rawExtractionResponse,
+        first.record.original, target.rawExtractionResponse,
       );
       const second = await readSource(
-        input.session, input.organizationId, input.sourceId, first.actor,
+        target.session, target.organizationId, target.sourceId, first.actor,
       );
       const selector = {
-        organizationId:input.organizationId, sourceId:input.sourceId,
+        organizationId:target.organizationId, sourceId:target.sourceId,
       };
       if (first.textSha256 !== second.textSha256
         || !isDeepStrictEqual(first.record, second.record)) {
