@@ -166,7 +166,7 @@ test("privileged active policy lookup enforces tenant membership in its own SQL"
   assert.equal(readPolicy.length,2);
   for(const call of readPolicy) {
     assert.deepEqual(call.params,[f.org,f.actor]);
-    assert.match(call.statement,/join public\\.bm_memberships m/);
+    assert.ok(call.statement.includes("join public.bm_memberships m"));
     assert.match(call.statement,/for share of h,v,m/);
   }
   // A separate privileged read with a nonmember actor must return no policy,
@@ -197,7 +197,7 @@ test("actual PG rejects active policy read after membership revoked post-commit"
   assert.equal(policyCalls.length,2);
   for(const call of policyCalls){
     assert.deepEqual(call.params,[f.org,f.actor]);
-    assert.match(call.statement,/join public\\.bm_memberships m/);
+    assert.ok(call.statement.includes("join public.bm_memberships m"));
     assert.match(call.statement,/for share of h,v,m/);
   }
   // This is an indeterminate post-write outcome; no retry occurs.
