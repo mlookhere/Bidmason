@@ -60,7 +60,7 @@ export function createTrustedTypedNoteLedger(
       const result = await database.query(LOOKUP, [
         input.organizationId, actor, input.requestId,
       ]);
-      if (!exactObject(result, ["rows"]) || !Array.isArray(result.rows)
+      if (!result || typeof result !== "object" || !Array.isArray(result.rows)
         || result.rows.length > 1) {
         throw new Error("Invalid primary intake lookup result");
       }
