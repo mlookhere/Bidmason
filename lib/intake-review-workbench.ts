@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { previewCompanyEconomics, type VersionedEconomicsPolicy } from "./company-economics.ts";
-import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
+import { canonicalCompanyPolicyText, companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import { selectReviewedServices, type ExtractionReview,
   type IntakeSource } from "./intake-review.ts";
 
@@ -30,6 +30,15 @@ export function buildReviewWorkbench(
   original: IntakeSource, review: ExtractionReview,
   policy: VersionedEconomicsPolicy,
 ): ReviewWorkbenchModel {
+  // The workbench is also callable without a trusted persistence adapter.
+  // Inspect and detach policy data before reading ANY nested ratecard fields.
+  // The existing canonical serializer rejects hidden keys, symbols, accessors,
+  // inherited data and custom serializers without invoking malicious getters.
+  try {
+    policy = JSON.parse(canonicalCompanyPolicyText(policy)) as VersionedEconomicsPolicy;
+  } catch {
+    throw new TypeError("A valid company-owned pricing policy is required");
+  }
   if (!policy || !Number.isSafeInteger(policy.revision) || policy.revision < 1
     || typeof policy.pricing?.policyId !== "string"
     || !policy.pricing.policyId.trim()
@@ -37,8 +46,11 @@ export function buildReviewWorkbench(
     || Array.isArray(policy.pricing.services)) {
     throw new TypeError("A valid company-owned pricing policy is required");
   }
-  // Revalidate the original and every candidate, including candidates that
-  // are not selectable. An invalid document fails as a whole.
+  // Never enumerate review.candidates until the shared exact-data/source
+  // digest validator has checked its envelope, array and every candidate.
+  // Index zero is a shape/provenance probe, not a human review selection.
+  selectReviewedServices(original, review, [0]);
+  // Revalidate every candidate, including unselectable company services.
   const candidates = selectReviewedServices(original, review,
     review.candidates.map((_, index) => index));
   const excluded = policy.excludedServiceCodes ?? [];
