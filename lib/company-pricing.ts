@@ -123,7 +123,7 @@ export function snapshotQuoteInputs(requested: QuoteLineInput[]): QuoteLineInput
   if (!Array.isArray(requested) || requested.length < 1 || requested.length > 50
     || Object.getPrototypeOf(requested) !== Array.prototype
     || Reflect.ownKeys(requested).length !== requested.length + 1) {
-    throw new TypeError("One to 50 canonical services are required");
+    throw new TypeError("One to 50 services are required");
   }
   const snapshot: QuoteLineInput[] = [];
   for (let i = 0; i < requested.length; i++) {
