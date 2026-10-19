@@ -51,7 +51,7 @@ const candidate={serviceCode:"painting",units:2,start:0,
   end:original.text.length,excerpt:original.text};
 const review=prepareExtractionReview(original,[candidate]);
 
-function fixture({lostAck=false}={}) {
+function fixture({lostAck=false,revokeAfterReadback=false}={}) {
   const org=randomUUID(),actor=randomUUID(),reviewer=randomUUID(),request=randomUUID();
   psql(`insert into public.bm_organizations(id,slug,name)
     values (:'p1'::uuid,:'p2'::text,'Synthetic authorized scope');
@@ -75,6 +75,7 @@ function fixture({lostAck=false}={}) {
     {p1:org,p2:actor,p3:sourceId,p4:originalSha,
       p5:JSON.stringify(review)}),"2");
   let sessionValid=true,authenticatedActor=actor,authCalls=0,writes=0;
+  let sourceReads=0;
   const calls=[];
   const auth={async verifyActiveSession(session) {
     authCalls++;
@@ -85,6 +86,16 @@ function fixture({lostAck=false}={}) {
   const db={async query(statement,params) {
     calls.push({statement,params});
     const result=query(statement,params);
+    if(statement.includes("read_typed_note_for_extraction")) {
+      sourceReads++;
+      if (revokeAfterReadback && sourceReads===2) {
+        // Readback WAS authorized; revoke the DB membership before the
+        // final separate privileged active-policy query starts.
+        psql(`delete from public.bm_memberships
+          where organization_id=:'p1'::uuid and user_id=:'p2'::uuid;`,
+          {p1:org,p2:actor});
+      }
+    }
     if(statement.includes("commit_typed_note_scope_review")) {
       writes++;
       if(lostAck)throw Error("Simulated lost PostgreSQL CAS acknowledgement");
@@ -174,4 +185,20 @@ test("revoked membership fails before committing any draft",async()=>{
   await assert.rejects(f.api.commit(f.input));
   assert.equal(f.writes,0);
   assert.equal(f.stored.revision,2);
+});
+
+test("actual PG rejects active policy read after membership revoked post-commit",async()=>{
+  const f=fixture({revokeAfterReadback:true});
+  await assert.rejects(f.api.commit(f.input),/No unambiguous approved current policy/);
+  assert.equal(f.writes,1);
+  assert.equal(f.stored.revision,3);
+  assert.equal(f.stored.extraction_audit.length,1);
+  const policyCalls=f.calls.filter(x=>x.statement.includes("active_policy_heads"));
+  assert.equal(policyCalls.length,2);
+  for(const call of policyCalls){
+    assert.deepEqual(call.params,[f.org,f.actor]);
+    assert.match(call.statement,/join public\\.bm_memberships m/);
+    assert.match(call.statement,/for share of h,v,m/);
+  }
+  // This is an indeterminate post-write outcome; no retry occurs.
 });
