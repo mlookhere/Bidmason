@@ -50,32 +50,37 @@ export function createTrustedPostgresCorrectionPreflightStore(
         || input.session===null||input.session===undefined){
         throw new TypeError("Invalid private correction preflight selector");
       }
-      const verified=await actor(input.session);
+      // Freeze all selectors before the first await; the caller must not
+      // retarget this read or the second Auth check during an in-flight query.
+      const organizationId=input.organizationId;
+      const sourceId=input.sourceId;
+      const session=input.session;
+      const verified=await actor(session);
       // The private SQL checks and locks CURRENT tenant membership before
       // querying source identity and restricts rows to the original creator.
-      const response=await db.query(READ,[
-        input.organizationId,verified,input.sourceId,
-      ]);
+      const response=await db.query(READ,[organizationId,verified,sourceId]);
       if(!response||!Array.isArray(response.rows)||response.rows.length!==1
         || !exact(response.rows[0],["record"])){
         throw new Error("Authorized correction original is unavailable");
       }
       // A changed/revoked session cannot complete an apparently safe read.
-      if(await actor(input.session)!==verified){
+      if(await actor(session)!==verified){
         throw new Error("Correction reviewer session changed during read");
       }
       const record=response.rows[0].record as TypedNoteSourceRecord;
       if(!record||!exact(record,["organizationId","sourceId","revision",
           "original","review","extractionAudit","scopeReview","creationAudit"])
-        || record.organizationId!==input.organizationId
-        || record.sourceId!==input.sourceId
-        || !record.creationAudit || record.creationAudit.actorId!==verified
-        || !record.original || typeof record.original.text!=="string"){
+        || record.organizationId!==organizationId
+        || record.sourceId!==sourceId
+        || !exact(record.creationAudit,["actorId","requestId","textSha256"])
+        || record.creationAudit.actorId!==verified
+        || !exact(record.original,["kind","text"])
+        || typeof record.original.text!=="string"){
         throw new Error("Untrusted correction source projection");
       }
       const textSha256=digest(record.original.text);
       verifyTypedNoteSourceRecord(record,{
-        organizationId:input.organizationId,
+        organizationId,
         requestId:record.creationAudit.requestId,
         text:record.original.text,
       },textSha256,verified);

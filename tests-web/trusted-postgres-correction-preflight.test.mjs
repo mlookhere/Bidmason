@@ -106,6 +106,58 @@ test("reject stale/forged source, unsafe fields and extra lifecycle columns",asy
    session:"session",organizationId:ORG,sourceId:SOURCE}));
  }
 });
+test("preflight snapshots tenant/source/session during asynchronous Auth",async()=>{
+ const f=fixture(),originalVerify=f.auth.verifyActiveSession.bind(f.auth);
+ const input={session:"session",organizationId:ORG,sourceId:SOURCE};
+ let calls=0;
+ f.auth.verifyActiveSession=async session=>{
+  if(++calls===1){
+   input.organizationId=OTHER; input.sourceId=OTHER;
+   input.session="forged-session";
+  }
+  return originalVerify(session);
+ };
+ const record=await f.store.readAuthorized(input);
+ assert.equal(record.organizationId,ORG);
+ assert.equal(record.sourceId,SOURCE);
+ assert.equal(calls,2);
+ assert.equal(f.counts.reads,1);
+});
+test("preflight snapshots tenant/source/session during an asynchronous SQL query",async()=>{
+ const f=fixture(),originalQuery=f.db.query.bind(f.db);
+ const input={session:"session",organizationId:ORG,sourceId:SOURCE};
+ let calls=0;
+ f.db.query=async (...args)=>{
+  calls++;
+  input.organizationId=OTHER; input.sourceId=OTHER;
+  input.session="forged-session";
+  return originalQuery(...args);
+ };
+ const record=await f.store.readAuthorized(input);
+ assert.equal(record.organizationId,ORG);
+ assert.equal(record.sourceId,SOURCE);
+ assert.equal(calls,1);
+});
+test("nested source and audit accessor fields are never evaluated",async()=>{
+ for(const part of ["original","creationAudit"]){
+  const f=fixture(),query=f.db.query.bind(f.db);
+  let accessorCalls=0;
+  f.db.query=async (...args)=>{
+   const response=await query(...args);
+   const payload=response.rows[0].record;
+   const nested={...payload[part]};
+   const key=part==="original"?"text":"requestId";
+   Object.defineProperty(nested,key,{enumerable:true,
+    get(){accessorCalls++;return part==="original"?text:REQUEST;}});
+   payload[part]=nested;
+   return response;
+  };
+  await assert.rejects(f.store.readAuthorized({
+   session:"session",organizationId:ORG,sourceId:SOURCE,
+  }),/Untrusted correction source projection/);
+  assert.equal(accessorCalls,0);
+ }
+});
 test("strict selectors reject hidden fields and accessors before authentication",async()=>{
  const f=fixture(),selector={session:"session",organizationId:ORG,sourceId:SOURCE};
  const hidden={...selector};Object.defineProperty(hidden,"actorId",{value:ACTOR});

@@ -11,12 +11,17 @@ that schema would be unsafe, especially after an original scope was reviewed.
 verifier and privileged primary database port. It calls the existing private
 `bm_intake_private.read_typed_note_for_extraction` SQL function, which checks
 current membership before source lookup and restricts the result to the
-creator. The adapter verifies authenticated identity again after SQL, enforces
-exact SQL projection fields, validates original text SHA, creation evidence,
+creator. The adapter freezes the verified tenant/source selector and opaque session
+before awaiting Auth/SQL, then re-verifies the **original** session's identity
+after SQL. The caller cannot switch the checked source or session during the
+query. It enforces exact SQL projection fields and source/creation-audit
+data descriptors (accessor-backed fields are not read), validates the original
+text SHA, creation evidence,
 full extraction and optional original scope, and exposes extracted revisions
 to the existing `readExtractionCorrectionContext` read-only preparation.
 An unextracted source remains unavailable for correction. Changed/malformed
-DB projections, foreign tenants, revoked roles and changed Auth identities
+DB projections, foreign tenants, revoked roles, changed Auth identities
+and mid-flight caller-owned selector mutations
 fail closed. The schema does not claim corrected state: nullable correction
 fields are projected only after proving the exact eight-field original
 schema.
@@ -35,4 +40,6 @@ adapter inputs and mutated/forged authorized DB replies in memory.
 `ci/intake_correction_preflight_bridge.test.mjs` runs the adapter against
 the actual isolated PostgreSQL private function and current membership,
 including revoked/cross-tenant/same-tenant foreign-actor denials and zero
-correction writes. This is a diagnostic safety gate, not production readiness.
+correction writes. Additional mock tests cover changing tenant/source/session
+fields while Auth or SQL is awaiting and reject nested accessor-backed
+original/audit fields without invoking getters. This is a diagnostic safety gate, not production readiness.
