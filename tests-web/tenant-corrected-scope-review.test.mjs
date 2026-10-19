@@ -309,8 +309,8 @@ test("corrected scope rejects forged selection arrays and selector getters befor
  const getterSelector={...selector};
  Object.defineProperty(getterSelector,"organizationId",{enumerable:true,
   get(){called++;throw Error("unsafe selector getter");}});
- // The read context allows its legacy extra data keys, but not accessors.
- for(const invalid of [getterSelector]){
+ // Workbench context requires exactly the two authority-bearing fields.
+ for(const invalid of [hiddenSelector,getterSelector]){
   await assert.rejects(readCorrectedScopeContext(
    f.store,f.policyStore,"reviewer",invalid),
    /Invalid corrected scope selector/);
