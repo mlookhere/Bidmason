@@ -146,6 +146,8 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
       ["sourceRevision", "actorId", "sourceSha256", "candidatesSha256"])
     || !audit
     || audit.sourceRevision !== 2 || !UUID.test(audit.actorId)
+    || audit.actorId !== actorId
+    || audit.actorId !== record.creationAudit.actorId
     || audit.sourceSha256 !== review.sourceSha256
     || audit.candidatesSha256 !== review.candidatesSha256) {
     throw new Error("Typed-note extraction progression is invalid");
