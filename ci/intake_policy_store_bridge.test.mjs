@@ -193,16 +193,16 @@ test("approved policy v3 activates over an immutable rejected v2, never over mis
      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,3,:'p4'::text);`,
    {p1:org,p2:f.submitter,p3:f.reviewer,
      p4:canonicalCompanyPolicyText(policy(3))});
- assert.throws(attempt,/Unproven rejected policy revisions/);
+ assert.throws(attempt,/Unproven independently reviewed policy activation/);
  await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
    decision:"reject",expectedRevision:2,expectedSha256:rejectedSha});
  // A rejected v2 alone is insufficient: the target v3 needs an
  // independently approved and SHA-matching event, not just actor UUIDs.
- assert.throws(attempt,/Unproven rejected policy revisions/);
+ assert.throws(attempt,/Unproven independently reviewed policy activation/);
  const sha3=companyPolicySha256(policy(3));
  await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
    policy:policy(3),expectedRevision:2,expectedSha256:rejectedSha});
- assert.throws(attempt,/Unproven rejected policy revisions/);
+ assert.throws(attempt,/Unproven independently reviewed policy activation/);
  await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
    decision:"approve",expectedRevision:3,expectedSha256:sha3});
  const result=await activation.activate({organizationId:org,
