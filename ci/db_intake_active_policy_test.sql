@@ -115,6 +115,9 @@ begin
  v_scope:=jsonb_set(v_scope,'{policyRevision}','2'::jsonb);
  v_scope:=jsonb_set(v_scope,'{policySha256}',
     to_jsonb(v_active.activated_sha256));
+ v_scope:=jsonb_set(v_scope,'{reviewKey}',to_jsonb(
+   bm_intake_private.review_workbench_sha256(
+     v_source_sha,v_review->>'candidatesSha256',v_active.activated_sha256)));
  -- Painting is optional in the now-active approved policy.
  begin
    perform 1 from bm_intake_private.commit_typed_note_scope_review(
@@ -123,6 +126,10 @@ begin
    raise exception 'Optional painting scope lacked explicit acknowledgement';
  exception when invalid_parameter_value then null; end;
  v_scope:=jsonb_set(v_scope,'{acceptedAddonCodes}','["painting"]'::jsonb);
+ v_scope:=jsonb_set(v_scope,'{reviewedSelectionSha256}',to_jsonb(
+   bm_intake_private.reviewed_selection_sha256(
+     v_review,v_scope->'selectedIndices',v_scope->'acceptedAddonCodes',
+     v_active.activated_sha256)));
  select * into v_reply from bm_intake_private.commit_typed_note_scope_review(
      v_org,v_creator,v_source,v_source_sha,
      v_review->>'candidatesSha256',v_scope);
