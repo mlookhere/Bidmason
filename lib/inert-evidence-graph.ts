@@ -46,3 +46,16 @@ export function inertEvidenceGraph(value: unknown): boolean {
   }
   return visit(value, 0);
 }
+
+/** Detach a validated authorized store read before the next awaited call.
+ * Without this snapshot a storage adapter can change previously inspected
+ * fields during async policy lookup; a later read could execute a new getter
+ * or silently price different data. This snapshot grants no authorization. */
+export function snapshotInertEvidence<T>(value: T, failure: string): T {
+  if (!inertEvidenceGraph(value)) throw new Error(failure);
+  try {
+    return structuredClone(value);
+  } catch {
+    throw new Error(failure);
+  }
+}
