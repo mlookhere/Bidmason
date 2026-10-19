@@ -224,3 +224,65 @@ test("multiple optional acknowledgements must use a single canonical order",()=>
    ...correct,acceptedAddonCodes:["floor","clean"],
  }),/noncanonical/);
 });
+
+
+test("inner workbench uses one immutable evidence snapshot across both policy reads",async()=>{
+ const f=setup(),mutable=structuredClone(ctx);
+ f.onRead(({reads})=>{
+  if(reads===1){
+   mutable.organizationId=orgB;
+   mutable.original.text="forged during policy lookup";
+   mutable.review.candidates[0].units=500;
+  }
+ });
+ const model=await readAuthorizedReviewWorkbench(f.store,"a",mutable);
+ assert.equal(f.reads(),2);
+ assert.equal(model.state,"internal-review-only");
+ assert.deepEqual(model.rows.map(row=>row.serviceCode),["clean","floor","quarterly"]);
+ assert.equal(model.rows[0].units,2);
+});
+
+test("inner preview freezes original, tenant and selection before first policy await",async()=>{
+ const f=setup(),request=await selected(f);
+ const mutable={...structuredClone(ctx),request:structuredClone(request)};
+ f.onRead(({reads})=>{
+  if(reads===3){
+   mutable.organizationId=orgB;
+   mutable.original.text="unverified one-cent service";
+   mutable.review.candidates[0].units=500;
+   mutable.request.reviewKey="0".repeat(64);
+   mutable.request.selectedIndices[0]=1;
+   mutable.request.acceptedAddonCodes.push("floor");
+  }
+ });
+ const preview=await previewAuthorizedWorkbenchSelection(f.store,"a",mutable);
+ assert.equal(preview.state,"preview-only");
+ assert.equal(preview.economics.quote.totalCents,14000);
+ assert.deepEqual(preview.selectedServices.map(row=>row.serviceCode),["clean"]);
+ assert.equal(f.reads(),4);
+});
+
+test("direct review preview rejects accessor, symbolic and sparse inputs before policy reads",async()=>{
+ const f=setup(),request=await selected(f),start=f.reads();
+ let getterCalls=0;
+ const getterCtx={...ctx,request};
+ Object.defineProperty(getterCtx,"organizationId",{enumerable:true,
+  get(){getterCalls++;throw Error("untrusted tenant getter");}});
+ const hidden={...ctx,request:{...request}};
+ Object.defineProperty(hidden.request,"approved",{value:true});
+ const symbolic={...ctx,request:{...request}};
+ symbolic.request[Symbol("send")]=true;
+ const selectedGetter={...ctx,request:{...request,selectedIndices:[0]}};
+ Object.defineProperty(selectedGetter.request.selectedIndices,"0",{enumerable:true,
+  get(){getterCalls++;throw Error("untrusted index getter");}});
+ const sparse={...ctx,request:{...request,selectedIndices:new Array(1)}};
+ const accessorKey={...ctx,request:{...request}};
+ Object.defineProperty(accessorKey.request,"reviewKey",{enumerable:true,
+  get(){getterCalls++;throw Error("untrusted review key getter");}});
+ for(const invalid of [getterCtx,hidden,symbolic,selectedGetter,sparse,accessorKey]){
+  await assert.rejects(previewAuthorizedWorkbenchSelection(f.store,"a",invalid),
+   /Invalid internal review source context|Invalid internal preview request/);
+ }
+ assert.equal(f.reads(),start);
+ assert.equal(getterCalls,0);
+});
