@@ -84,8 +84,34 @@ begin
 end;
 $headguard$;
 create trigger bm_active_policy_head_monotonic
-before insert or update or delete on bm_intake_private.active_policy_heads
+before update or delete on bm_intake_private.active_policy_heads
 for each row execute function bm_intake_private.enforce_policy_head_transition();
+
+-- AFTER INSERT is required: INSERT ... ON CONFLICT DO UPDATE still invokes
+-- BEFORE INSERT, which must not misclassify an existing-head update as an
+-- initial revision. This guard runs only when a new row truly persisted.
+create function bm_intake_private.enforce_first_policy_head()
+returns trigger language plpgsql security invoker
+set search_path=pg_catalog,public as $firsthead$
+declare v_approved bm_intake_private.approved_policy_versions%rowtype;
+begin
+ if new.revision=1 then return new; end if;
+ select * into v_approved
+ from bm_intake_private.approved_policy_versions
+ where organization_id=new.organization_id and revision=new.revision
+   and policy_sha256=new.policy_sha256;
+ if not found or not bm_intake_private.approved_policy_gap_is_reviewed(
+   new.organization_id,0,new.revision,new.policy_sha256,
+   v_approved.submitted_by,v_approved.reviewed_by) then
+   raise exception 'First approved head cannot skip unreviewed revisions'
+     using errcode='42501';
+ end if;
+ return new;
+end;
+$firsthead$;
+create trigger bm_first_policy_head_verified
+after insert on bm_intake_private.active_policy_heads
+for each row execute function bm_intake_private.enforce_first_policy_head();
 
 -- Staged two-actor approved activation, not a public RPC. The policy JSON
 -- must have been validated by company-policy-revisions.ts before this call.
