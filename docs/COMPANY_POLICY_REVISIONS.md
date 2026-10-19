@@ -29,3 +29,7 @@ database migrations, sending, customer forms, or uploads are enabled.
 isolation, stale writes, reviewer separation, rejection, active version
 invalidation and tampered history. Item 3's deferred live Auth tests
 remain mandatory for deployment.
+
+## Canonical policy data integrity
+
+The same canonical policy SHA-256 is used by preview calculations, immutable draft history, and the trusted PostgreSQL policy adapter. The serializer refuses non-JSON representations, including hidden or accessor-backed prices, symbol fields and noncanonical arrays, rather than silently hashing different values from those used by the pricing engine. This is **only a consistency digest**, never authorization; tenant membership and independently approved persisted revisions remain mandatory. Positive and adversarial regressions are in `tests-web/company-policy-revisions.test.mjs`.

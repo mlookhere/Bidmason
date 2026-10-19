@@ -226,3 +226,52 @@ test("historical approvals cannot impersonate the submitter or invent reviewer i
   }),/Malformed immutable policy history/);
   assert.equal(readActivePolicy(valid,orgA).revision,1);
 });
+
+test("policy digest cannot omit hidden or accessor-backed price and approval data",()=>{
+  const original=policy();
+  const expected=companyPolicySha256(original);
+  const hidden=structuredClone(original);
+  Object.defineProperty(hidden.pricing.services.office,"rateCents",{
+    value:1,enumerable:false,configurable:true,
+  });
+  assert.throws(()=>companyPolicySha256(hidden),/own enumerable data/);
+  assert.throws(()=>previewCompanyEconomics(hidden,[{serviceCode:"office",units:1}]),
+    /own enumerable data/);
+
+  const accessor=structuredClone(original);
+  let getterCalls=0;
+  Object.defineProperty(accessor.pricing.services.office,"rateCents",{
+    enumerable:true,configurable:true,get(){getterCalls++;return 1;},
+  });
+  assert.throws(()=>companyPolicySha256(accessor),/own enumerable data/);
+  assert.equal(getterCalls,0);
+
+  const hiddenDirective=structuredClone(original);
+  Object.defineProperty(hiddenDirective.tax,"approved",{
+    value:true,enumerable:false,
+  });
+  assert.throws(()=>companyPolicySha256(hiddenDirective),/own enumerable data/);
+
+  const symbolic=structuredClone(original);
+  symbolic.pricing.services.office[Symbol("send")]=true;
+  assert.throws(()=>companyPolicySha256(symbolic),/symbol keys/);
+  assert.equal(companyPolicySha256(policy()),expected);
+});
+
+test("policy digest rejects sparse and extended arrays rather than hashing aliases",()=>{
+  const original=companyPolicySha256(policy());
+  const sparse=policy();
+  sparse.excludedServiceCodes=new Array(1);
+  assert.throws(()=>companyPolicySha256(sparse),/array contains unsupported/);
+
+  const extra=policy();
+  extra.excludedServiceCodes.approval="pretend";
+  assert.throws(()=>companyPolicySha256(extra),/array contains unsupported/);
+
+  const accessor=policy();
+  Object.defineProperty(accessor.excludedServiceCodes,"0",{
+    enumerable:true,get(){return "quarterly";},
+  });
+  assert.throws(()=>companyPolicySha256(accessor),/own enumerable data/);
+  assert.equal(companyPolicySha256(policy()),original);
+});

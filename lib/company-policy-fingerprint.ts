@@ -10,6 +10,14 @@ import type { VersionedEconomicsPolicy } from "./company-economics.ts";
  * signature. An actual current approved policy must still be read from the
  * tenant-owned database and approved by independently verified actors.
  */
+function ownPolicyValue(target: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(target, key);
+  if (!descriptor?.enumerable || !Object.hasOwn(descriptor, "value")) {
+    throw new TypeError("Policy must contain only own enumerable data fields");
+  }
+  return descriptor.value;
+}
+
 function serialize(value: unknown, depth: number): string {
   if (depth > 32) throw new TypeError("Policy nesting exceeds safe limit");
   if (value === null || typeof value === "string" || typeof value === "boolean") {
@@ -23,21 +31,32 @@ function serialize(value: unknown, depth: number): string {
   }
   if (Array.isArray(value)) {
     if (value.length > 10000) throw new TypeError("Policy array exceeds safe limit");
-    return "[" + value.map(item => serialize(item, depth + 1)).join(",") + "]";
+    // JSON policy arrays cannot hide directives in holes, extra keys,
+    // symbols, accessors or nonstandard prototypes.
+    if (Object.getPrototypeOf(value) !== Array.prototype
+      || Reflect.ownKeys(value).length !== value.length + 1) {
+      throw new TypeError("Policy array contains unsupported properties");
+    }
+    const items = Array.from({ length: value.length }, (_, index) =>
+      serialize(ownPolicyValue(value, String(index)), depth + 1));
+    return "[" + items.join(",") + "]";
   }
   if (!value || typeof value !== "object"
     || (Object.getPrototypeOf(value) !== Object.prototype
       && Object.getPrototypeOf(value) !== null)) {
     throw new TypeError("Policy contains unsupported data");
   }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
+  const keys = Reflect.ownKeys(value);
   if (keys.length > 10000) throw new TypeError("Policy object exceeds safe limit");
-  return "{" + keys.map(key => {
+  if (keys.some(key => typeof key !== "string")) {
+    throw new TypeError("Policy contains unsupported symbol keys");
+  }
+  return "{" + (keys as string[]).sort().map(key => {
     if (key === "__proto__" || key === "constructor" || key === "prototype") {
       throw new TypeError("Policy contains forbidden object keys");
     }
-    return JSON.stringify(key) + ":" + serialize(record[key], depth + 1);
+    return JSON.stringify(key) + ":" +
+      serialize(ownPolicyValue(value, key), depth + 1);
   }).join(",") + "}";
 }
 
