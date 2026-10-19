@@ -150,3 +150,21 @@ test("direct quote calculator bounds request cardinality to reviewed intake limi
   assert.throws(()=>quoteFromPolicy(policy,many),/One to 50 services/);
   assert.equal(quoteFromPolicy(policy,many.slice(0,50)).lines.length,50);
 });
+
+test("direct quote accepts only canonical own enumerable data fields", () => {
+  const normal = { serviceCode:"visit", units:1 };
+  const inherited = Object.assign(Object.create({ approved:true }), normal);
+  const hidden = { ...normal };
+  Object.defineProperty(hidden, "send", { value:true });
+  const accessor = { ...normal };
+  Object.defineProperty(accessor, "units", { enumerable:true,
+    get() { return 1; } });
+  const symbol = { ...normal, [Symbol("recipient")]: "forged" };
+  for (const untrusted of [inherited, hidden, accessor, symbol,
+    { ...normal, addonAccepted:undefined }]) {
+    assert.throws(() => quoteFromPolicy(cleaning, [untrusted]),
+      /unsupported fields|non-optional/);
+  }
+  const plain = Object.assign(Object.create(null), normal);
+  assert.equal(quoteFromPolicy(cleaning, [plain]).totalCents, 12000);
+});

@@ -1385,3 +1385,7 @@ signoff/send flags and oversized direct inputs are refused. The trusted
 tenant-owned approved ratecard and independent human review still must be
 established by the authenticated persistence adapters; a pure quote or
 preview does not authorize approval, publication, or sending.
+
+### Direct quote-line input hardening (October 2026)
+
+The internal-only deterministic `quoteFromPolicy` entry point now accepts only plain own, enumerable data properties (`serviceCode`, `units`, and optional explicit `addonAccepted: true`). Inherited properties/prototypes, getters, symbols, hidden keys, and an `addonAccepted` property on a nonoptional service fail closed. This matches the strict reviewed-source boundary; it does not authorize a tenant, approve company prices, publish a quote, or enable outbound sends. `tests-web/company-pricing.test.mjs` contains positive/negative regression fixtures.

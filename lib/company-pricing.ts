@@ -97,6 +97,25 @@ function priceOne(rule: ServicePriceRule, order: CalculationOrder): number {
   return safeAdd(discounted, percent(discounted, surcharge), "surcharged rate");
 }
 
+/** A caller-supplied quote line is plain, enumerable data without hidden keys. */
+function canonicalQuoteLine(input: unknown): input is QuoteLineInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(input);
+  if (keys.length < 2 || keys.length > 3
+    || !Object.hasOwn(input, "serviceCode") || !Object.hasOwn(input, "units")
+    || keys.some(key => typeof key !== "string"
+      || !["serviceCode", "units", "addonAccepted"].includes(key))) {
+    return false;
+  }
+  return keys.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+  });
+}
+
 /**
  * Evaluates approved *inputs*, without guessing company-specific contracts.
  * Pricing-policy authorization and quote approval happen outside this engine.
@@ -128,12 +147,7 @@ export function quoteFromPolicy(
     // The calculator is also exported independently of the trusted review
     // workflow. Never silently tolerate caller-provided prices, approval,
     // recipient or send directives, even if the arithmetic ignores them.
-    if (!input || typeof input !== "object" || Array.isArray(input)
-      || !Object.hasOwn(input, "serviceCode")
-      || !Object.hasOwn(input, "units")
-      || Object.keys(input).some(key => ![
-        "serviceCode", "units", "addonAccepted",
-      ].includes(key))) {
+    if (!canonicalQuoteLine(input)) {
       throw new TypeError("Quote line contains unsupported fields");
     }
     const { serviceCode, units, addonAccepted } = input;
@@ -154,7 +168,7 @@ export function quoteFromPolicy(
     if (service.optionalAddon && addonAccepted !== true) {
       throw new Error("Optional add-on requires explicit human acceptance");
     }
-    if (!service.optionalAddon && addonAccepted !== undefined) {
+    if (!service.optionalAddon && Object.hasOwn(input, "addonAccepted")) {
       throw new TypeError("Cannot accept a non-optional service as an add-on");
     }
     // Rates must be valid even for included services. Avoid masking corrupt
