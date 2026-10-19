@@ -122,7 +122,7 @@ function createInternalCorrectedEconomicsPreview(
         || !sha(input.expectedDecisionSha256)
         || typeof input.session!=="string"
         || input.session.length===0 || input.session.length>16384
-        || /[\x00-\x20\x7f]/.test(input.session)){
+        || !/^[A-Za-z0-9._~-]+$/.test(input.session)){
         throw new TypeError("Invalid private corrected economics selector");
       }
       // Capture selectors BEFORE auth await: do not trust mutable browser data.
