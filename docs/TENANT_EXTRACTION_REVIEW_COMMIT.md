@@ -708,3 +708,28 @@ evidence of an approved contractor ratecard or real tax-law settings.
 The database does not validate live Supabase sessions or actual
 two-person pricing consent; approved pricing and sends remain disabled
 until the Item 3 real-provider/security gates are satisfied.
+
+
+## Creation/audit identity pinning during scope read-back
+
+The private creator-owned typed-note source contract now checks that the
+persisted `extractionAudit[0].actorId` equals BOTH the verified source
+creator and the immutable `creationAudit.actorId`, in addition to the
+original and candidate hashes. A correct digest cannot authorize an
+extraction attributed to a different person.
+
+After the one-shot private human scope CAS, the trusted server adapter
+also compares the entire original `creationAudit` against its previously
+read snapshot, alongside the original text, extraction review and
+extraction audit. A post-CAS change to the source request ID or creation
+receipt (even when internally self-consistent and formatted as a UUID)
+is treated as **indeterminate**: the adapter does not report a successful
+review, repeat the write or approve a quote.
+
+The existing `tenant-typed-note-source` unit suite now includes a
+forged extraction-actor record with otherwise valid source/candidate
+digests; the `trusted-typed-note-scope-commit` suite mutates the
+post-write creation request ID and proves the success claim is denied
+after exactly one write. The mandatory CI matrix remains intact.
+These are additional verification checks, not a replacement for Item 3
+live authenticated tenant isolation and server-owned immutable storage.
