@@ -5,7 +5,7 @@ import { previewCompanyEconomics, type VersionedEconomicsPolicy,
 import type { ActiveSessionVerifier, PrivateIntakeDatabase }
   from "./trusted-typed-note-ledger.ts";
 
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const SERVICE=/^[a-z][a-z0-9_-]{0,63}$/;
 const READ="select bm_intake_private.read_corrected_internal_preview_inputs("+
