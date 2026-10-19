@@ -275,3 +275,55 @@ test("policy digest rejects sparse and extended arrays rather than hashing alias
   assert.throws(()=>companyPolicySha256(accessor),/own enumerable data/);
   assert.equal(companyPolicySha256(policy()),original);
 });
+
+test("draft snapshots refuse caller toJSON and accessor rewriting of reviewed prices",()=>{
+  const forged=policy();
+  let calls=0;
+  Object.defineProperty(forged.pricing.services.office,"toJSON",{
+    value(){calls++;return {label:"Office clean",unit:"visit",
+      rateCents:1,billing:"charged"};},
+    configurable:true,
+  });
+  assert.throws(()=>submitPolicyDraft(null,{
+    organizationId:orgA,submittedBy:creator,policy:forged,
+    expectedRevision:0,expectedSha256:null,
+  }),/own enumerable data/);
+  assert.equal(calls,0,"untrusted toJSON must not execute");
+
+  const accessor=policy();
+  let reads=0;
+  Object.defineProperty(accessor.pricing.services.office,"rateCents",{
+    enumerable:true,get(){reads++;return 1;},
+  });
+  assert.throws(()=>submitPolicyDraft(null,{
+    organizationId:orgA,submittedBy:creator,policy:accessor,
+    expectedRevision:0,expectedSha256:null,
+  }),/own enumerable data/);
+  assert.equal(reads,0,"untrusted price accessor must not execute");
+
+  const valid=begin();
+  assert.equal(valid.revisions[0].policy.pricing.services.office.rateCents,7000);
+  assert.equal(valid.revisions[0].policySha256,companyPolicySha256(policy()));
+});
+
+test("draft schema refuses unknown prices, implicit authority and extra business fields",()=>{
+  const base=policy();
+  const invalid=[
+    {...base, approved:true},
+    {...base, send:true},
+    {...base, pricing:{...base.pricing, send:true}},
+    {...base, tax:{...base.tax, override:true}},
+    {...base, pricing:{...base.pricing,minimum:{...base.pricing.minimum,
+      priceOverrideCents:1}}},
+    {...base, pricing:{...base.pricing,services:{...base.pricing.services,
+      office:{...base.pricing.services.office,priceCents:1}}}},
+  ];
+  for (const item of invalid){
+    assert.throws(()=>submitPolicyDraft(null,{
+      organizationId:orgA,submittedBy:creator,policy:item,
+      expectedRevision:0,expectedSha256:null,
+    }),/Invalid company-owned policy revision|Invalid service configuration/);
+  }
+  const approved=accept(begin());
+  assert.equal(readActivePolicy(approved,orgA).pricing.services.office.rateCents,7000);
+});

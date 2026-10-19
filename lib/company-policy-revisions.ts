@@ -1,4 +1,4 @@
-import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
+import { canonicalCompanyPolicyText, companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import type { VersionedEconomicsPolicy } from "./company-economics.ts";
 
 type RevisionStatus = "draft" | "approved" | "rejected";
@@ -34,6 +34,14 @@ function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/** Check business schema after canonical JSON parsing, not on caller objects. */
+function hasFields(value: unknown, required: string[], optional: string[] = []): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return required.every(key => Object.hasOwn(value, key))
+    && keys.every(key => required.includes(key) || optional.includes(key));
+}
+
 function cents(value: unknown): boolean {
   return Number.isSafeInteger(value) && (value as number) >= 0;
 }
@@ -46,6 +54,11 @@ function bps(value: unknown): boolean {
 function validatePolicy(policy: VersionedEconomicsPolicy, revision: number): void {
   const p = policy?.pricing;
   if (!policy || policy.revision !== revision
+    || !hasFields(policy, ["revision", "pricing", "tax"],
+      ["excludedServiceCodes", "unitDirectCostsCents"])
+    || !hasFields(p, ["policyId", "currency", "minimum", "calculationOrder", "services"])
+    || !hasFields(p?.minimum, ["rule", "cents"])
+    || !hasFields(policy.tax, ["method", "bps"])
     || !p || p.currency !== "USD"
     || typeof p.policyId !== "string" || !p.policyId.trim()
     || !["none", "per-line", "quote"].includes(p.minimum?.rule)
@@ -60,7 +73,10 @@ function validatePolicy(policy: VersionedEconomicsPolicy, revision: number): voi
     throw new TypeError("Invalid company-owned policy revision");
   }
   for (const [code, rule] of Object.entries(p.services)) {
-    if (!SERVICE.test(code) || !rule || typeof rule.label !== "string"
+    if (!SERVICE.test(code)
+      || !hasFields(rule, ["label", "unit", "rateCents", "billing"],
+        ["surchargeBps", "discountBps", "optionalAddon"])
+      || !rule || typeof rule.label !== "string"
       || !rule.label.trim() || typeof rule.unit !== "string" || !rule.unit.trim()
       || !cents(rule.rateCents)
       || (rule.optionalAddon !== undefined && typeof rule.optionalAddon !== "boolean")
@@ -157,8 +173,12 @@ export function submitPolicyDraft(
   if (history?.revisions.at(-1)?.status === "draft") {
     throw new Error("Existing company policy draft must be reviewed first");
   }
-  validatePolicy(request.policy, current.revision + 1);
-  const policy = snapshot(request.policy);
+  // Normalize only through the strict serializer. JSON.stringify(value)
+  // would invoke a caller-owned toJSON and could persist different prices
+  // from those just checked or silently omit hidden approval directives.
+  const policy = JSON.parse(canonicalCompanyPolicyText(request.policy))
+    as VersionedEconomicsPolicy;
+  validatePolicy(policy, current.revision + 1);
   const item: PolicyRevision = {
     organizationId: request.organizationId,
     revision: current.revision + 1,

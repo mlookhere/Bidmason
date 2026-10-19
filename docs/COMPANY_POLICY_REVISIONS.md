@@ -33,3 +33,7 @@ remain mandatory for deployment.
 ## Canonical policy data integrity
 
 The same canonical policy SHA-256 is used by preview calculations, immutable draft history, and the trusted PostgreSQL policy adapter. The serializer refuses non-JSON representations, including hidden or accessor-backed prices, symbol fields and noncanonical arrays, rather than silently hashing different values from those used by the pricing engine. This is **only a consistency digest**, never authorization; tenant membership and independently approved persisted revisions remain mandatory. Positive and adversarial regressions are in `tests-web/company-policy-revisions.test.mjs`.
+
+## Submitted-policy schema and snapshot boundary
+
+An untrusted policy object is now canonicalized *before* draft validation or persistence: `canonicalCompanyPolicyText` verifies only canonical JSON-owned enumerable data properties and never calls a caller-defined `toJSON` or price accessor. The normalized policy is then checked against an exact business schema at top level, pricing, minimum, tax, and each service. Unknown directive fields (e.g., apparent send approval or price overrides) are rejected rather than silently retained or ignored. The same canonical policy bytes determine the saved SHA-256. Positive and adversarial tests cover this boundary in `tests-web/company-policy-revisions.test.mjs`. These are pure in-memory contracts; real authenticated reviewers and atomic tenant-persisted approvals remain separate requirements.
