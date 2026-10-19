@@ -63,3 +63,18 @@ Positive authorized plain/null-prototype line objects remain supported.
 This is a pure data-integrity guard, not evidence of authenticated tenant
 approval or customer delivery permission. Company policy versions, human
 review, tax law and live Supabase acceptance remain separate requirements.
+
+## Inert company-owned ratecards in the standalone calculator
+
+The direct `quoteFromPolicy` path now snapshots its **entire caller-provided
+company ratecard** with the existing canonical company policy serializer
+before examining currency, minima, services, discounts or surcharges.
+Nested getters, hidden/symbol keys, custom `toJSON` methods, unsupported
+prototypes and nonintegral policy amounts are rejected before pricing.
+Ordinary plain and null-prototype configuration records remain supported.
+
+This aligns offline direct pricing with the canonical-data requirement
+already enforced by versioned economics and policy fingerprints. It does
+**not** prove that a ratecard has an approved revision or that its caller
+belongs to the company; trusted current-tenant policy lookup and separate
+approval checks remain necessary before any commercial use.
