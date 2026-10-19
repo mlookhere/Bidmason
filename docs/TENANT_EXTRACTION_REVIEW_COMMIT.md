@@ -635,3 +635,36 @@ Auth or live tenant policy approval. Membership must still be
 authoritatively maintained, production service keys must remain
 server-held, and Item 3 live RLS, private Storage, antivirus, recovery,
 privacy/legal and security acceptance remain outstanding.
+
+
+## Concurrent review CAS and approved-policy head races
+
+The existing mandatory disposable PostgreSQL `intake-db` job additionally
+runs `ci/intake_scope_concurrency.test.mjs`, which starts **independent
+`psql` operating-system processes**, not sequential unit-test mocks:
+
+1. Eight valid requests commit the same human review against one original
+   revision 2 source. Exactly one may advance to revision 3; all seven
+   losers must fail with an explicit stale/replay error.
+2. Six valid requests compete with **different** selected services and
+   optional acknowledgements. Exactly one complete reviewed-scope
+   snapshot, matching its own selected-service SHA-256, can persist.
+   Original typed-note text, creation/request identifiers, immutable
+   candidate review, text SHA and single extraction audit remain intact.
+3. A separate two-member-approved pricing activation from revision 1
+   to revision 2 races a scope CAS pinned to revision 1. The successful
+   activation must advance the policy head to revision 2. The scope CAS
+   may commit only while revision 1 is still the locked active head,
+   leaving a **historically valid but now stale** reviewed draft, or
+   it must reject revision 1 as stale with **no source update**.
+   It must never commit a revision 1 review after observing revision 2.
+
+These tests use real PostgreSQL membership/source/head row locks and
+immutable policy version references, in addition to the existing
+sequential positive/negative SQL, cross-language fingerprint, fresh-Auth
+adapter, and recovery regressions. They do not weaken any of the eight
+CI jobs, and they do not simulate live session, production storage,
+provider failures, policy-review signatures or human consent.
+A previously persisted review is **not** a current quote merely because
+its transaction succeeded while an earlier ratecard was active. Sending,
+approval, retry and billing remain disabled.
