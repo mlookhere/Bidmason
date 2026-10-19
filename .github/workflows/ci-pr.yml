@@ -255,3 +255,53 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_sealed_legacy_corrected_preview_test.sql
       - name: Prove deployment schema preflight is complete and service-private in CI
         run: node --test ci/corrected_pricing_schema_preflight.test.mjs
+
+
+  item3-intake-compat:
+    name: item3-intake-compat
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: isolated-item3-item4-compat-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-item3-item4-compat-only
+    steps:
+      - name: Checkout Item 4 current PR branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout existing Item 3 dependency without executing its workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mlookhere/Bidmason
+          ref: work/4-tenant-rls
+          path: item3-dependency
+          persist-credentials: false
+      - name: Reject silent Item 3 dependency drift
+        run: |
+          test "$(git -C item3-dependency rev-parse HEAD)" = "d17844b6387ffe9b5970dda1350a871276b38f7a"
+      - name: Install isolated PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install real Item 3 Auth roles and tenant schema
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f item3-dependency/ci/db_auth_stub.sql
+          psql -X -v ON_ERROR_STOP=1 -f item3-dependency/db/schema.sql
+      - name: Install Item 4 private typed-note foundation onto real Item 3 schema
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql
+      - name: Prove Item 3 membership policies and Item 4 private grants coexist
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_real_tenant_compat_test.sql
+      - name: Run Item 4 two-tenant CAS and immutability tests against real Item 3
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql

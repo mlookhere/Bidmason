@@ -1,0 +1,11 @@
+# Item 3 → Item 4 real-schema compatibility gate (CI only)
+
+Item 4's existing mandatory \`intake-db\` job intentionally uses \`ci/db_intake_stub.sql\`, a very small stand-in for \`bm_organizations\` and \`bm_memberships\`. It is essential for deep isolated correction and deterministic pricing tests, but cannot by itself establish that Item 4 can coexist with Item 3's **actual** tenant RLS schema.
+
+The separately required \`item3-intake-compat\` Actions job checks out the existing Item 3 dependency branch \`work/4-tenant-rls\` and **fails closed unless its actual HEAD remains \`d17844b6387ffe9b5970dda1350a871276b38f7a\`**. This exact-SHA guard is deliberate: when Item 3 changes, review the changed dependency and update this expected SHA explicitly rather than silently accepting drift. It does not create or merge any Issue/PR or copy/replace Item 3 source.
+
+It provisions its OWN isolated PostgreSQL 17 service, without real credentials, runs the dependency's \`ci/db_auth_stub.sql\` and **\`db/schema.sql\`**, then installs Item 4's \`db/typed_note_foundation.sql\` against those real table definitions and RLS policies. \`ci/db_item3_real_tenant_compat_test.sql\` requires all six real Item 3 tenant/business tables, enabled RLS, the three declared tenant read policies, FORCE RLS on Item 4's typed-note tables, no direct browser private intake permissions, and no self-promotion through membership writes. Finally, the existing adversarial Item 4 \`ci/db_intake_test.sql\` runs its cross-tenant denial, idempotent replay, duplicate-payload, immutable-source and revocation tests **against the real Item 3 schema**.
+
+This job is a strict additional required check. A failure blocks promotion of the Item 4 branch and should be corrected by cause; never substitute the stub, delete tests, treat a missing job as green, or merge either draft PR without approved prerequisites.
+
+**Limits:** This verifies Item 3 table/RLS compatibility in disposable PostgreSQL only, not Supabase Auth's live JWT and session lifecycle, two real users, Storage HTTP policies, signed upload scanning, ratecards, customer approvals, or production deployment. Existing Item 3 PR #12 and Item 4 PR #13 remain independent draft PRs into \`dev\`. Live Supabase Item 4 deployment preflight remains separately blocked until reviewed migrations and real two-tenant security acceptance.
