@@ -40,6 +40,7 @@ function fixture(options={}) {
   const auth={async verifyActiveSession(token) {
     authCalls++;
     if(!active || token!=="signed-in")throw Error("Session revoked");
+    if(authCalls===1)options.afterFirstAuth?.();
     return {userId:who};
   }};
   const db={async query(sql,params) {
@@ -57,7 +58,9 @@ function fixture(options={}) {
       // Simulate membership revoked just AFTER a successful private source
       // read-back, before the final privileged policy query.
       if (options.revokeAfterReadback && sourceReads===2) currentMember=false;
-      return {rows:[sourceRow]};
+      const rows=[sourceRow];
+      options.decorateRows?.(sql,rows);
+      return {rows};
     }
     if(sql.includes("active_policy_heads")) {
       assert.ok(sql.includes("join public.bm_memberships m"));
@@ -68,9 +71,11 @@ function fixture(options={}) {
       if (options.changePolicyAfterFirstRead) {
         activePolicy={...activePolicy,revision:2};
       }
-      return {rows:[{revision:snapshot.revision,
+      const rows=[{revision:snapshot.revision,
         policy_sha256:companyPolicySha256(activePolicy),
-        policy:snapshot,submitted_by:ACTOR,reviewed_by:OTHER}]};
+        policy:snapshot,submitted_by:ACTOR,reviewed_by:OTHER}];
+      options.decorateRows?.(sql,rows);
+      return {rows};
     }
     if(!sql.includes("commit_typed_note_scope_review"))throw Error("Unexpected SQL");
     writes++;
@@ -86,8 +91,10 @@ function fixture(options={}) {
       tamperCreation:()=>{current.creationAudit.requestId=
         "33333333-3333-4333-8333-333333333333";}});
     if(options.lostAck)throw Error("Provider acknowledgement lost");
-    return {rows:[{source_revision:3,
-      reviewed_selection_sha256:scope.reviewedSelectionSha256}]};
+    const rows=[{source_revision:3,
+      reviewed_selection_sha256:scope.reviewedSelectionSha256}];
+    options.decorateRows?.(sql,rows);
+    return {rows};
   }};
   return {api:createTrustedTypedNoteScopeCommit(auth,db),calls,
     get writes(){return writes;},get authCalls(){return authCalls;},
@@ -438,4 +445,122 @@ test("scope entrypoints all reject noncanonical or unacknowledged selection",asy
    }
    assert.equal(f.writes,0);
  }
+});
+
+
+test("all privileged scope methods keep original tenant and selections after first Auth await",async()=>{
+  for(const name of ["readWorkbench","preview","reconcile","commit"]){
+    const mutable={...request,selectedIndices:[...request.selectedIndices],
+      acceptedAddonCodes:[...request.acceptedAddonCodes]};
+    const f=fixture({afterFirstAuth(){
+      mutable.session="revoked-changed-caller-reference";
+      mutable.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      mutable.sourceId="33333333-3333-4333-8333-333333333333";
+      mutable.reviewKey="0".repeat(64);
+      mutable.selectedIndices[0]=1;
+      mutable.acceptedAddonCodes[0]="unknown";
+    }});
+    const target=name==="readWorkbench"
+      ?{session:mutable.session,organizationId:mutable.organizationId,
+        sourceId:mutable.sourceId}:mutable;
+    const outcome=await f.api[name](target);
+    if(name==="readWorkbench")assert.equal(outcome.state,"requires-human-service-review");
+    if(name==="preview")assert.equal(outcome.state,"preview-only");
+    if(name==="reconcile")assert.equal(outcome.state,"unreviewed-at-read");
+    if(name==="commit"){
+      assert.equal(outcome.state,"reviewed-for-proposal-draft");
+      assert.deepEqual(f.record.scopeReview.selectedIndices,[0]);
+      assert.deepEqual(f.record.scopeReview.acceptedAddonCodes,["painting"]);
+      assert.equal(f.writes,1);
+    } else assert.equal(f.writes,0);
+    for(const call of f.calls){
+      assert.equal(call.params[0],ORG);
+      if(call.sql.includes("read_typed_note_for_extraction")
+        ||call.sql.includes("commit_typed_note_scope_review")){
+        assert.equal(call.params[2],SOURCE);
+      }
+    }
+  }
+});
+
+test("persisted internal scope handoff retains original tenant across Auth await",async()=>{
+  let mutate=false;
+  const target={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+  const f=fixture({afterFirstAuth(){
+    if(mutate){
+      target.session="revoked-changed-caller-reference";
+      target.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      target.sourceId="33333333-3333-4333-8333-333333333333";
+    }
+  }});
+  await f.api.commit(request);
+  // This independently invokes a freshly configured adapter with mutable
+  // caller selector; existing committed data remains untouched.
+  const actual=await f.api.readReviewedDraft(target);
+  assert.equal(actual.state,"internal-reviewed-scope-only");
+  assert.equal(actual.organizationId,ORG);
+  assert.equal(actual.sourceId,SOURCE);
+  assert.equal(f.writes,1);
+});
+
+test("scope rejects hidden, inherited and getter-backed directives before Auth/SQL",async()=>{
+  const selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+  let getterCalls=0;
+  const variants=[
+    ()=>{const x={...selector};Object.defineProperty(x,"send",{value:true});return x;},
+    ()=>{const x={...selector};x[Symbol("approved")]=true;return x;},
+    ()=>Object.assign(Object.create({send:true}),selector),
+    ()=>{const x={...selector};Object.defineProperty(x,"organizationId",{
+      enumerable:true,get(){getterCalls++;throw Error("unsafe tenant getter");}});return x;},
+  ];
+  for(const build of variants){
+    const f=fixture();
+    for(const name of ["readWorkbench","readReviewedDraft"]){
+      await assert.rejects(f.api[name](build()),/Invalid trusted typed-note workbench selector/);
+    }
+    assert.equal(f.authCalls,0);
+    assert.equal(f.calls.length,0);
+  }
+  const invalids=[
+    ()=>{const x={...request,selectedIndices:[0]};Object.defineProperty(x.selectedIndices,"0",{
+      enumerable:true,get(){getterCalls++;throw Error("unsafe index getter");}});return x;},
+    ()=>{const x={...request,acceptedAddonCodes:["painting"]};
+      Object.defineProperty(x.acceptedAddonCodes,"0",{enumerable:true,
+      get(){getterCalls++;throw Error("unsafe addon getter");}});return x;},
+    ()=>{const x={...request,selectedIndices:[0]};Object.defineProperty(x.selectedIndices,
+      "send",{value:true});return x;},
+    ()=>{const x={...request,selectedIndices:new Array(1)};return x;},
+  ];
+  for(const build of invalids){
+    const f=fixture();
+    for(const name of ["preview","reconcile","commit"]){
+      await assert.rejects(f.api[name](build()),/Invalid internal typed-note scope selection/);
+    }
+    assert.equal(f.authCalls,0);
+    assert.equal(f.calls.length,0);
+  }
+  assert.equal(getterCalls,0);
+});
+
+test("private scope source, policy and commit result arrays deny malicious index getters",async()=>{
+  let getters=0;
+  for(const which of ["read_typed_note_for_extraction",
+    "active_policy_heads","commit_typed_note_scope_review"]){
+    const f=fixture({decorateRows(sql,rows){
+      if(sql.includes(which)){
+        Object.defineProperty(rows,"0",{enumerable:true,
+          get(){getters++;throw Error("unsafe SQL row getter");}});
+      }
+    }});
+    if(which==="commit_typed_note_scope_review"){
+      await assert.rejects(f.api.commit(request),
+        /Human scope CAS result indeterminate/);
+      assert.equal(f.writes,1);
+    } else {
+      await assert.rejects(f.api.commit(request),
+        /Creator-owned scope source unavailable|No unambiguous approved current policy/);
+      assert.equal(f.writes,0);
+    }
+  }
+  assert.equal(getters,0);
 });
