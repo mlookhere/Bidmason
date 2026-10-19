@@ -388,3 +388,38 @@ review, pricing approval, sending or billing is enabled. Review outputs
 are only `reviewed-for-proposal-draft`, never approvals or sendable
 quotes. Completing those integrations requires Item 3 security
 acceptance and independent, current approved-policy evidence.
+
+
+## Shared TypeScript policy fingerprint and actual PostgreSQL bridge
+
+Item 4 now uses `lib/company-policy-fingerprint.ts` for both historical
+approval revision hashes (`company-policy-revisions.ts`) and never-sendable
+quote preview `policySha256` (`company-economics.ts`). Previously one path
+sorted keys using JavaScript's code-unit order, while another used
+`localeCompare`; equivalent policies could have different digests. The
+shared serializer recursively orders object keys by deterministic Unicode
+code-unit order and rejects unsafe numbers, non-JSON values, forbidden
+prototype-related keys, excess nesting and oversized policy text. It emits
+the **exact UTF-8 canonical policy bytes** required by private PostgreSQL
+`activate_scope_policy`, not just a caller-supplied checksum.
+
+The required `intake-db` CI job now also runs
+`ci/intake_policy_fingerprint_bridge.test.mjs`. It uses the *real*
+TypeScript `submitPolicyDraft` + independent `reviewPolicyDraft` +
+`readActivePolicy` domain, computes canonical policy bytes, activates
+them through actual private PostgreSQL, and asserts that approved history,
+the active database row, economics preview and a subsequent human
+`reviewed-for-proposal-draft` decision all carry exactly the same SHA.
+The test also verifies real immutable typed-note extraction, UTF-16
+provenance, optional add-on acknowledgment, unchanged stored original
+and singular database-authored extraction audit.
+
+**Limitations:** The integration employs synthetic actors and a disposable
+PostgreSQL service role. It is a cross-language contract proof, **not** a
+connected production approval adapter, authenticated two-human signature,
+genuine Supabase Auth/RLS test or a verified company price list. The
+database still does not independently recompute the entire workbench
+`reviewKey` or selected-service fingerprint, and it cannot prove that a
+browser-supplied session belongs to the server-verifying human. Item 3
+security and real-provider acceptance remain mandatory before creating
+customer-facing routes, approving proposals, enabling sends or merging.
