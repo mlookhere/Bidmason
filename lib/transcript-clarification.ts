@@ -45,17 +45,42 @@ export type TranscriptCorrectionDraft = {
   proposedSource: IntakeSource;
 };
 
+/** Only inert exact data reaches the correction/audit fingerprint. */
+function exactData(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const keys = Reflect.ownKeys(value);
+  return keys.length === fields.length && keys.every(key => {
+    if (typeof key !== "string" || !fields.includes(key)) return false;
+    const property = Object.getOwnPropertyDescriptor(value, key);
+    return property?.enumerable === true && Object.hasOwn(property, "value");
+  });
+}
+function denseDataArray(value: unknown, min: number, max: number): value is unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length < min || value.length > max
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i++) {
+    const item = Object.getOwnPropertyDescriptor(value, String(i));
+    if (item?.enumerable !== true || !Object.hasOwn(item, "value")) return false;
+  }
+  return true;
+}
+
 function requireBlocked(outcome: TranscriptionOutcome): asserts outcome is
   Extract<TranscriptionOutcome, {state: "needs-information" | "needs-human-review"}> {
-  if (!outcome || outcome.state !== "needs-information"
-    || outcome.original?.kind !== "transcript"
+  if (!exactData(outcome, ["state", "audioSha256", "providerName",
+      "providerVersion", "original", "durationMs", "uncertainties", "segments"])
+    || outcome.state !== "needs-information"
+    || !exactData(outcome.original, ["kind", "text", "transcriptionSucceeded"])
+    || outcome.original.kind !== "transcript"
     || outcome.original.transcriptionSucceeded !== false
     || typeof outcome.original.text !== "string" || !outcome.original.text.trim()
     || Buffer.byteLength(outcome.original.text, "utf8") > MAX_TEXT_BYTES
     || typeof outcome.audioSha256 !== "string" || !HASH.test(outcome.audioSha256)
-    || !outcome.providerName?.trim() || !outcome.providerVersion?.trim()
-    || !Array.isArray(outcome.uncertainties)
-    || outcome.uncertainties.length === 0 || outcome.uncertainties.length > 50) {
+    || typeof outcome.providerName !== "string" || !outcome.providerName.trim()
+    || typeof outcome.providerVersion !== "string" || !outcome.providerVersion.trim()
+    || !denseDataArray(outcome.uncertainties, 1, 50)) {
     throw new Error("Only a bounded unresolved transcript can be clarified");
   }
 }
@@ -65,9 +90,16 @@ function checkedUncertainties(outcome: TranscriptionOutcome): {
 }[] {
   requireBlocked(outcome);
   const text = outcome.original.text;
-  const sorted = outcome.uncertainties.map((uncertainty, index) =>
-    ({index, uncertainty})).sort((a, b) =>
-      a.uncertainty.start - b.uncertainty.start);
+  const sorted = outcome.uncertainties.map((uncertainty, index) => {
+    if (!exactData(uncertainty, ["start", "end", "excerpt", "reason"])) {
+      throw new Error("Uncertainty span is invalid or overlapping");
+    }
+    // Make an inert copy before sorting or building review/audit records.
+    return {index, uncertainty: {
+      start: uncertainty.start, end: uncertainty.end,
+      excerpt: uncertainty.excerpt, reason: uncertainty.reason,
+    }};
+  }).sort((a, b) => a.uncertainty.start - b.uncertainty.start);
   let previousEnd = 0;
   for (const {uncertainty: u} of sorted) {
     if (!u || !Number.isSafeInteger(u.start) || !Number.isSafeInteger(u.end)
@@ -105,15 +137,12 @@ export function prepareTranscriptCorrectionDraft(
   // discriminated outcome type in this caller. Repeat the explicit assertion.
   requireBlocked(outcome);
   const spans = checkedUncertainties(outcome);
-  if (!Array.isArray(decisions) || decisions.length !== spans.length) {
+  if (!denseDataArray(decisions, spans.length, spans.length)) {
     throw new Error("Every ambiguous transcript span needs an explicit correction");
   }
   const byIndex = new Map<number, TranscriptClarification>();
   for (const c of decisions) {
-    if (!c || typeof c !== "object" || Array.isArray(c)
-      || Object.keys(c).length !== 3
-      || !["uncertaintyIndex", "replacement", "explanation"]
-        .every(k => Object.hasOwn(c, k))
+    if (!exactData(c, ["uncertaintyIndex", "replacement", "explanation"])
       || !Number.isSafeInteger(c.uncertaintyIndex)
       || byIndex.has(c.uncertaintyIndex)
       || typeof c.replacement !== "string" || !c.replacement.trim()
@@ -124,7 +153,10 @@ export function prepareTranscriptCorrectionDraft(
       || c.explanation.length > MAX_REASON) {
       throw new Error("Invalid or duplicate transcript correction");
     }
-    byIndex.set(c.uncertaintyIndex, c);
+    byIndex.set(c.uncertaintyIndex, {
+      uncertaintyIndex: c.uncertaintyIndex,
+      replacement: c.replacement, explanation: c.explanation.trim(),
+    });
   }
   const raw = outcome.original.text;
   const parts: string[] = [];
