@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import type { VersionedEconomicsPolicy } from "./company-economics.ts";
 
 type RevisionStatus = "draft" | "approved" | "rejected";
@@ -30,20 +30,8 @@ function actor(value: string): void {
   }
 }
 
-function stable(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return "[" + value.map(stable).join(",") + "]";
-  return "{" + Object.keys(value).sort().map(key =>
-    JSON.stringify(key) + ":" + stable((value as Record<string, unknown>)[key])
-  ).join(",") + "}";
-}
-
 function snapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function fingerprint(policy: VersionedEconomicsPolicy): string {
-  return createHash("sha256").update(stable(policy)).digest("hex");
 }
 
 function cents(value: unknown): boolean {
@@ -114,7 +102,7 @@ function validateHistory(history: PolicyHistory, organizationId: string): void {
       throw new Error("Malformed immutable policy history");
     }
     validatePolicy(item.policy, item.revision);
-    if (item.policySha256 !== fingerprint(item.policy)) {
+    if (item.policySha256 !== companyPolicySha256(item.policy)) {
       throw new Error("Policy history integrity check failed");
     }
     if (item.status === "approved") lastApproved = item.revision;
@@ -163,7 +151,7 @@ export function submitPolicyDraft(
     organizationId: request.organizationId,
     revision: current.revision + 1,
     status: "draft", submittedBy: request.submittedBy,
-    reviewedBy: null, policySha256: fingerprint(policy), policy,
+    reviewedBy: null, policySha256: companyPolicySha256(policy), policy,
   };
   return {
     organizationId: request.organizationId,
