@@ -85,6 +85,11 @@ declare
  v_sha text;
  v_previous integer;
  v_service record;
+ v_adjustment text;
+ v_exclusion jsonb;
+ v_excluded text[]:=array[]::text[];
+ v_code text;
+ v_cost record;
 begin
  if p_org is null or p_submitter is null or p_reviewer is null
    or p_submitter=p_reviewer
@@ -132,6 +137,16 @@ begin
    raise exception 'Policy snapshot is invalid or mismatched'
    using errcode='22023';
  end if;
+ -- These commercial invariants are independently enforced in SQL.
+ -- A trusted TypeScript review cannot substitute for database validation.
+ if length(btrim(coalesce(v_policy->'pricing'->>'policyId','')))=0
+   or (v_policy->'pricing'->'minimum'->>'rule'='none'
+       and (v_policy->'pricing'->'minimum'->>'cents')::numeric<>0)
+   or (v_policy->'tax'->>'method'='none'
+       and (v_policy->'tax'->>'bps')::numeric<>0) then
+    raise exception 'Contradictory or unidentified approved company pricing'
+      using errcode='22023';
+ end if;
  if (select count(*) from jsonb_object_keys(v_policy->'pricing'->'services'))=0 then
   raise exception 'Approved company policy must contain services'
     using errcode='22023';
@@ -152,7 +167,67 @@ begin
      raise exception 'Invalid approved company service configuration'
        using errcode='22023';
    end if;
+   -- Validate BOTH optional line adjustments for all services, including
+   -- pending/included services that may later become chargeable.
+   foreach v_adjustment in array array['surchargeBps','discountBps'] loop
+     if v_service.value ? v_adjustment then
+       if jsonb_typeof(v_service.value->v_adjustment) is distinct from 'number'
+         or coalesce(v_service.value->>v_adjustment,'')
+             !~ '^(0|[1-9][0-9]{0,4})$' then
+         raise exception 'Invalid company service percentage'
+           using errcode='22023';
+       end if;
+       if (v_service.value->>v_adjustment)::numeric>10000 then
+         raise exception 'Company service percentage exceeds 10000 bps'
+           using errcode='22023';
+       end if;
+     end if;
+   end loop;
  end loop;
+ -- Exclusions must be unique, present in the approved service catalog and
+ -- literal JSON strings. Do not accept JSON objects, duplicate exclusions,
+ -- or references to unlisted services.
+ if v_policy ? 'excludedServiceCodes' then
+   if jsonb_typeof(v_policy->'excludedServiceCodes') is distinct from 'array' then
+     raise exception 'Company exclusions must be an array' using errcode='22023';
+   end if;
+   for v_exclusion in select value from
+     jsonb_array_elements(v_policy->'excludedServiceCodes') loop
+     if jsonb_typeof(v_exclusion) is distinct from 'string' then
+       raise exception 'Company exclusion must be a service code'
+         using errcode='22023';
+     end if;
+     v_code:=v_exclusion#>>'{}';
+     if not (v_policy->'pricing'->'services' ? v_code)
+       or v_code=any(v_excluded) then
+       raise exception 'Unknown or repeated company exclusion'
+         using errcode='22023';
+     end if;
+     v_excluded:=array_append(v_excluded,v_code);
+   end loop;
+ end if;
+ -- Optional unit direct costs must be nonnegative integer cents and belong
+ -- only to known service codes; malformed economics never reach active heads.
+ if v_policy ? 'unitDirectCostsCents' then
+   if jsonb_typeof(v_policy->'unitDirectCostsCents') is distinct from 'object' then
+     raise exception 'Invalid company direct cost schedule'
+       using errcode='22023';
+   end if;
+   for v_cost in select key,value from
+     jsonb_each(v_policy->'unitDirectCostsCents') loop
+     if not (v_policy->'pricing'->'services' ? v_cost.key)
+       or jsonb_typeof(v_cost.value) is distinct from 'number'
+       or coalesce(v_cost.value#>>'{}','')
+            !~ '^(0|[1-9][0-9]{0,15})$' then
+       raise exception 'Invalid company direct cost entry'
+         using errcode='22023';
+     end if;
+     if (v_cost.value#>>'{}')::numeric>9007199254740991 then
+       raise exception 'Company direct cost exceeds JS safe integer'
+         using errcode='22023';
+     end if;
+   end loop;
+ end if;
  v_sha:=encode(sha256(convert_to(p_canonical_policy_text,'UTF8')),'hex');
  -- A single organization row serializes activation against scope CAS FOR SHARE.
  select revision into v_previous from bm_intake_private.active_policy_heads
