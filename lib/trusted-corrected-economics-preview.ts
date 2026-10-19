@@ -85,7 +85,8 @@ export function createTrustedCorrectedEconomicsPreview(
   acknowledgement?:"disposable-postgres-test-no-session-lock",
 ):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
   if(acknowledgement!=="disposable-postgres-test-no-session-lock"
-    || process.env.NODE_ENV==="production"){
+    || process.env.NODE_ENV==="production"
+    || process.env.BIDMASON_CI_DISPOSABLE_POSTGRES!=="1"){
     throw new Error("Unsafe legacy pricing preview disabled; use session-locked verifier");
   }
   return createInternalCorrectedEconomicsPreview(auth,db,false);
