@@ -39,3 +39,18 @@ requires a real tenant-owned transactional store, independently verified
 two-user Auth/PostgREST/Storage isolation, approved per-company commercial
 policy, signed AV, retention, legal/privacy/security and operational
 acceptance. The original provider extraction and source remain immutable.
+
+## Async caller mutation protection
+
+The server bridge now takes a **complete, bounded data-only snapshot** of
+the tenant/source selector, SHA-256 evidence identifiers, and every nested
+correction action/candidate *synchronously before the first Auth/DB await*.
+Any unexpected own keys, sparse arrays, action/candidate accessors or more
+than 100 changes are rejected before privileged reads. A mutable browser
+caller cannot change the submitted quantity, source identity, reason, or
+action array during authentication or query latency. This snapshot is
+strictly a transport-integrity boundary: the existing server provenance
+validator still enforces human explanations, candidate spans, service
+eligibility and correction semantics against the stored original. Tests
+also verify that accessor getters never run and denied payloads cause
+zero privileged reads or writes.

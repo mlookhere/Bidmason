@@ -32,6 +32,62 @@ function validateInput(target:SourceSelector,payload:EditorRequest):void {
   }
 }
 
+/** Snapshot the complete untrusted browser decision BEFORE any Auth/DB
+ * await. Checking data descriptors avoids invoking accessor-backed fields.
+ * The stricter evidence-aware validator still runs against stored originals. */
+function snapshotEditorChanges(value:unknown):ExtractionCorrectionChange[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value)!==Array.prototype
+    || value.length<1 || value.length>100
+    || Reflect.ownKeys(value).length!==value.length+1) {
+    throw new TypeError("Invalid source-bound correction editor changes");
+  }
+  const field=(obj:object,key:string):unknown=>
+    Object.getOwnPropertyDescriptor(obj,key)!.value;
+  const snapCandidate=(value:unknown)=>{
+    if(!exactFields(value,["serviceCode","units","start","end","excerpt"])) {
+      throw new TypeError("Invalid source-bound correction candidate");
+    }
+    return {
+      serviceCode:field(value,"serviceCode") as string,
+      units:field(value,"units") as number,
+      start:field(value,"start") as number,
+      end:field(value,"end") as number,
+      excerpt:field(value,"excerpt") as string,
+    };
+  };
+  const detached:ExtractionCorrectionChange[]=[];
+  for(let i=0;i<value.length;i++){
+    const descriptor=Object.getOwnPropertyDescriptor(value,String(i));
+    if(!descriptor?.enumerable || !Object.hasOwn(descriptor,"value")) {
+      throw new TypeError("Invalid source-bound correction action list");
+    }
+    const action=descriptor.value;
+    const kind=action && typeof action==="object"
+      ? Object.getOwnPropertyDescriptor(action,"action") : undefined;
+    if(!kind?.enumerable || !Object.hasOwn(kind,"value")) {
+      throw new TypeError("Invalid source-bound correction action");
+    }
+    const shape=kind.value==="replace"
+      ? ["action","index","candidate","reason"]
+      :kind.value==="remove" ? ["action","index","reason"]
+      :kind.value==="add" ? ["action","candidate","reason"] : [];
+    if(!shape.length || !exactFields(action,shape)) {
+      throw new TypeError("Invalid source-bound correction action");
+    }
+    const reason=field(action,"reason") as string;
+    if(kind.value==="remove"){
+      detached.push({action:"remove",index:field(action,"index") as number,reason});
+    }else if(kind.value==="replace"){
+      detached.push({action:"replace",index:field(action,"index") as number,
+        candidate:snapCandidate(field(action,"candidate")),reason});
+    }else{
+      detached.push({action:"add",candidate:snapCandidate(field(action,"candidate")),
+        reason});
+    }
+  }
+  return detached;
+}
+
 function rehydrateActions(
   changes:ReturnType<typeof prepareExtractionCorrectionDraft>["changes"],
 ):ExtractionCorrectionChange[] {
@@ -70,29 +126,39 @@ export async function submitAuthorizedCorrectionEditorRequest(
   payload:EditorRequest,
 ):ReturnType<typeof commitAuthorizedExtractionCorrection> {
   validateInput(target,payload);
+  // No await until ALL caller-owned selector, checksums and nested changes
+  // have been detached. An async caller cannot change the reviewed decision.
+  const selector:{organizationId:string;sourceId:string}={
+    organizationId:target.organizationId,sourceId:target.sourceId,
+  };
+  const submitted={
+    sourceSha256:payload.sourceSha256,
+    candidatesSha256:payload.candidatesSha256,
+    changes:snapshotEditorChanges(payload.changes),
+  };
   // Two independently authorized reads establish the source CAS checkpoint.
-  const context=await readExtractionCorrectionContext(store,session,target);
+  const context=await readExtractionCorrectionContext(store,session,selector);
   // Fresh primary read binds the browser-provided evidence IDs to the
   // actual tenant-owned original and extraction; not to a supplied snapshot.
-  const record=await store.readAuthorized({...target,session});
-  if (!record || record.organizationId!==target.organizationId
-    || record.sourceId!==target.sourceId
+  const record=await store.readAuthorized({...selector,session});
+  if (!record || record.organizationId!==selector.organizationId
+    || record.sourceId!==selector.sourceId
     || record.revision!==context.expectedRevision
-    || record.review?.sourceSha256!==payload.sourceSha256
-    || record.review?.candidatesSha256!==payload.candidatesSha256
+    || record.review?.sourceSha256!==submitted.sourceSha256
+    || record.review?.candidatesSha256!==submitted.candidatesSha256
     || record.pendingCorrection!=null || record.activatedCorrection!=null) {
     throw new Error("Correction editor evidence is stale or unauthorized");
   }
   const validated=prepareExtractionCorrectionDraft(
-    record.original,record.review,payload.changes);
-  if (validated.sourceSha256!==payload.sourceSha256
-    || validated.originalCandidatesSha256!==payload.candidatesSha256) {
+    record.original,record.review,submitted.changes);
+  if (validated.sourceSha256!==submitted.sourceSha256
+    || validated.originalCandidatesSha256!==submitted.candidatesSha256) {
     throw new Error("Correction editor evidence is stale or unauthorized");
   }
   // Detached immutable decision input is revalidated AGAIN under trusted
   // source ownership and revision CAS inside commitAuthorized...().
   return commitAuthorizedExtractionCorrection(store,session,{
-    organizationId:target.organizationId,sourceId:target.sourceId,
+    organizationId:selector.organizationId,sourceId:selector.sourceId,
     expectedRevision:context.expectedRevision,
     expectedSnapshotSha256:context.expectedSnapshotSha256,
     expectedCorrectionSha256:validated.correctionSha256,

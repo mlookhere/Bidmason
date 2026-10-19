@@ -192,15 +192,56 @@ test("lost readback is indeterminate and must never trigger an automatic retry",
  assert.equal(f.get().pendingCorrection.state,"pending-authorized-activation");
 });
 
-test("caller changing payload after authorized reads cannot alter verified commit",async()=>{
- const f=fixture(),payload=editorPayload();
+test("late caller mutation cannot change the snapshotted correction decision",async()=>{
+ const f=fixture(),payload=editorPayload(),target={...selector};
  let once=false;
  f.hooks.afterRead(()=>{
-  if(!once){once=true;payload.changes[0].candidate.units=4;}
+  if(!once){
+   once=true;
+   payload.changes[0].candidate.units=4;
+   payload.changes=[];
+   payload.sourceSha256="f".repeat(64);
+   payload.candidatesSha256="f".repeat(64);
+   target.sourceId="22222222-2222-4222-8222-222222222222";
+  }
  });
- const result=await submit(f,payload);
+ const result=await submit(f,payload,"editor",target);
  assert.equal(result.state,"correction-committed-pending-activation");
- // Decision was freshly revalidated against persisted source at submission;
- // a change before that validation is treated as the caller's proposal.
- assert.equal(f.get().pendingCorrection.proposedCandidates[1].units,4);
+ assert.equal(f.get().pendingCorrection.proposedCandidates[1].units,3);
+ assert.equal(f.get().pendingCorrection.proposedCandidates[2].serviceCode,"windows");
+ assert.equal(f.get().sourceId,SOURCE);
+});
+test("getter-backed nested change fields and array slots reject before Auth reads",async()=>{
+ const f=fixture(),base=editorPayload();
+ let invoked=0;
+ const action={...base.changes[0]};
+ Object.defineProperty(action,"reason",{enumerable:true,
+  get(){invoked++;return "Attempted hidden reason";}});
+ const candidate={...base.changes[0].candidate};
+ Object.defineProperty(candidate,"units",{enumerable:true,
+  get(){invoked++;return 999;}});
+ const array=[...base.changes];
+ Object.defineProperty(array,"0",{enumerable:true,configurable:true,
+  get(){invoked++;return base.changes[0];}});
+ const cases=[
+  {...base,changes:[action]},
+  {...base,changes:[{...base.changes[0],candidate}]},
+  {...base,changes:array},
+ ];
+ for(const payload of cases){
+  await assert.rejects(submit(f,payload),/Invalid source-bound/);
+ }
+ assert.equal(invoked,0);
+ assert.equal(f.counts().reads,0);
+ assert.equal(f.counts().writes,0);
+});
+test("malformed and oversized change arrays are refused before privileged reads",async()=>{
+ const f=fixture(),base=editorPayload();
+ const sparse=new Array(1);
+ const oversized=Array.from({length:101},()=>base.changes[0]);
+ const hidden=[...base.changes];hidden.authorize=true;
+ for(const changes of [sparse,oversized,hidden,[]]){
+  await assert.rejects(submit(f,{...base,changes}),/Invalid source-bound/);
+ }
+ assert.equal(f.counts().reads,0);
 });
