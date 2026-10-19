@@ -333,3 +333,56 @@ nonexistent source, forged client controls, malformed selection, replay
 refusal and post-revocation denial against disposable PostgreSQL. No
 production migrations, pricing authorization, sending or billing are
 created.
+
+
+## Staged approved-policy activation and locked scope binding
+
+`db/staged_policy_activation.sql` adds two private tables in
+`bm_intake_private`: append-only `approved_policy_versions` and one
+current `active_policy_heads` pointer per tenant. Anonymous and ordinary
+authenticated database roles have **no table access**. The private
+`activate_scope_policy` function requires an active tenant submitter
+(owner/operator/contractor) and **another distinct active owner/operator**
+reviewer, both membership rows locked, a sequential policy revision,
+bounded server-serialized JSON, required pricing minimum/order and service
+definitions, and a real PostgreSQL SHA-256 over the supplied policy bytes.
+It never fabricates a contractor's approval or default rate. Historical
+approved versions reject UPDATE and DELETE. The currently active head can
+advance only to the next revision through the staged privileged workflow.
+
+The existing private `commit_typed_note_scope_review` now locks the
+current policy-head row and referenced immutable approved version **inside
+the same transaction as the source revision 2→3 CAS**. With no approved
+tenant policy, the review fails closed. If policy revision or SHA differs
+from the approved active snapshot, the review is stale and cannot commit.
+Each selected code must belong to that ratecard, have `charged` or
+`included` (not `pending`) billing, and not appear in the company
+exclusions. Optional company services require the human's distinct
+acknowledgement; acknowledging an ordinary service as an add-on fails.
+Missing billing and malformed optional fields also fail closed. Policy
+activation and scope CAS hold conflicting PostgreSQL row locks, preventing
+activation from silently overtaking the review CAS within its transaction.
+
+The disposable `intake-db` job installs the approved policy structures
+before the scope CAS and runs
+`ci/db_intake_active_policy_test.sql` after the existing scope tests.
+The positive fixtures are explicitly **synthetic company policy examples**
+with two distinct synthetic members. They test pending-service refusal,
+self-approval and nonmember reviewer denial, stale policy revisions,
+optional-add-on enforcement, activation of a newer company ratecard and
+immutable historical version rejection.
+
+**Nonproduction trust limits:** The activation API still relies on a
+trusted server to authenticate the two *real* people and run the full
+`company-policy-revisions.ts` commercial-policy validation. The SQL
+records a digest of server-provided serialized policy text; it cannot by
+itself prove that text follows the JavaScript canonical serializer or
+constitutes an actual signed human approval. Similarly, the scope CAS
+still shape-checks but does not independently reconstruct the
+`reviewKey` and `reviewedSelectionSha256` derived by the TypeScript
+review workbench. No production policy-approval adapter is connected,
+no live Supabase multiuser proof has passed, and no customer-facing
+review, pricing approval, sending or billing is enabled. Review outputs
+are only `reviewed-for-proposal-draft`, never approvals or sendable
+quotes. Completing those integrations requires Item 3 security
+acceptance and independent, current approved-policy evidence.
