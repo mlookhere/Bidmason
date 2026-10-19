@@ -311,18 +311,14 @@ actors, nonexistent sources, foreign tenants, revoked members, duplicate
 decisions and invalid source hashes are rejected without modifying the
 original text, extraction review or extraction audit.
 
-**Critical trust limit:** The SQL function does **not** have an
-authoritative database-backed versioned approved-policy store. Its
-`policyRevision`, `policySha256`, `reviewKey` and
-`reviewedSelectionSha256` fields are shape-checked, but their values
-and the true optional status of each code are NOT independently proved
-against an approved tenant policy by this function. The existing
-`commitAuthorizedServiceReview` TypeScript policy/selection validator
-must eventually be integrated through **current real Auth**, an approved
-company policy snapshot and a single primary-database CAS. Until that
-connection and Item 3's real Auth/RLS/Storage security acceptance, this
-draft SQL primitive is **not safe for live review routes**, cannot issue
-a quote approval and must remain unexposed.
+**Critical deployment limit:** Subsequent staged changes add a locked
+approved-policy table/head and independently recompute the review
+workbench and selected-service fingerprints in the same private CAS.
+The server still MUST authenticate actual participants, verify the
+complete approved commercial policy, and connect the current provider
+through the trusted interface. Item 3's real Auth/RLS/Storage security
+acceptance has NOT occurred. This draft SQL primitive is **not safe for
+live review routes**, cannot issue quote approval and must remain unexposed.
 
 The existing real `intake-db` GitHub Actions job installs this primitive
 after the staged extraction and concurrency suites, then runs
@@ -379,10 +375,10 @@ trusted server to authenticate the two *real* people and run the full
 `company-policy-revisions.ts` commercial-policy validation. The SQL
 records a digest of server-provided serialized policy text; it cannot by
 itself prove that text follows the JavaScript canonical serializer or
-constitutes an actual signed human approval. Similarly, the scope CAS
-still shape-checks but does not independently reconstruct the
-`reviewKey` and `reviewedSelectionSha256` derived by the TypeScript
-review workbench. No production policy-approval adapter is connected,
+constitutes an actual signed human approval. The scope CAS now also independently reconstructs and checks the
+`reviewKey` and `reviewedSelectionSha256` against stored source
+evidence and the locked active policy. No production policy-approval
+adapter is connected,
 no live Supabase multiuser proof has passed, and no customer-facing
 review, pricing approval, sending or billing is enabled. Review outputs
 are only `reviewed-for-proposal-draft`, never approvals or sendable
@@ -418,8 +414,36 @@ and singular database-authored extraction audit.
 PostgreSQL service role. It is a cross-language contract proof, **not** a
 connected production approval adapter, authenticated two-human signature,
 genuine Supabase Auth/RLS test or a verified company price list. The
-database still does not independently recompute the entire workbench
-`reviewKey` or selected-service fingerprint, and it cannot prove that a
+database now independently recomputes the workbench `reviewKey`
+and ordered selected-service fingerprint, but it cannot prove that a
 browser-supplied session belongs to the server-verifying human. Item 3
 security and real-provider acceptance remain mandatory before creating
 customer-facing routes, approving proposals, enabling sends or merging.
+
+
+## Database recomputation of selected review evidence
+
+`db/typed_note_review_fingerprint.sql` implements two service-role-only
+PostgreSQL functions. `review_workbench_sha256` reconstructs the exact
+JavaScript review-key JSON tuple of the immutable source hash, candidate
+array hash and current approved policy SHA-256. `reviewed_selection_sha256`
+reconstructs the ordered `selectedServices` objects with the exact
+`serviceCode`, `units`, `start`, `end` and optional
+`addonAccepted: true` fields. It computes the SHA-256 of the same
+source/candidate/selected-services/policy JSON tuple as
+`previewReviewedEconomics`. Both are calculated from the **stored**
+candidate list and active policy, not from a client-provided review key.
+
+The private `commit_typed_note_scope_review` source revision 2→3 CAS now
+rejects mismatched hashes after current membership, creator, immutable
+original/extraction audit, selected-index, active-policy and optional
+acknowledgement checks. The `intake-db` gate runs actual PostgreSQL
+tests with canonical fixture fingerprints and a TypeScript-to-PostgreSQL
+bridge proving byte-for-byte agreement. It separately rejects forged
+review keys and selection hashes without changing the source revision.
+
+**Remaining:** Fingerprints are consistency evidence, not digital signatures,
+authenticated review consent or pricing approval. Live two-person
+Supabase Auth verification, production approved-policy adapter, RLS,
+private Storage, real anti-malware checks and security/privacy/legal
+acceptance are still mandatory; no sendable quote is produced.
