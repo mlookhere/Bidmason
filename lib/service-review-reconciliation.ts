@@ -97,7 +97,7 @@ export async function reconcileServiceReview(
     session, organizationId:target.organizationId,
   });
   const current = await read();
-  checkAuthorizedRecord(current, request);
+  checkAuthorizedRecord(current, target);
   // An original review can never reconcile a corrected extraction lifecycle,
   // including a mistakenly restored old scope. This is conflicting evidence.
   if (hasCorrectionLifecycle(current)) {
@@ -170,7 +170,7 @@ export async function reconcileServiceReview(
   // A second fresh authorized primary read detects intervening changes. Never
   // convert a source race into a confirmation or unchanged/rollback assertion.
   const last = await read();
-  checkAuthorizedRecord(last, request);
+  checkAuthorizedRecord(last, target);
   if (hasCorrectionLifecycle(last)
     || serviceReviewFingerprint(last) !== serviceReviewFingerprint(current)) {
     return {state:"conflict",sourceId:target.sourceId};
