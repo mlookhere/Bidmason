@@ -225,6 +225,50 @@ begin
    'activeRevision',v_active,'revisions',v_history);
 end;
 $read$;
+-- An approved revision may follow rejected submission revisions, but gaps
+-- are NEVER accepted on their own. Require every skipped immutable draft to
+-- have a separately recorded rejection and the target approved event to
+-- match the exact policy SHA and the two actual recorded actors.
+create function bm_intake_private.approved_policy_gap_is_reviewed(
+ p_org uuid,p_previous integer,p_target integer,p_sha text,
+ p_submitter uuid,p_reviewer uuid
+) returns boolean
+language sql stable security invoker
+set search_path=pg_catalog,public
+as $gap$
+ select p_org is not null
+   and p_previous is not null and p_previous>=0
+   and p_target is not null and p_target>p_previous+1
+   and p_target<=1000
+   and p_submitter is not null and p_reviewer is not null
+   and p_submitter<>p_reviewer
+   and p_sha ~ '^[0-9a-f]{64}$'
+   and exists (
+     select 1
+     from bm_intake_private.policy_draft_events d
+     join bm_intake_private.policy_decision_events e
+       on e.organization_id=d.organization_id
+       and e.revision=d.revision and e.policy_sha256=d.policy_sha256
+     where d.organization_id=p_org and d.revision=p_target
+       and d.policy_sha256=p_sha and d.submitted_by=p_submitter
+       and e.reviewed_by=p_reviewer and e.decision='approved'
+   )
+   and not exists (
+     select 1
+     from generate_series(p_previous+1,p_target-1) n(revision)
+     left join bm_intake_private.policy_draft_events d
+       on d.organization_id=p_org and d.revision=n.revision
+     left join bm_intake_private.policy_decision_events e
+       on e.organization_id=d.organization_id
+       and e.revision=d.revision and e.policy_sha256=d.policy_sha256
+     where d.revision is null or e.decision is distinct from 'rejected'
+   );
+$gap$;
+revoke all on function bm_intake_private.approved_policy_gap_is_reviewed(
+ uuid,integer,integer,text,uuid,uuid) from public,anon,authenticated;
+grant execute on function bm_intake_private.approved_policy_gap_is_reviewed(
+ uuid,integer,integer,text,uuid,uuid) to service_role;
+
 revoke all on function bm_intake_private.submit_policy_history_draft(
  uuid,uuid,integer,text,text),
  bm_intake_private.review_policy_history_draft(uuid,uuid,integer,text,text),
