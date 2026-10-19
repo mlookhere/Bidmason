@@ -171,3 +171,5 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_read_test.sql
       - name: Prove real JS extraction bridge against disposable PostgreSQL
         run: node --test ci/intake_extraction_bridge.test.mjs
+      - name: Prove concurrent private extraction CAS and singular durable audit
+        run: node --test ci/intake_extraction_concurrency.test.mjs
