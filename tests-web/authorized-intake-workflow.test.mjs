@@ -286,3 +286,58 @@ test("direct review preview rejects accessor, symbolic and sparse inputs before 
  assert.equal(f.reads(),start);
  assert.equal(getterCalls,0);
 });
+
+
+test("workbench context rejects nested accessor evidence before cloning or Auth",async()=>{
+ const f=setup();
+ let getters=0;
+ const altered=[
+  ()=>{const c=structuredClone(ctx);Object.defineProperty(c.original,"text",{
+    enumerable:true,get(){getters++;throw Error("malicious source text getter");}
+   });return c;},
+  ()=>{const c=structuredClone(ctx);Object.defineProperty(c.review,"candidates",{
+    enumerable:true,get(){getters++;throw Error("malicious candidates getter");}
+   });return c;},
+  ()=>{const c=structuredClone(ctx);Object.defineProperty(c.review.candidates,"0",{
+    enumerable:true,get(){getters++;throw Error("malicious candidate index getter");}
+   });return c;},
+  ()=>{const c=structuredClone(ctx);Object.defineProperty(c.review.candidates[0],"units",{
+    enumerable:true,get(){getters++;throw Error("malicious units getter");}
+   });return c;},
+  ()=>{const c=structuredClone(ctx);Object.defineProperty(c.original,"hiddenApproval",{
+    value:true
+   });return c;},
+  ()=>{const c=structuredClone(ctx);Object.defineProperty(c.review.candidates[0],"send",{
+    value:true
+   });return c;},
+  ()=>{const c=structuredClone(ctx);c.review.candidates[Symbol("approved")]=true;
+   return c;},
+  ()=>{const c=structuredClone(ctx);delete c.review.candidates[0];return c;},
+  ()=>{const c=structuredClone(ctx);Object.setPrototypeOf(c.review.candidates[0],{
+    units:1
+   });return c;},
+ ];
+ const request={reviewKey:"a".repeat(64),selectedIndices:[0],
+  acceptedAddonCodes:[]};
+ for(const change of altered){
+  const unsafe=change();
+  await assert.rejects(readAuthorizedReviewWorkbench(f.store,"a",unsafe));
+  await assert.rejects(previewAuthorizedWorkbenchSelection(f.store,"a",{
+   ...unsafe,request,
+  }));
+ }
+ assert.equal(getters,0);
+ assert.equal(f.reads(),0);
+});
+
+test("workbench verifies source provenance before the first authorized store read",async()=>{
+ const f=setup();
+ const tampered=structuredClone(ctx);
+ tampered.review.candidates[0].units=999;
+ await assert.rejects(readAuthorizedReviewWorkbench(f.store,"a",tampered),
+  /snapshot was modified/);
+ assert.equal(f.reads(),0);
+ const approved=await readAuthorizedReviewWorkbench(f.store,"a",ctx);
+ assert.equal(approved.rows[0].units,2);
+ assert.equal(f.reads(),2);
+});
