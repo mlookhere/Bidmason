@@ -144,3 +144,65 @@ test("direct economics add-on consent must be canonically sorted", () => {
       /Invalid or unselected optional add-on acceptance/);
   }
 });
+
+
+test("direct add-on preview rejects accessor-backed consent and decorated lists without executing getters",()=>{
+ const review=prepareExtractionReview(original,[repaint]);
+ const config=structuredClone(policy);
+ config.excludedServiceCodes=[];
+ config.pricing.services.repaint.optionalAddon=true;
+ const expected=previewReviewedEconomics(original,review,[0],config,["repaint"]);
+ assert.equal(expected.selectedServices[0].addonAccepted,true);
+ let getters=0;
+ const bad=[
+  ()=>Object.defineProperty(["repaint"],"0",{enumerable:true,
+    get(){getters++;throw Error("malicious add-on acknowledgement getter");}}),
+  ()=>{const a=["repaint"];delete a[0];return a;},
+  ()=>{const a=["repaint"];a[Symbol("approved")]=true;return a;},
+  ()=>Object.defineProperty(["repaint"],"send",{value:true}),
+  ()=>Object.setPrototypeOf(["repaint"],Object.create(Array.prototype)),
+  ()=>["repaint",42],
+ ];
+ for(const create of bad) {
+  assert.throws(()=>previewReviewedEconomics(original,review,[0],config,create()),
+    /Invalid or unselected optional add-on acceptance/);
+ }
+ assert.equal(getters,0);
+ const accepted=previewReviewedEconomics(original,review,[0],config,["repaint"]);
+ assert.equal(accepted.reviewedSelectionSha256,expected.reviewedSelectionSha256);
+ assert.equal(accepted.economics.quote.totalCents,90000);
+});
+
+test("direct add-on preview never invokes untrusted company-policy getters or serializers",()=>{
+ const review=prepareExtractionReview(original,[repaint]);
+ let getters=0,serializers=0;
+ const base=()=>{
+  const p=structuredClone(policy);
+  p.excludedServiceCodes=[];
+  p.pricing.services.repaint.optionalAddon=true;
+  return p;
+ };
+ for(const make of [
+  ()=>{const p=base();Object.defineProperty(p.pricing.services.repaint,
+    "optionalAddon",{enumerable:true,get(){
+      getters++;throw Error("forged consent policy getter");
+    }});return p;},
+  ()=>{const p=base();Object.defineProperty(p,"pricing",{
+    enumerable:true,get(){getters++;throw Error("ratecard getter");
+    }});return p;},
+  ()=>{const p=base();Object.defineProperty(p.pricing.services.repaint,
+    "toJSON",{enumerable:true,value(){
+      serializers++;return {optionalAddon:true};
+    }});return p;},
+  ()=>{const p=base();Object.defineProperty(p.pricing.services.repaint,
+    "approved",{value:true});return p;},
+  ()=>{const p=base();p.pricing.services.repaint[Symbol("consent")]=true;return p;},
+ ]) {
+  assert.throws(()=>previewReviewedEconomics(original,review,[0],make(),["repaint"]),
+    /Policy must contain|Policy contains/);
+ }
+ assert.equal(getters,0);
+ assert.equal(serializers,0);
+ const positive=previewReviewedEconomics(original,review,[0],base(),["repaint"]);
+ assert.equal(positive.state,"preview-only");
+});
