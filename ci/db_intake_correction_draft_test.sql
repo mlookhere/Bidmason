@@ -91,7 +91,7 @@ begin
  exception when invalid_parameter_value then null; end;
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
-   org,creator,src,repeat('1',64),repeat('0',64),proposed,'Correct model quantity');
+   org,creator,src,repeat('1',64),repeat('0',64),proposed,actions,'Correct model quantity');
   raise exception 'Forged quarantine fingerprint accepted';
  exception when invalid_parameter_value then null; end;
  begin
