@@ -117,13 +117,26 @@ export function quoteFromPolicy(
   if (policy.minimum.rule === "none" && floor !== 0) {
     throw new TypeError("A disabled minimum cannot have a charge");
   }
-  if (!Array.isArray(requested) || requested.length === 0) {
-    throw new TypeError("At least one service is required");
+  if (!Array.isArray(requested) || requested.length === 0
+    || requested.length > 50) {
+    throw new TypeError("One to 50 services are required");
   }
   const seen = new Set<string>();
   let subtotal = 0;
   let chargeableLines = 0;
-  const lines = requested.map(({ serviceCode, units, addonAccepted }) => {
+  const lines = requested.map(input => {
+    // The calculator is also exported independently of the trusted review
+    // workflow. Never silently tolerate caller-provided prices, approval,
+    // recipient or send directives, even if the arithmetic ignores them.
+    if (!input || typeof input !== "object" || Array.isArray(input)
+      || !Object.hasOwn(input, "serviceCode")
+      || !Object.hasOwn(input, "units")
+      || Object.keys(input).some(key => ![
+        "serviceCode", "units", "addonAccepted",
+      ].includes(key))) {
+      throw new TypeError("Quote line contains unsupported fields");
+    }
+    const { serviceCode, units, addonAccepted } = input;
     if (typeof serviceCode !== "string" || !Object.prototype.hasOwnProperty.call(policy.services, serviceCode)
         || seen.has(serviceCode)) {
       throw new TypeError("Unknown or duplicated service code");
