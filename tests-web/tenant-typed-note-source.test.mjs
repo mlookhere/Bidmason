@@ -323,3 +323,17 @@ test("rejects model-supplied price and approvals hidden in otherwise valid candi
     assert.equal(f.calls().count,1);
   }
 });
+
+
+test("a forged extraction actor cannot be hidden behind valid source and candidate hashes",async()=>{
+  const f=fixture();
+  const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+  const row=advanceToExtraction(f,created.sourceId);
+  row.extractionAudit[0].actorId="dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  assert.equal(row.extractionAudit[0].sourceSha256,row.review.sourceSha256);
+  assert.equal(row.extractionAudit[0].candidatesSha256,row.review.candidatesSha256);
+  await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",note),
+    /extraction progression is invalid/);
+  assert.equal(f.calls().count,1);
+  assert.equal(f.ledger.size,1);
+});
