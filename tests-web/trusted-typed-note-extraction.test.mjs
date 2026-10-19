@@ -273,3 +273,117 @@ test("revocation and malformed source candidates cannot authorize reconciliation
  await assert.rejects(api.reconcile({...input,rawExtractionResponse:forged}));
  assert.equal(g.queries.length,1);
 });
+
+
+test("private extraction freezes tenant, session, original source and model response before Auth",async()=>{
+ const f=fixture(),mutable={...input};
+ const auth=f.auth.verifyActiveSession;let calls=0;
+ f.auth.verifyActiveSession=async session=>{
+  const result=await auth(session);
+  if(++calls===1){
+   mutable.session="revoked-caller-reference";
+   mutable.organizationId=FOREIGN;
+   mutable.sourceId=REQUEST;
+   mutable.rawExtractionResponse="forged invalid response after Auth";
+  }
+  return result;
+ };
+ const result=await createTrustedTypedNoteExtraction(f.auth,f.db).commit(mutable);
+ assert.equal(result.organizationId,ORG);
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.state,"needs-human-review");
+ assert.equal(f.get().review.candidates[0].units,2);
+ assert.equal(f.queries.length,3);
+ assert.deepEqual(f.queries.map(x=>x.params.slice(0,3)),[
+  [ORG,ACTOR,SOURCE],[ORG,ACTOR,SOURCE],[ORG,ACTOR,SOURCE]]);
+ assert.deepEqual(f.authCalls,["signed-in","signed-in","signed-in"]);
+});
+
+test("private extraction recovery keeps the original model output across two Auth reads",async()=>{
+ const f=fixture(),api=createTrustedTypedNoteExtraction(f.auth,f.db);
+ await api.commit(input);
+ const changing={...input};
+ let reads=0;const original=f.db.query;
+ f.db.query=async(sql,params)=>{
+  const response=await original(sql,params);
+  if(sql.includes("read_typed_note_for_extraction")&&++reads===1){
+   changing.organizationId=FOREIGN;
+   changing.sourceId=REQUEST;
+   changing.rawExtractionResponse="not a valid reviewed extraction";
+   changing.session="revoked-caller-reference";
+  }
+  return response;
+ };
+ const result=await api.reconcile(changing);
+ assert.equal(result.state,"matching-extraction-at-read");
+ assert.equal(result.organizationId,ORG);
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(reads,2);
+ assert.equal(f.queries.filter(x=>x.sql.includes("commit_typed_note_extraction")).length,1);
+});
+
+test("privileged extraction rejects hidden, symbolic, inherited and getter selectors without Auth",async()=>{
+ let calls=0;
+ const hidden={...input};
+ Object.defineProperty(hidden,"send",{value:true});
+ const symbolic={...input};
+ symbolic[Symbol("approved")]=true;
+ const inherited=Object.assign(Object.create({approved:true}),input);
+ const getterOrg={...input};
+ Object.defineProperty(getterOrg,"organizationId",{enumerable:true,
+  get(){calls++;throw Error("untrusted org getter");}});
+ const getterRaw={...input};
+ Object.defineProperty(getterRaw,"rawExtractionResponse",{enumerable:true,
+  get(){calls++;throw Error("untrusted model getter");}});
+ for(const bad of [hidden,symbolic,inherited,getterOrg,getterRaw,
+  {...input,session:null}]){
+  const f=fixture(),api=createTrustedTypedNoteExtraction(f.auth,f.db);
+  await assert.rejects(api.commit(bad),/Invalid trusted extraction request/);
+  await assert.rejects(api.reconcile(bad),/Invalid trusted extraction request/);
+  assert.equal(f.authCalls.length,0);
+  assert.equal(f.queries.length,0);
+ }
+ assert.equal(calls,0);
+});
+
+test("private extraction SQL rows and receipt descriptors cannot execute forged getters",async()=>{
+ let getters=0;
+ for(const shape of ["row-index","row-symbol","record-getter","revision-getter"]){
+  const f=fixture(),query=f.db.query;
+  f.db.query=async(sql,params)=>{
+   const result=await query(sql,params);
+   if(!sql.includes("read_typed_note_for_extraction"))return result;
+   if(shape==="row-index")Object.defineProperty(result.rows,"0",{
+    enumerable:true,get(){getters++;throw Error("unsafe SQL row getter");}});
+   if(shape==="row-symbol")result.rows[Symbol("approved")]=true;
+   if(shape==="record-getter")Object.defineProperty(result.rows[0],"record",{
+    enumerable:true,get(){getters++;throw Error("unsafe SQL record getter");}});
+   if(shape==="revision-getter")Object.defineProperty(result.rows[0].record,
+    "revision",{enumerable:true,get(){getters++;throw Error("unsafe revision getter");}});
+   return result;
+  };
+  await assert.rejects(createTrustedTypedNoteExtraction(f.auth,f.db).commit(input),
+   /Authorized typed-note source unavailable|Typed-note identity or owner mismatch/);
+  assert.equal(f.queries.length,1);
+  assert.equal(f.get().revision,1);
+ }
+ assert.equal(getters,0);
+});
+
+test("private extraction CAS acknowledgement array must be canonical even after the database writes",async()=>{
+ const f=fixture(),dbQuery=f.db.query;
+ let invoked=0;
+ f.db.query=async(sql,params)=>{
+  const response=await dbQuery(sql,params);
+  if(sql.includes("commit_typed_note_extraction")){
+   Object.defineProperty(response.rows,"0",{enumerable:true,
+    get(){invoked++;throw Error("unsafe CAS receipt getter");}});
+  }
+  return response;
+ };
+ await assert.rejects(createTrustedTypedNoteExtraction(f.auth,f.db).commit(input),
+  /Extraction CAS outcome is indeterminate/);
+ assert.equal(f.get().revision,2);
+ assert.equal(f.queries.filter(x=>x.sql.includes("commit_typed_note_extraction")).length,1);
+ assert.equal(invoked,0);
+});
