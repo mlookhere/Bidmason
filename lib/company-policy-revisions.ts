@@ -176,8 +176,7 @@ export function submitPolicyDraft(
   // Normalize only through the strict serializer. JSON.stringify(value)
   // would invoke a caller-owned toJSON and could persist different prices
   // from those just checked or silently omit hidden approval directives.
-  const policy = JSON.parse(canonicalCompanyPolicyText(request.policy))
-    as VersionedEconomicsPolicy;
+  const policy = JSON.parse(canonicalCompanyPolicyText(request.policy)) as VersionedEconomicsPolicy;
   validatePolicy(policy, current.revision + 1);
   const item: PolicyRevision = {
     organizationId: request.organizationId,
