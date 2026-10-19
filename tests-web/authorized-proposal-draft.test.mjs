@@ -231,3 +231,48 @@ test('original draft permits explicitly null lifecycle columns on uncorrected ro
  assert.equal(result.state,'preview-only');
  assert.equal(result.preview.selectedServices[0].serviceCode,'office');
 });
+
+
+test('internal draft selector rejects hidden, symbol, inherited and accessor authority fields',async()=>{
+ const f=fixture();await committed(f);
+ const before=f.counts().reads;
+ let getterCalls=0;
+ const hidden={...selector};
+ Object.defineProperty(hidden,'send',{value:true});
+ const symbolic={...selector};
+ symbolic[Symbol('approved')]=true;
+ const inherited=Object.assign(Object.create({approved:true}),selector);
+ const getter={...selector};
+ Object.defineProperty(getter,'organizationId',{enumerable:true,
+  get(){getterCalls++;throw Error('untrusted selector getter executed');}});
+ for(const wrong of [hidden,symbolic,inherited,getter]){
+  await assert.rejects(readDraft(f,'reviewer',wrong),
+   /Invalid internal proposal draft selector/);
+ }
+ assert.equal(getterCalls,0);
+ assert.equal(f.counts().reads,before);
+});
+
+test('internal draft preview retains original tenant and source across authorization awaits',async()=>{
+ const f=fixture();await committed(f);
+ const before=await readDraft(f);
+ const mutable={...selector};
+ let reads=0;
+ const sourceStore={async readAuthorized(input){
+  const row=await f.sourceStore.readAuthorized(input);
+  if(++reads===1){
+   mutable.organizationId=OTHER;
+   mutable.sourceId='22222222-2222-4222-8222-222222222222';
+  }
+  return row;
+ }};
+ const confirmed=await readAuthorizedProposalDraftPreview(
+  sourceStore,f.policyStore,'reviewer',mutable);
+ assert.equal(reads,2);
+ assert.equal(confirmed.organizationId,ORG);
+ assert.equal(confirmed.sourceId,SOURCE);
+ assert.equal(confirmed.draftSnapshotSha256,before.draftSnapshotSha256);
+ assert.deepEqual(confirmed.preview,before.preview);
+ const canonical=Object.assign(Object.create(null),selector);
+ assert.equal((await readDraft(f,'reviewer',canonical)).sourceId,SOURCE);
+});
