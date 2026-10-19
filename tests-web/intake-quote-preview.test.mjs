@@ -107,6 +107,7 @@ test("optional service needs human add-on acknowledgement separate from extracti
 test("direct economics preview rejects reordered selection without changing pricing policy", () => {
   const review=prepareExtractionReview(original,[repaint,quarterly]);
   const approved={...policy,excludedServiceCodes:[],
+    unitDirectCostsCents:{...policy.unitDirectCostsCents,quarterly:10000},
     pricing:{...policy.pricing,services:{...policy.pricing.services,
       quarterly:{...policy.pricing.services.quarterly,billing:"charged"}}}};
   const valid=previewReviewedEconomics(original,review,[0,1],approved);
