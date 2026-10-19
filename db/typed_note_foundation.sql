@@ -59,7 +59,9 @@ alter table public.bm_typed_note_requests enable row level security;
 alter table public.bm_typed_note_requests force row level security;
 revoke all on public.bm_intake_sources,public.bm_typed_note_requests
  from public,anon,authenticated;
-grant select,insert on public.bm_intake_sources,public.bm_typed_note_requests to service_role;
+-- Row locks for idempotent replay require UPDATE rights as well as SELECT.
+-- Never extend these rights to anon/authenticated browser sessions.
+grant select,insert,update on public.bm_intake_sources,public.bm_typed_note_requests to service_role;
 -- FOR SHARE requires UPDATE privileges in addition to SELECT.
 -- Only service_role is trusted; never grant UPDATE to browsers.
 grant select, update on public.bm_memberships to service_role;
