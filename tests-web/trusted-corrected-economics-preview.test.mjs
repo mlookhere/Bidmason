@@ -228,3 +228,45 @@ test("private SQL row array rejects accessor-backed or decorated evidence before
  }
  assert.equal(getterCalls,0);
 });
+
+test("corrected pricing accepts ordinary PostgreSQL SELECT metadata",async()=>{
+ const auth={async verifyActiveSession(){return {userId:actor};}};
+ const db={async query(){return {rows:[{projection:payload()}],
+  rowCount:1,command:"SELECT",fields:[]};}};
+ const api=createTrustedCorrectedEconomicsPreview(
+  auth,db,"disposable-postgres-test-no-session-lock");
+ const result=await api.preview({organizationId:org,sourceId:source,
+  expectedDecisionSha256:decision,session:"trusted-private-session"});
+ assert.equal(result.state,"preview-only");
+ assert.equal(result.economics.quote.totalCents,69000);
+});
+
+test("corrected pricing rejects SQL envelope getters and mismatched PostgreSQL metadata",async()=>{
+ let getterCalls=0;
+ const normal=()=>({rows:[{projection:payload()}]});
+ const forged=[
+  ()=>Object.defineProperty(normal(),"rows",{enumerable:true,
+   get(){getterCalls++;throw Error("unsafe SQL rows getter");}}),
+  ()=>Object.defineProperty(normal(),"rows",{enumerable:false,
+   value:[{projection:payload()}]}),
+  ()=>({...normal(),rowCount:0,command:"SELECT"}),
+  ()=>({...normal(),rowCount:"1",command:"SELECT"}),
+  ()=>({...normal(),rowCount:1,command:"DELETE"}),
+  ()=>Object.defineProperty(normal(),"rowCount",{enumerable:true,
+   get(){getterCalls++;throw Error("unsafe SQL count getter");}}),
+  ()=>Object.defineProperty(normal(),"command",{enumerable:true,
+   get(){getterCalls++;throw Error("unsafe SQL command getter");}}),
+ ];
+ for(const build of forged){
+  let calls=0;
+  const auth={async verifyActiveSession(){return {userId:actor};}};
+  const db={async query(){calls++;return build();}};
+  const api=createTrustedCorrectedEconomicsPreview(
+   auth,db,"disposable-postgres-test-no-session-lock");
+  await assert.rejects(api.preview({organizationId:org,sourceId:source,
+   expectedDecisionSha256:decision,session:"trusted-private-session"}),
+   /Approved internal corrected pricing evidence unavailable/);
+  assert.equal(calls,1);
+ }
+ assert.equal(getterCalls,0);
+});
