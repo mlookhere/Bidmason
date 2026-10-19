@@ -1203,3 +1203,42 @@ Production Supabase Auth, separate reviewer consent,
 PostgREST/RLS/private Storage, signed maintained antivirus,
 retention, privacy/legal and security acceptance under Item 3
 remain mandatory before exposing this functionality.
+
+## Read-only recovery of uncertain scope-review commits (staging only)
+
+`createTrustedTypedNoteScopeCommit(...).reconcile(input)` is an INTERNAL,
+read-only inspection after a lost 2→3 scope-review CAS acknowledgement or
+read-back. It takes the same bounded selector, review key, selected candidate
+indices and explicit add-on acknowledgements as `commit`, with no actor,
+source bytes, ratecard, amount, or privileged storage key supplied by a client.
+It performs **two** independently reauthenticated creator-owned source reads
+and two separately membership-locked current approved-policy reads against
+the primary private database. Every source is checked against its immutable
+creation/extraction audit; each policy is checked against its canonical hash.
+No `commit_typed_note_scope_review` call or any other SQL mutation is made.
+
+- `unreviewed-at-read`: both observations show extraction revision 2 and
+  the same eligible review key. This **does not** prove the uncertain write
+  rolled back or authorize a retry.
+- `matching-scope-at-read`: both observations show revision 3 with
+  precisely the server-recomputed selection, optional acknowledgements,
+  source provenance, CURRENT approved ratecard, creator actor and full
+  reviewed-selection digest. It is **not** evidence that the ambiguous attempt
+  was the actual writer, nor operator/contractor quote approval.
+- `different-scope-at-read` / `policy-changed-at-read`: evidence does
+  not match the requested selection or the active policy has superseded the
+  policy recorded with the prior reviewed scope. Neither status approves
+  any economic terms or permits an automatic retry.
+- `changed-during-read`: source or policy changed between authorized
+  observations. Revocation or malformed private evidence instead fails
+  closed without producing a reconciliation status.
+
+These are point-in-time observations; no quote is created and no approval,
+customer-facing route, sending, billing, or deployment is enabled.
+`tests-web/trusted-typed-note-scope-commit.test.mjs` covers no-write,
+lost-ACK, drift, mismatch and authorization failures. The mandatory
+`ci/intake_scope_commit_bridge.test.mjs` exercises the same recovery
+against disposable actual PostgreSQL, including post-commit membership
+revocation and no repeated write. Live Supabase/two-human signoff, maintained
+AV, upload controls and legal/security/privacy acceptance remain Item 3
+blockers; only passing exact-head Actions may establish CI evidence.
