@@ -30,7 +30,7 @@ function query(sql,params) {
     throw Error("Unsupported private scope SQL or non-string parameters");
   }
   const expected=sql.includes("read_typed_note_for_extraction")?3:
-    sql.includes("commit_typed_note_scope_review")?6:1;
+    sql.includes("commit_typed_note_scope_review")?6:2;
   if(params.length!==expected)throw Error("Wrong private SQL argument count");
   const variables=Object.fromEntries(params.map((v,i)=>["p"+(i+1),v]));
   const prepared=sql.replace(/\$([1-6])(?=::)/g,(_m,n)=>":'p"+n+"'");
@@ -147,6 +147,27 @@ test("lost database CAS response is indeterminate, never blindly retried",async(
   assert.equal(f.stored.revision,3);
   assert.equal(f.stored.extraction_audit.length,1);
 });
+test("privileged active policy lookup enforces tenant membership in its own SQL",async()=>{
+  const f=fixture();
+  const policyStatement=f.api.commit(f.input);
+  await policyStatement;
+  const readPolicy=f.calls.filter(x=>x.statement.includes("active_policy_heads"));
+  assert.equal(readPolicy.length,2);
+  for(const call of readPolicy) {
+    assert.deepEqual(call.params,[f.org,f.actor]);
+    assert.match(call.statement,/join public\\.bm_memberships m/);
+    assert.match(call.statement,/for share of h,v,m/);
+  }
+  // A separate privileged read with a nonmember actor must return no policy,
+  // even though service_role can see the private policy tables.
+  const sqlText=readPolicy[0].statement;
+  const denied=query(sqlText,[f.org,randomUUID()]);
+  assert.deepEqual(denied.rows,[]);
+  f.revokeMember();
+  const revoked=query(sqlText,[f.org,f.actor]);
+  assert.deepEqual(revoked.rows,[]);
+});
+
 test("revoked membership fails before committing any draft",async()=>{
   const f=fixture();
   f.revokeMember();
