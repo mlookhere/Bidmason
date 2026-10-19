@@ -65,9 +65,10 @@ reader classifies newly present correction lifecycle evidence as `conflict`,
 including state inserted between the two authorized reads. This is neither
 proof of rollback nor permission to retry a previously uncertain mutation.
 
-## Bounded inert-data validation of corrected proposal read-backs
+## Shared bounded inert-data validation of both proposal draft readers
 
-The internal corrected-proposal preview performs a bounded deep check of
+Both internal original-extraction and corrected-proposal preview readers now
+use the same `lib/inert-evidence-graph.ts` bounded deep check of
 both separately authorized source read-backs **before** calling the
 correction-lineage verifier or `JSON.stringify` for its revision-bound
 consistency fingerprint. Plain/null-prototype objects and ordinary dense
@@ -77,7 +78,11 @@ unusual prototypes, sparse/decorated arrays, cycles, non-finite numbers,
 and overlarge/deep graphs **without invoking untrusted getters or methods**.
 Repeated noncyclic references in an in-memory test adapter are allowed.
 
-An unsafe first source read aborts before the approved-policy lookup. An
+An unsafe first source read aborts before the approved-policy lookup. This
+applies to the original-extraction reader too: neither an old scope review
+nor a corrected review can reach proposal calculation through unsafe
+stored data. Reusing one pure guard prevents divergent interpretations of
+canonical serialized evidence. An
 unsafe second source read aborts rather than confirming a stale or malicious
 corrected review. Regression cases cover both stages, including corrected
 scope acknowledgements, extraction audit, original candidates, and nested
