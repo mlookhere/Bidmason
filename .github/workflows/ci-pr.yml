@@ -211,3 +211,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_quarantine.sql
       - name: Prove correction quarantine CAS, foreign-actor denial and legacy scope invalidation
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_quarantine_test.sql
+      - name: Install private append-only correction candidate draft
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_draft.sql
+      - name: Prove source-bound corrected candidates and denial of quote/replay
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_draft_test.sql
