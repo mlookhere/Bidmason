@@ -1326,3 +1326,21 @@ verifies malformed human choices cannot commit a scope, while canonical
 choices still commit. This narrows scope representation variance; it does
 **not** approve any quote, actor, send or document and does not replace
 the staged SQL/real Supabase tenant and approval checks.
+
+## Source-level canonical candidate order (staging only)
+
+The immutable source-bound `selectReviewedServices` domain function now
+requires candidate index selections to be strictly ascending as well as
+bounded, nonnegative, safe integers. This prevents a caller of the exported
+`previewReviewedQuote` or `previewReviewedEconomics` functions from
+bypassing `prepareReviewPreviewRequest` and computing a second,
+differently ordered representation of otherwise identical selected source
+lines. Sorted selections retain their established behavior; duplicate,
+reordered and invalid indices fail closed. Existing workbench and SQL CAS
+constraints are not removed or relaxed.
+
+`tests-web/intake-review.test.mjs` covers the direct quote entrypoint and
+`tests-web/intake-quote-preview.test.mjs` covers the direct economics
+entrypoint using synthetic independently configured pricing. The previews
+remain internal and non-sendable. These unit tests do not establish real
+Supabase tenancy, human policy approval or authority to publish quotes.
