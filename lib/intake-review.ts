@@ -31,6 +31,14 @@ export type ExtractionReview = {
 const CODE = /^[a-z][a-z0-9_-]{0,63}$/;
 const MAX_BYTES = 64 * 1024;
 const MAX_CANDIDATES = 50;
+const CANDIDATE_FIELDS = ["serviceCode", "units", "start", "end", "excerpt"];
+const REVIEW_FIELDS = ["state", "kind", "sourceSha256", "candidatesSha256", "candidates"];
+
+function exactFields(value: unknown, names: readonly string[]): boolean {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === names.length
+    && names.every(name => Object.hasOwn(value, name));
+}
 
 function validateSource(source: IntakeSource): void {
   if (!source || !["typed-note", "transcript"].includes(source.kind)
@@ -50,7 +58,8 @@ function validateCandidates(source: IntakeSource, candidates: ServiceCandidate[]
     throw new TypeError("One to 50 extraction candidates are required");
   }
   for (const c of candidates) {
-    if (!c || typeof c.serviceCode !== "string" || !CODE.test(c.serviceCode)
+    if (!exactFields(c, CANDIDATE_FIELDS) || !c
+      || typeof c.serviceCode !== "string" || !CODE.test(c.serviceCode)
       || !Number.isSafeInteger(c.units) || c.units < 1
       || !Number.isSafeInteger(c.start) || !Number.isSafeInteger(c.end)
       || c.start < 0 || c.end <= c.start || c.end > source.text.length
@@ -108,7 +117,8 @@ export function selectReviewedServices(
   selectedIndices: number[],
 ): { serviceCode: string; units: number }[] {
   validateSource(original);
-  if (!review || review.state !== "needs-human-review"
+  if (!exactFields(review, REVIEW_FIELDS) || !review
+    || review.state !== "needs-human-review"
     || review.kind !== original.kind || review.sourceSha256 !== digest(original)) {
     throw new Error("Intake review does not match the immutable original");
   }

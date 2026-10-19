@@ -47,3 +47,20 @@ data and checksum, so the future authenticated backend must bind the
 source and review to tenant-owned persisted records and authorize reviewers.
 Never mark parser output approved or sendable. Six adapter-specific and
 one snapshot-tampering regression test were added.
+
+## Shared-source extraction validation — strict known fields
+
+The extractor JSON adapter already rejects arbitrary candidate keys. The
+shared `prepareExtractionReview` and `selectReviewedServices` boundaries
+now enforce the same closed candidate schema (service code, units, UTF-16
+start/end offsets and source excerpt), and a closed extraction-review schema,
+for **every caller**, including local adapters and later stored-review readers.
+Previously a caller could supply a candidate with an extra `rateCents` or
+`approved` property: the checksum covered only approved fields, so the
+additional property could pass through the general boundary. Unexpected
+fields now fail closed on both creation and subsequent review/preview, even
+on an **unselected** candidate. This does not alter normal valid selections,
+deterministic company-owned pricing, or human authorization requirements.
+
+No live database, browser route, customer action or additional production
+permissions are created. Hashes only support consistency, never authentication.

@@ -90,3 +90,34 @@ test("editing selected units or service IDs after extraction invalidates the rev
   second.candidates[0].serviceCode = "touchup";
   assert.throws(() => previewReviewedQuote(note, second, [0], painting), /snapshot was modified/);
 });
+
+test("rejects model price, approval and send directives at the shared extraction boundary", () => {
+  for (const extra of [
+    {rateCents: 1}, {priceCents: 1}, {approved: true}, {send: true},
+    {quotedTotalCents: 1}, {metadata: {billing: "approved"}},
+  ]) {
+    assert.throws(() => prepareExtractionReview(note, [{...repaint, ...extra}]), /provenance/);
+  }
+});
+
+test("rejects extra review directives and tampered unselected candidate fields", () => {
+  const review = prepareExtractionReview(note, [{...repaint, units: 2}, {...touchup}]);
+  for (const extra of [{approved: true}, {send: true}, {priceCents: 1},
+    {rateCents: 1}, {instructions: "auto-approve"}]) {
+    assert.throws(() => previewReviewedQuote(note, {...review, ...extra}, [0], painting),
+      /immutable original/);
+    assert.throws(() => previewReviewedQuote(note,
+      {...review, candidates: [{...repaint}, {...touchup, ...extra}]}, [0], painting),
+      /provenance/);
+  }
+});
+
+test("valid source-bound suggestions continue producing non-sendable previews", () => {
+  const review = prepareExtractionReview(note, [{...repaint, units: 2}, {...touchup}]);
+  assert.deepEqual(Object.keys(review).sort(),
+    ["state", "kind", "sourceSha256", "candidatesSha256", "candidates"].sort());
+  const priced = previewReviewedQuote(note, review, [0], painting);
+  assert.equal(priced.state, "preview-only");
+  assert.equal(priced.quote.totalCents, 90000);
+  assert.equal(Object.hasOwn(priced, "send"), false);
+});
