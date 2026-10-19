@@ -157,7 +157,7 @@ test("combined disposable installer stops on the first rejected SQL migration",(
   assert.equal(result.status,23,"Installer must propagate the first psql failure");
   const invocations=readFileSync(capture,"utf8").trim().split("\n");
   assert.equal(invocations.length,2,"Installer invoked SQL after the first failed migration");
-  assert.match(invocations[1],/db\\/typed_note_candidates_digest\\.sql/);
+  assert.ok(invocations[1].includes("db/typed_note_candidates_digest.sql"));
   assert.doesNotMatch(result.stdout,/PASS: complete staged Item 4/);
  }finally{
   rmSync(dir,{recursive:true,force:true});
