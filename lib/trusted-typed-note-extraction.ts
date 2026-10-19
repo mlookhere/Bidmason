@@ -69,7 +69,7 @@ export function createTrustedTypedNoteExtraction(
       || record.creationAudit.actorId !== actor) {
       throw new Error("Typed-note identity or owner mismatch");
     }
-    const textSha256 = digest(record.original?.text);
+    const textSha256 = digest(record.original.text);
     verifyTypedNoteSourceRecord(record, {
       organizationId, requestId:record.creationAudit.requestId,
       text:record.original.text,
