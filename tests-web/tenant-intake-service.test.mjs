@@ -118,3 +118,15 @@ test("missing, wrong-tenant, unbounded and malformed records fail closed",async(
  const f=fixture();f.records.delete(S);
  await assert.rejects(readTenantIntakeWorkbench(f.sourceStore,f.policyStore,"a",selector),/missing or inconsistent/);
 });
+test("a committed pending correction blocks both old workbench and price preview",async()=>{
+ const f=fixture(),request=await selected(f);
+ const current=structuredClone(f.records.get(S));
+ current.revision++;
+ current.scopeReview=null;
+ current.pendingCorrection={state:"pending-authorized-activation",correctionSha256:"a".repeat(64)};
+ f.records.set(S,current);
+ await assert.rejects(readTenantIntakeWorkbench(f.sourceStore,f.policyStore,"a",selector),
+  /missing or inconsistent/);
+ await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
+  {...selector,request}),/missing or inconsistent/);
+});

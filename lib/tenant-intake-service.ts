@@ -13,6 +13,8 @@ export type AuthorizedIntakeRecord = {
   revision: number;
   original: IntakeSource;
   review: ExtractionReview;
+  /** Pending human corrections may never reuse the original extraction. */
+  pendingCorrection?: unknown;
 };
 
 /** Must validate session, organization membership and source ownership on
@@ -45,14 +47,15 @@ function checkedRecord(record: AuthorizedIntakeRecord | null,
     || typeof record.original.text !== "string"
     || Buffer.byteLength(record.original.text, "utf8") > 65536
     || !Array.isArray(record.review.candidates)
-    || record.review.candidates.length > 50) {
+    || record.review.candidates.length > 50
+    || (record.pendingCorrection !== null && record.pendingCorrection !== undefined)) {
     throw new Error("Tenant-owned intake record missing or inconsistent");
   }
   // Consistency stamp detects source/extraction mutation even when a buggy
   // adapter fails to increment revision. NOT authorization or approval.
   const stamp = createHash("sha256").update(JSON.stringify([
     record.organizationId, record.sourceId, record.revision,
-    record.original, record.review,
+    record.original, record.review, record.pendingCorrection ?? null,
   ])).digest("hex");
   return {record, stamp};
 }
