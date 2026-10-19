@@ -6,11 +6,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID,createHash} from "node:crypto";
-import {execFile,execFileSync} from "node:child_process";
-import {promisify} from "node:util";
+import {spawn,execFileSync} from "node:child_process";
 import {prepareExtractionReview} from "../lib/intake-review.ts";
 
-const exec=promisify(execFile);
 const ORG="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const text="Paint 🧱 two rooms, and clean entryway.";
 const originalSha=createHash("sha256").update(text,"utf8").digest("hex");
@@ -62,14 +60,22 @@ async function cas(f,review) {
     SET statement_timeout = '10s';
     SELECT source_revision FROM bm_intake_private.commit_typed_note_extraction(
       :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text,:'p5'::jsonb);`;
-  try {
-    const {stdout}=await exec("psql",args,{
-      input:script,encoding:"utf8",timeout:15000,maxBuffer:64*1024
+  return new Promise((resolve,reject)=>{
+    const child=spawn("psql",args,{stdio:["pipe","pipe","pipe"]});
+    let stdout="",stderr="";
+    const watchdog=setTimeout(()=>child.kill("SIGKILL"),15000);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data",part=>{stdout+=part;});
+    child.stderr.on("data",part=>{stderr+=part;});
+    child.once("error",error=>{clearTimeout(watchdog);reject(error);});
+    child.once("close",code=>{
+      clearTimeout(watchdog);
+      if(code===0)resolve({ok:true,revision:Number(stdout.trim())});
+      else resolve({ok:false,error:stderr||"psql exited "+code});
     });
-    return {ok:true,revision:Number(stdout.trim())};
-  } catch(error) {
-    return {ok:false,error:String(error.stderr||error.message)};
-  }
+    child.stdin.end(script);
+  });
 }
 
 test("concurrent identical valid CAS writers produce exactly one audit",async()=>{
