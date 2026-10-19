@@ -190,7 +190,7 @@ test("untrusted line collections cannot execute array or item getters",()=>{
  for(const alter of corrupt){
   const rows=baseline();alter(rows);
   assert.throws(()=>quoteFromPolicy(cleaning,rows),
-    /One to 50 canonical services|Quote line contains unsupported fields/);
+    /One to 50 services|Quote line contains unsupported fields/);
  }
  assert.equal(getterCalls,0);
  const nullProto=Object.assign(Object.create(null),baseline()[0]);
