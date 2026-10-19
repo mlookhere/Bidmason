@@ -28,7 +28,7 @@ declare
  activation_sha text;
  proposed_sha text;
  source_review jsonb;
- original_text text;
+ v_prior_text text;
  source_hold jsonb;
  policy jsonb;
  active record;
@@ -38,12 +38,12 @@ declare
  response record;
  bad jsonb;
 begin
- select id,review,original_text,correction_hold,
+ select s.id,s.review,s.original_text,s.correction_hold,
   correction_activation->>'activationSha256',
   correction_activation->>'proposedCandidatesSha256'
- into src,source_review,original_text,source_hold,activation_sha,proposed_sha
- from public.bm_intake_sources
- where organization_id=org and created_by=creator and revision=5;
+ into src,source_review,v_prior_text,source_hold,activation_sha,proposed_sha
+ from public.bm_intake_sources s
+ where s.organization_id=org and s.created_by=creator and s.revision=5;
  if not found then raise exception 'Rev5 correction activation fixture absent'; end if;
  -- No company policy has ever been approved for THIS tenant before now.
  begin
@@ -156,7 +156,7 @@ begin
  end if;
  if (select count(*) from public.bm_intake_sources
   where organization_id=org and id=src and revision=5
-   and original_text=original_text and review=source_review
+   and original_text=v_prior_text and review=source_review
    and correction_hold=source_hold and scope_review is null)<>1 then
    raise exception 'Renewed review bypassed nonquotable source protection';
  end if;
