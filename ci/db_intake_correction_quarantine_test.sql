@@ -103,11 +103,7 @@ begin
   where organization_id=org and id=src and revision=4
    and original_text=txt and text_sha256=text_sha and review=expected_review
    and scope_review is null
-   and correction_hold->>'state'='quarantined-awaiting-correction')<>1
- or (select count(*) from bm_intake_private.correction_holds
-   where organization_id=org and source_id=src
-   and request_sha256=repeat('1',64) and previous_revision=2
-   and invalidated_scope is null)<>1 then
+   and correction_hold->>'state'='quarantined-awaiting-correction')<>1 then
    raise exception 'Correction quarantine did not persist immutable evidence';
  end if;
  -- A legacy human-scope writer must deny a quarantined revision.
@@ -141,4 +137,22 @@ begin
 end;
 $test$;
 reset role;
+-- CI owner alone inspects private receipts. The tested service_role MUST
+-- remain unable to SELECT or insert directly into this append-only ledger.
+do $test$
+begin
+ if (select count(*) from bm_intake_private.correction_holds
+  where organization_id='dededede-dede-4ede-8ede-dededededede'
+    and actor_id='abababab-abab-4bab-8bab-abababababab'
+    and request_sha256=repeat('1',64)
+    and previous_revision=2 and invalidated_scope is null)<>1 then
+   raise exception 'Private correction receipt missing or duplicated';
+ end if;
+ begin
+  delete from bm_intake_private.correction_holds
+   where organization_id='dededede-dede-4ede-8ede-dededededede';
+  raise exception 'Privileged correction receipt removal succeeded';
+ exception when insufficient_privilege then null; end;
+end;
+$test$;
 select 'PASS: immutable staged correction quarantine and legacy scope denial';
