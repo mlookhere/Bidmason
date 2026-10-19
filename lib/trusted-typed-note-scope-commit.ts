@@ -190,6 +190,19 @@ export function createTrustedTypedNoteScopeCommit(
     requested: Pick<Request,"reviewKey"|"selectedIndices"|"acceptedAddonCodes">,
   ) {
     if (!record.review) throw new Error("Missing stored extraction review");
+    // Stored scope is an input at readReviewedDraft, not only an output of
+    // commit. Enforce the same canonical index/optional selection bounds
+    // independently of how a persisted record reached this reader.
+    if (!Array.isArray(requested.selectedIndices)
+      || requested.selectedIndices.length<1 || requested.selectedIndices.length>50
+      || requested.selectedIndices.some((v,i) => !Number.isSafeInteger(v)
+        || v<0 || v>100000 || (i>0 && v<=requested.selectedIndices[i-1]))
+      || !Array.isArray(requested.acceptedAddonCodes)
+      || requested.acceptedAddonCodes.length>50
+      || requested.acceptedAddonCodes.some(v=>typeof v!=="string"
+        || !/^[a-z][a-z0-9_-]{0,63}$/.test(v))) {
+      throw new Error("Noncanonical stored or requested scope selection");
+    }
     const model=buildReviewWorkbench(record.original,record.review,active.policy);
     if (model.key!==requested.reviewKey) {
       throw new Error("Scope or approved company policy changed; refresh");
@@ -239,22 +252,9 @@ export function createTrustedTypedNoteScopeCommit(
       const record=await source(input,creator);
       awaitingReview(record);
       const active=await activePolicy(input,creator);
-      const model=buildReviewWorkbench(record.original,record.review!,active.policy);
-      if(model.key!==input.reviewKey) {
-        throw new Error("Scope or approved company policy changed; refresh");
-      }
-      const selection=prepareReviewPreviewRequest(model,{
-        key:input.reviewKey,selectedIndices:input.selectedIndices,
-        acceptedAddonCodes:input.acceptedAddonCodes,
-      });
-      const preview=previewReviewedEconomics(record.original,record.review!,
-        selection.selectedIndices,active.policy,selection.acceptedAddonCodes);
-      if(preview.economics.policySha256!==active.sha
-        || preview.economics.policyRevision!==active.revision) {
-        throw new Error("Approved policy fingerprint differs from scope preview");
-      }
+      const {expected,preview}=checkedScope(record,active,creator,input);
       await stable(input,creator,record,active);
-      return {...preview,reviewKey:model.key,sourceId:input.sourceId};
+      return {...preview,reviewKey:expected.reviewKey,sourceId:input.sourceId};
     },
 
     /**
@@ -363,36 +363,12 @@ export function createTrustedTypedNoteScopeCommit(
         throw new Error("Scope source is not awaiting human review");
       }
       const active=await activePolicy(input,creator);
-      const model=buildReviewWorkbench(record.original,record.review,active.policy);
-      if (model.key!==input.reviewKey) {
-        throw new Error("Scope or approved company policy changed; refresh");
-      }
-      const selection=prepareReviewPreviewRequest(model,{
-        key:model.key,
-        selectedIndices:input.selectedIndices,
-        acceptedAddonCodes:input.acceptedAddonCodes,
-      });
-      const preview=previewReviewedEconomics(record.original,record.review,
-        selection.selectedIndices,active.policy,selection.acceptedAddonCodes);
-      if (preview.economics.policySha256!==active.sha
-        || preview.economics.policyRevision!==active.revision) {
-        throw new Error("Approved policy fingerprint differs from scope preview");
-      }
+      const {expected:scope}=checkedScope(record,active,creator,input);
       // Auth and private SQL independently check current membership before
       // source existence, lock the source and ACTIVE approved policy row.
       if (await actor(input.session)!==creator) {
         throw new Error("Scope reviewer identity changed before commit");
       }
-      const scope={
-        state:"reviewed-for-proposal-draft" as const,
-        sourceRevision:3,reviewedBy:creator,reviewKey:model.key,
-        sourceSha256:record.review.sourceSha256,
-        candidatesSha256:record.review.candidatesSha256,
-        selectedIndices:selection.selectedIndices,
-        acceptedAddonCodes:selection.acceptedAddonCodes,
-        policyRevision:active.revision,policySha256:active.sha,
-        reviewedSelectionSha256:preview.reviewedSelectionSha256,
-      };
       const result=await db.query(COMMIT,[
         input.organizationId,creator,input.sourceId,
         scope.sourceSha256,scope.candidatesSha256,JSON.stringify(scope),
