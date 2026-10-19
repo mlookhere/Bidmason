@@ -59,6 +59,10 @@ function fixture({lostAck=false,revokeAfterReadback=false}={}) {
     values (:'p1'::uuid,:'p3'::uuid,'operator'),
            (:'p1'::uuid,:'p4'::uuid,'owner');`,
     {p1:org,p2:"scope-"+org,p3:actor,p4:reviewer});
+  psql(`set role service_role;
+    select bm_intake_private.ci_stage_approved_policy(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:actor,p3:reviewer,p4:canonicalCompanyPolicyText(policy)});
   const sha=psql(`set role service_role;
     select activated_sha256 from bm_intake_private.activate_scope_policy(
       :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,1,:'p4'::text);`,
