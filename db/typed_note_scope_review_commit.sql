@@ -158,9 +158,11 @@ begin
  foreach v_code in array v_codes loop
    v_rule:=v_active_policy->'pricing'->'services'->v_code;
    if jsonb_typeof(v_rule) is distinct from 'object'
-     or v_rule->>'billing' not in ('charged','included')
+     or coalesce(v_rule->>'billing','') not in ('charged','included')
      or (coalesce(v_active_policy->'excludedServiceCodes','[]'::jsonb)
-         ? v_code) then
+         ? v_code)
+     or (v_rule ? 'optionalAddon'
+       and jsonb_typeof(v_rule->'optionalAddon') is distinct from 'boolean') then
       raise exception 'Unapproved, excluded or unlisted company service'
         using errcode='22023';
    end if;
