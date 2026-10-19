@@ -30,3 +30,10 @@ Nothing here enables customer evidence uploads/downloads, billed services,
 subscriber authentication, storage persistence or marketing-site capture.
 Item 3's genuine multiuser Auth/Storage/security release gates remain deferred
 but mandatory.
+
+Browser/server separation: `IntakeReviewPanel` imports runtime selection
+helpers only from `lib/intake-review-selection.ts` (no `node:crypto`).
+Source and policy hashing remain server-only in
+`lib/intake-review-workbench.ts`. The latter re-exports selection helpers
+for backwards compatibility with existing pure Node tests. The panel still
+has no public route or automatic network request.

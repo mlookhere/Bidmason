@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { changeReviewSelection, emptyReviewSelection,
-  prepareReviewPreviewRequest, type ReviewWorkbenchModel,
-  type ReviewWorkbenchSelection } from "../lib/intake-review-workbench.ts";
+  prepareReviewPreviewRequest, type ReviewWorkbenchSelection }
+  from "../lib/intake-review-selection.ts";
+import type { ReviewWorkbenchModel } from "../lib/intake-review-workbench.ts";
 
 type PreviewRequest = ReturnType<typeof prepareReviewPreviewRequest>;
 
