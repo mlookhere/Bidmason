@@ -44,6 +44,11 @@ export interface TrustedCorrectedScopeStore {
 
 function checkSelector(value:Selector):void {
   if(!value||typeof value!=="object"||Array.isArray(value)
+    ||![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    ||["organizationId","sourceId"].some(key=>{
+      const d=Object.getOwnPropertyDescriptor(value,key);
+      return d?.enumerable!==true||!Object.hasOwn(d,"value");
+    })
     ||typeof value.organizationId!=="string"||!UUID.test(value.organizationId)
     ||typeof value.sourceId!=="string"||!UUID.test(value.sourceId)){
     throw new TypeError("Invalid corrected scope selector");
@@ -87,25 +92,27 @@ export async function readCorrectedScopeContext(
   session:unknown,target:Selector,
 ){
   checkSelector(target);
-  const first=await sourceStore.readAuthorized({...target,session});
-  checked(first,target);
-  const evidence=verifyActivatedCorrectionLineage(first,target);
-  const policy=await policySnapshot(policyStore,session,target.organizationId);
+  // Keep both policy and source authorizations bound to the original selector.
+  const bound:Selector={organizationId:target.organizationId,sourceId:target.sourceId};
+  const first=await sourceStore.readAuthorized({...bound,session});
+  checked(first,bound);
+  const evidence=verifyActivatedCorrectionLineage(first,bound);
+  const policy=await policySnapshot(policyStore,session,bound.organizationId);
   const model=buildReviewWorkbench(first.original,evidence.correctedReview,policy);
   const recorded=stamp(first);
-  const latest=await sourceStore.readAuthorized({...target,session});
-  checked(latest,target);
+  const latest=await sourceStore.readAuthorized({...bound,session});
+  checked(latest,bound);
   if(stamp(latest)!==recorded){
     throw new Error("Corrected extraction changed during human review; refresh");
   }
-  const currentPolicy=await policySnapshot(policyStore,session,target.organizationId);
+  const currentPolicy=await policySnapshot(policyStore,session,bound.organizationId);
   const again=buildReviewWorkbench(latest.original,
-    verifyActivatedCorrectionLineage(latest,target).correctedReview,currentPolicy);
+    verifyActivatedCorrectionLineage(latest,bound).correctedReview,currentPolicy);
   if(again.key!==model.key){
     throw new Error("Company policy changed during corrected review; refresh");
   }
   return {state:"requires-renewed-human-corrected-scope-review" as const,
-    ...target,expectedRevision:first.revision,expectedSnapshotSha256:recorded,
+    ...bound,expectedRevision:first.revision,expectedSnapshotSha256:recorded,
     activationSha256:evidence.activationSha256,model};
 }
 
@@ -117,6 +124,16 @@ export type CorrectedScopeCommitRequest=Selector & {
   selectedIndices:number[];
   acceptedAddonCodes:string[];
 };
+function canonicalSelectionArray(value:unknown):value is unknown[] {
+  if(!Array.isArray(value)||value.length>50
+    ||Object.getPrototypeOf(value)!==Array.prototype
+    ||Reflect.ownKeys(value).length!==value.length+1)return false;
+  for(let i=0;i<value.length;i++){
+    const d=Object.getOwnPropertyDescriptor(value,String(i));
+    if(d?.enumerable!==true||!Object.hasOwn(d,"value"))return false;
+  }
+  return true;
+}
 function checkRequest(req:CorrectedScopeCommitRequest):void {
   const required=["organizationId","sourceId","expectedRevision",
     "expectedSnapshotSha256","activationSha256","reviewKey",
@@ -135,7 +152,8 @@ function checkRequest(req:CorrectedScopeCommitRequest):void {
   if(!Number.isSafeInteger(req.expectedRevision)||req.expectedRevision<4
     ||![req.expectedSnapshotSha256,req.activationSha256,req.reviewKey]
       .every(s=>typeof s==="string"&&HASH.test(s))
-    ||!Array.isArray(req.selectedIndices)||!Array.isArray(req.acceptedAddonCodes)){
+    ||!canonicalSelectionArray(req.selectedIndices)
+    ||!canonicalSelectionArray(req.acceptedAddonCodes)){
     throw new TypeError("Invalid corrected scope commit request");
   }
 }
@@ -149,32 +167,41 @@ export async function commitAuthorizedCorrectedScopeReview(
 ):Promise<{state:"reviewed-corrected-scope-internal-only";sourceId:string;
   revision:number;reviewedBy:string;reviewedSelectionSha256:string}>{
   checkRequest(request);
-  const policy=await policySnapshot(policyStore,session,request.organizationId);
+  // Copy all untrusted review intent before awaiting the policy store.
+  const target:CorrectedScopeCommitRequest={
+    organizationId:request.organizationId,sourceId:request.sourceId,
+    expectedRevision:request.expectedRevision,
+    expectedSnapshotSha256:request.expectedSnapshotSha256,
+    activationSha256:request.activationSha256,reviewKey:request.reviewKey,
+    selectedIndices:[...request.selectedIndices],
+    acceptedAddonCodes:[...request.acceptedAddonCodes],
+  };
+  const policy=await policySnapshot(policyStore,session,target.organizationId);
   let expected:TenantCorrectedScopeRecord|null=null;
   const committed=await sourceStore.mutateAuthorized({
-    session,organizationId:request.organizationId,sourceId:request.sourceId,
+    session,organizationId:target.organizationId,sourceId:target.sourceId,
     permission:"review-corrected-extraction",
     transform(current,actorId){
-      checked(current,request);
+      checked(current,target);
       if(typeof actorId!=="string"||!UUID.test(actorId)){
         throw new Error("Authenticated corrected scope reviewer required");
       }
-      if(current.revision!==request.expectedRevision
-        ||stamp(current)!==request.expectedSnapshotSha256){
+      if(current.revision!==target.expectedRevision
+        ||stamp(current)!==target.expectedSnapshotSha256){
         throw new Error("Stale corrected scope; reload review");
       }
-      const evidence=verifyActivatedCorrectionLineage(current,request);
-      if(evidence.activationSha256!==request.activationSha256){
+      const evidence=verifyActivatedCorrectionLineage(current,target);
+      if(evidence.activationSha256!==target.activationSha256){
         throw new Error("Activated extraction lineage has changed");
       }
       const model=buildReviewWorkbench(current.original,evidence.correctedReview,policy);
-      if(model.key!==request.reviewKey){
+      if(model.key!==target.reviewKey){
         throw new Error("Approved tenant pricing or corrected review key changed");
       }
       const selection=prepareReviewPreviewRequest(model,{
-        key:request.reviewKey,
-        selectedIndices:request.selectedIndices,
-        acceptedAddonCodes:request.acceptedAddonCodes,
+        key:target.reviewKey,
+        selectedIndices:target.selectedIndices,
+        acceptedAddonCodes:target.acceptedAddonCodes,
       });
       const preview=previewReviewedEconomics(current.original,evidence.correctedReview,
         selection.selectedIndices,policy,selection.acceptedAddonCodes);
@@ -206,18 +233,18 @@ export async function commitAuthorizedCorrectedScopeReview(
     throw new Error("Corrected scope mutation not confirmed");
   }
   const stored=await sourceStore.readAuthorized({
-    session,organizationId:request.organizationId,sourceId:request.sourceId,
+    session,organizationId:target.organizationId,sourceId:target.sourceId,
   });
-  checked(stored,request,true);
+  checked(stored,target,true);
   if(stamp(stored)!==stamp(expected)||!stored.correctedScopeReview
     ||stored.correctedScopeReview.state!=="reviewed-corrected-scope-internal-only"
     ||stored.correctedScopeReview.sourceRevision!==stored.revision){
     throw new Error("Corrected scope read-back not confirmed");
   }
-  const finalPolicy=await policySnapshot(policyStore,session,request.organizationId);
+  const finalPolicy=await policySnapshot(policyStore,session,target.organizationId);
   const finalModel=buildReviewWorkbench(stored.original,
-    verifyActivatedCorrectionLineage(stored,request).correctedReview,finalPolicy);
-  if(finalModel.key!==request.reviewKey){
+    verifyActivatedCorrectionLineage(stored,target).correctedReview,finalPolicy);
+  if(finalModel.key!==target.reviewKey){
     throw new Error("Company policy changed after corrected scope commit; reconcile");
   }
   return {state:"reviewed-corrected-scope-internal-only",
