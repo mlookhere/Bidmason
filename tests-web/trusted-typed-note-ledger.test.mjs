@@ -284,3 +284,87 @@ test("database outages propagate, never become a valid absent ledger", async () 
     createTrustedTypedNoteLedger(f.auth, f.database),
     "real-session", request), /primary database unavailable/);
 });
+
+
+test("private ledger rejects a forged empty array instead of reporting an absent idempotency key", async () => {
+  for (const corrupt of [
+    rows => {rows[Symbol("approved")]=true;},
+    rows => Object.defineProperty(rows,"send",{value:true}),
+    rows => Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  ]) {
+    const f=fixture(),original=f.database.query.bind(f.database);
+    f.database.query=async(...args)=>{
+      await original(...args);
+      const rows=[];
+      corrupt(rows);
+      return {rows};
+    };
+    const ledger=createTrustedTypedNoteLedger(f.auth,f.database);
+    await assert.rejects(ledger.lookupAuthorized({
+      organizationId:ORG,requestId:REQUEST,session:"real-session",
+      permission:"create-intake",
+    }), /Invalid primary intake lookup result/);
+    assert.equal(f.sqlCalls.length,1);
+    assert.deepEqual(f.authCalls,["real-session"]);
+    await assert.rejects(reconcileAuthorizedTypedNote(
+      ledger,"real-session",request),/Invalid primary intake lookup result/);
+    assert.equal(f.sqlCalls.length,2);
+  }
+});
+
+test("ledger rejects an accessor-backed or sparse SQL index without triggering it",async()=>{
+  let triggered=0;
+  for(const corrupt of [
+    rows => Object.defineProperty(rows,"0",{enumerable:true,
+      get(){triggered++;throw Error("untrusted SQL row getter");}}),
+    rows => {delete rows[0];},
+    rows => Object.defineProperty(rows,"0",{enumerable:false,
+      configurable:true,writable:true,value:rows[0]}),
+    rows => Object.defineProperty(rows,"send",{value:true}),
+    rows => {rows[Symbol("authorized")]=true;},
+    rows => Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  ]){
+    const f=fixture(),original=f.database.query.bind(f.database);
+    f.database.query=async(...args)=>{
+      const response=await original(...args);
+      corrupt(response.rows);
+      return response;
+    };
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth,f.database)
+      .lookupAuthorized({organizationId:ORG,requestId:REQUEST,
+        session:"real-session",permission:"create-intake"}),
+      /Invalid primary intake lookup result/);
+    assert.deepEqual(f.authCalls,["real-session"]);
+    assert.equal(f.sqlCalls.length,1);
+  }
+  assert.equal(triggered,0);
+});
+
+test("the primary DB rows getter cannot execute or fabricate an absent key",async()=>{
+  const f=fixture();let triggered=0;
+  f.database.query=async()=>Object.defineProperty({},"rows",{enumerable:true,
+    get(){triggered++;return [];}});
+  await assert.rejects(createTrustedTypedNoteLedger(f.auth,f.database)
+    .lookupAuthorized({organizationId:ORG,requestId:REQUEST,
+      session:"real-session",permission:"create-intake"}),
+    /Invalid primary intake lookup result/);
+  assert.equal(triggered,0);
+  assert.deepEqual(f.authCalls,["real-session"]);
+});
+
+test("normal PostgreSQL result metadata remains compatible with authenticated empty and present receipts",async()=>{
+  for(const found of [true,false]){
+    const f=fixture(),original=f.database.query.bind(f.database);
+    f.database.query=async(...args)=>{
+      const result=await original(...args);
+      return {rows:found?result.rows:[],rowCount:found?1:0,
+        command:"SELECT",fields:[]};
+    };
+    const received=await createTrustedTypedNoteLedger(f.auth,f.database)
+      .lookupAuthorized({organizationId:ORG,requestId:REQUEST,
+        session:"real-session",permission:"create-intake"});
+    assert.equal(received===null,!found);
+    if(found)assert.equal(received.record.sourceId,SOURCE);
+    assert.deepEqual(f.authCalls,["real-session","real-session"]);
+  }
+});
