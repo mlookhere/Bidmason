@@ -40,6 +40,8 @@ begin
      'start',6,'end',8,'excerpt','🧱'),
    jsonb_build_object('serviceCode','painting','units',2,
      'start',9,'end',12,'excerpt','two')));
+ v_review:=jsonb_set(v_review,'{candidatesSha256}',to_jsonb(
+   bm_intake_private.canonical_candidate_sha256(v_review->'candidates')));
 
  if not bm_intake_private.matches_typed_note_utf16_excerpt(v_text,
       v_review->'candidates'->0)
