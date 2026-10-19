@@ -151,3 +151,102 @@ begin
 end;
 $test$;
 reset role;
+
+-- New isolated workstream acceptance: immutable originals and append-only
+-- ledger survive an accidentally overprivileged trusted SQL worker.
+insert into public.bm_memberships(organization_id,user_id,member_role)
+values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccc','operator');
+set role service_role;
+do $test$
+declare
+ v_org uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ v_actor uuid:='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ v_req uuid:='99999999-9999-4999-8999-999999999999';
+ v_id uuid;
+begin
+ select source_id into v_id from bm_intake_private.create_typed_note(
+  v_org,v_actor,v_req,'Clean 2 rooms');
+
+ -- A valid extract audit transition still works; security changes must not
+ -- break the core revision progression needed by human review.
+ update public.bm_intake_sources
+  set revision=2,review='{"state":"needs-human-review"}'::jsonb,
+      extraction_audit='[{"sourceRevision":2}]'::jsonb
+  where organization_id=v_org and id=v_id;
+ if (select revision from public.bm_intake_sources
+     where organization_id=v_org and id=v_id)<>2 then
+   raise exception 'Legitimate extraction transition failed';
+ end if;
+
+ begin
+  update public.bm_intake_sources set original_text='Forgeries'
+   where organization_id=v_org and id=v_id;
+  raise exception 'Original text rewrite accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set text_sha256=repeat('0',64)
+   where organization_id=v_org and id=v_id;
+  raise exception 'Original hash rewrite accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set created_by=
+   'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+   where organization_id=v_org and id=v_id;
+  raise exception 'Original creator reassignment accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set revision=2
+   where organization_id=v_org and id=v_id;
+  raise exception 'Same-revision source rewrite accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set revision=3,
+   review='{"state":"tampered"}'::jsonb,
+   scope_review='{"state":"reviewed-for-proposal-draft"}'::jsonb
+   where organization_id=v_org and id=v_id;
+  raise exception 'Extraction review rewrite accepted during scope change';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_typed_note_requests set text_sha256=repeat('0',64)
+   where organization_id=v_org and actor_id=v_actor and request_id=v_req;
+  raise exception 'Request ledger rewrite accepted';
+ exception when insufficient_privilege then null; end;
+
+ -- The legitimate 2->3 scope transition must retain extraction provenance.
+ update public.bm_intake_sources
+  set revision=3,scope_review='{"state":"reviewed-for-proposal-draft"}'::jsonb
+  where organization_id=v_org and id=v_id;
+ if (select revision from public.bm_intake_sources
+     where organization_id=v_org and id=v_id)<>3 then
+   raise exception 'Legitimate reviewed-scope transition failed';
+ end if;
+ begin
+  update public.bm_intake_sources set revision=3
+   where organization_id=v_org and id=v_id;
+  raise exception 'Reviewed source rewrite accepted';
+ exception when insufficient_privilege then null; end;
+
+ -- Even a correct later replay must resolve the original UUID at revision 3.
+ if (select source_id from bm_intake_private.create_typed_note(
+  v_org,v_actor,v_req,'Clean 2 rooms'))<>v_id then
+  raise exception 'Processed typed-note replay did not retain source UUID';
+ end if;
+end;
+$test$;
+reset role;
+
+-- The DELETE denial is checked at the privilege boundary, since service_role
+-- intentionally receives no DELETE grant. Database owner bypass is excluded.
+do $test$
+begin
+ if has_table_privilege('service_role','public.bm_intake_sources','DELETE')
+ or has_table_privilege('service_role','public.bm_typed_note_requests','DELETE')
+ or has_table_privilege('authenticated','public.bm_intake_sources','DELETE')
+ or has_table_privilege('authenticated','public.bm_typed_note_requests','DELETE')
+ or has_table_privilege('authenticated','public.bm_typed_note_requests','UPDATE') then
+  raise exception 'Intake deletion or browser ledger mutation privilege exposed';
+ end if;
+end;
+$test$;
+select 'PASS: staged immutable intake originals, monotonic source revisions and append-only ledger';

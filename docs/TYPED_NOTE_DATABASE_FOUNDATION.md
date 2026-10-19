@@ -30,3 +30,21 @@ Only typed notes are supported; transcripts/files, extraction mutations,
 policy approvals, proposals, outbound delivery and billing are out of scope.
 A separate transactional CAS-backed extraction/review adapter is required.
 Real DB deployment, auth and security testing remain uncompleted release gates.
+
+
+## Append-only SQL evidence and bounded progression
+
+Staged database triggers now reject updates to source organization, source ID,
+creation actor, request ID, kind, original text, original SHA-256, and creation
+timestamp. A source can advance only 1 to 2 (extraction snapshot) or 2 to 3
+(reviewed scope), and the latter must preserve the exact extraction review
+and audit. An update to an already-reviewed source is denied. A second
+trigger forbids ledger updates/deletes, while DELETE grants remain absent
+for the trusted service role as well as client roles.
+
+The isolated PostgreSQL gate includes negative mutations and positive
+1-to-2 / 2-to-3 / processed-request replay cases. The database does not
+yet authenticate that a reviewer is authorized for the progression; a
+future trusted row-locking backend adapter must enforce source-specific
+actor/role, audit evidence and exact revision CAS. Database owners and
+privileged bypass roles are outside a user-facing authorization model.

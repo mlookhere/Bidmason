@@ -120,3 +120,66 @@ revoke all on function bm_intake_private.create_typed_note(uuid,uuid,uuid,text)
  from public,anon,authenticated;
 grant execute on function bm_intake_private.create_typed_note(uuid,uuid,uuid,text)
  to service_role;
+
+-- Database-level immutability: trusting a worker is NOT permission to rewrite
+-- original evidence, reassign source identity or erase its audit. Owner/superuser
+-- bypasses remain outside this boundary; these are not production Auth checks.
+create function bm_intake_private.enforce_source_transition()
+returns trigger language plpgsql security invoker
+set search_path=pg_catalog,public
+as $guard$
+begin
+ if tg_op = 'DELETE' then
+   raise exception 'Intake source deletion forbidden'
+     using errcode='42501';
+ end if;
+ if row(new.organization_id,new.id,new.created_by,new.request_id,
+        new.kind,new.original_text,new.text_sha256,new.created_at)
+   is distinct from
+    row(old.organization_id,old.id,old.created_by,old.request_id,
+        old.kind,old.original_text,old.text_sha256,old.created_at) then
+   raise exception 'Immutable intake source identity changed'
+     using errcode='42501';
+ end if;
+ if old.revision=1 and new.revision=2
+   and old.review is null and old.extraction_audit='[]'::jsonb
+   and old.scope_review is null
+   and new.review is not null
+   and jsonb_typeof(new.review)='object'
+   and jsonb_typeof(new.extraction_audit)='array'
+   and jsonb_array_length(new.extraction_audit)=1
+   and new.scope_review is null then
+   return new;
+ end if;
+ if old.revision=2 and new.revision=3
+   and new.review is not distinct from old.review
+   and new.extraction_audit is not distinct from old.extraction_audit
+   and old.scope_review is null
+   and new.scope_review is not null
+   and jsonb_typeof(new.scope_review)='object' then
+   return new;
+ end if;
+ raise exception 'Invalid intake revision transition'
+   using errcode='42501';
+end;
+$guard$;
+create trigger bm_intake_source_guard
+ before update or delete on public.bm_intake_sources
+ for each row execute function bm_intake_private.enforce_source_transition();
+
+create function bm_intake_private.enforce_ledger_append_only()
+returns trigger language plpgsql security invoker
+set search_path=pg_catalog,public
+as $guard$
+begin
+ raise exception 'Typed-note request ledger is append-only'
+   using errcode='42501';
+end;
+$guard$;
+create trigger bm_typed_note_request_guard
+ before update or delete on public.bm_typed_note_requests
+ for each row execute function bm_intake_private.enforce_ledger_append_only();
+revoke all on function bm_intake_private.enforce_source_transition()
+ from public,anon,authenticated;
+revoke all on function bm_intake_private.enforce_ledger_append_only()
+ from public,anon,authenticated;
