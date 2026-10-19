@@ -57,10 +57,14 @@ security acceptance gates remain mandatory before a customer feature exists.
    routine rechecks and locks current membership before revealing a receipt
    **or the absence of a receipt**.
 
-The adapter verifies selector/permission shape before Auth, requires the
-verified actor UUID before any SQL, and **revalidates the active session and
-unchanged identity after the database query**, before returning either a
-receipt or an authorized missing-key result. A revoked or swapped identity
+The adapter validates exact plain-data selector, Auth and SQL row shapes,
+rejecting hidden/accessor-backed fields without invoking getters. It snapshots
+the validated tenant UUID, request UUID, and opaque session *before* the first
+await, so caller-owned object mutation cannot switch the SQL lookup or
+post-query Auth check to a different selector or session. It requires the
+verified actor UUID before any SQL and **revalidates the original active
+session and unchanged identity after the database query**, before returning
+either a receipt or an authorized missing-key result. A revoked or swapped identity
 during an in-flight read is denied, never reported as absent. It rejects
 malformed or more-than-one-row results, incorrect returned actor, invalid
 ledger digest or missing JSON. This second Auth check narrows the race window;
@@ -73,7 +77,8 @@ idempotency key, or interprets absence as proof of rollback.
 
 Regression tests in `tests-web/trusted-typed-note-ledger.test.mjs` cover
 fresh pre/post-query Auth checks, in-flight revocation or actor switching
-(including missing-key reads), forged caller identity,
+(including missing-key reads), mutation of request fields during Auth and SQL,
+hidden/accessor-shaped selector/identity/row denial, forged caller identity,
 cross-tenant backend denial, replay absence, malformed ledger responses,
 tampering, and provider errors. They use an in-memory mocked verifier and
 database. This is a staged adapter contract, **not** evidence that a live

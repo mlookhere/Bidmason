@@ -26,9 +26,14 @@ export interface PrivateIntakeDatabase {
 }
 
 function exactObject(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(key => Object.hasOwn(value, key));
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const ownKeys = Reflect.ownKeys(value);
+  return ownKeys.length === keys.length && ownKeys.every(key => {
+    if (typeof key !== "string" || !keys.includes(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+  });
 }
 
 /**
@@ -57,11 +62,17 @@ export function createTrustedTypedNoteLedger(
         || typeof input.requestId !== "string" || !UUID.test(input.requestId)) {
         throw new TypeError("Invalid private typed-note lookup");
       }
+      // Snapshot the validated scalar selector and opaque session BEFORE
+      // awaiting Auth/SQL. A caller changing its input object mid-flight
+      // cannot switch tenants, request keys or the session being checked.
+      const organizationId = input.organizationId;
+      const requestId = input.requestId;
+      const session = input.session;
       // Treat the opaque session only as an input to a trusted verifier. Never
       // inspect userId, actorId, role or tenant fields on the session object.
-      const actor = await currentActor(input.session);
+      const actor = await currentActor(session);
       const result = await database.query(LOOKUP, [
-        input.organizationId, actor, input.requestId,
+        organizationId, actor, requestId,
       ]);
       if (!result || typeof result !== "object" || !Array.isArray(result.rows)
         || result.rows.length > 1) {
@@ -69,7 +80,7 @@ export function createTrustedTypedNoteLedger(
       }
       // A session can expire or be revoked while the primary read is in
       // flight. Reauthenticate before disclosing a receipt OR its absence.
-      if (await currentActor(input.session) !== actor) {
+      if (await currentActor(session) !== actor) {
         throw new Error("Authenticated intake actor changed during lookup");
       }
       if (result.rows.length === 0) return null;

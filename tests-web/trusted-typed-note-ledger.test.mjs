@@ -140,6 +140,84 @@ test("actor switching while a primary lookup is in flight fails closed", async (
   }
 });
 
+test("caller mutation during Auth cannot change the validated tenant, key or session", async () => {
+  const f = fixture(), originalVerify = f.auth.verifyActiveSession;
+  const input = {organizationId: ORG, requestId: REQUEST, session: "real-session",
+    permission:"create-intake"};
+  let changed = false;
+  f.auth.verifyActiveSession = async session => {
+    if (!changed) {
+      changed = true;
+      input.organizationId = OTHER_ORG;
+      input.requestId = "33333333-3333-4333-8333-333333333333";
+      input.session = "forged-session";
+    }
+    return originalVerify(session);
+  };
+  const receipt = await createTrustedTypedNoteLedger(f.auth, f.database)
+    .lookupAuthorized(input);
+  assert.equal(receipt.record.sourceId, SOURCE);
+  assert.deepEqual(f.sqlCalls[0].params, [ORG, ACTOR, REQUEST]);
+  assert.deepEqual(f.authCalls, ["real-session", "real-session"]);
+});
+
+test("caller mutation during SQL cannot switch the session used for post-query Auth", async () => {
+  const f = fixture(), originalQuery = f.database.query;
+  const input = {organizationId: ORG, requestId: REQUEST, session: "real-session",
+    permission:"create-intake"};
+  f.database.query = async (...args) => {
+    input.session = "forged-session";
+    input.organizationId = OTHER_ORG;
+    return originalQuery(...args);
+  };
+  const receipt = await createTrustedTypedNoteLedger(f.auth, f.database)
+    .lookupAuthorized(input);
+  assert.equal(receipt.record.sourceId, SOURCE);
+  assert.deepEqual(f.sqlCalls[0].params, [ORG, ACTOR, REQUEST]);
+  assert.deepEqual(f.authCalls, ["real-session", "real-session"]);
+});
+
+test("accessor and hidden selectors, identities and SQL fields fail closed without evaluation", async () => {
+  const selector = {organizationId:ORG, requestId:REQUEST,
+    session:"real-session", permission:"create-intake"};
+  const hidden = {...selector};
+  Object.defineProperty(hidden, "actorId", {value: ACTOR});
+  const accessor = {...selector};
+  let invocations = 0;
+  Object.defineProperty(accessor, "requestId", {
+    enumerable:true, get(){ invocations++; return REQUEST; },
+  });
+  for (const invalid of [hidden, accessor]) {
+    const f = fixture();
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized(invalid), /Invalid private/);
+    assert.equal(f.authCalls.length, 0);
+    assert.equal(f.sqlCalls.length, 0);
+  }
+  const f = fixture();
+  f.auth.verifyActiveSession = async () => {
+    const identity = {};
+    Object.defineProperty(identity, "userId", {
+      enumerable:true, get(){ invocations++; return ACTOR; },
+    });
+    return identity;
+  };
+  await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+    .lookupAuthorized(selector), /Verified active Auth/);
+  assert.equal(f.sqlCalls.length, 0);
+  const g = fixture();
+  g.database.query = async () => {
+    const row = {authenticated_actor_id:ACTOR, text_sha256:digest};
+    Object.defineProperty(row, "record", {
+      enumerable:true, get(){ invocations++; return structuredClone(record); },
+    });
+    return {rows:[row]};
+  };
+  await assert.rejects(createTrustedTypedNoteLedger(g.auth, g.database)
+    .lookupAuthorized(selector), /Private intake ledger/);
+  assert.equal(invocations, 0);
+});
+
 test("invalid selector or permission never invokes Auth or SQL", async () => {
   const f = fixture(), ledger = createTrustedTypedNoteLedger(f.auth, f.database);
   for (const overrides of [
