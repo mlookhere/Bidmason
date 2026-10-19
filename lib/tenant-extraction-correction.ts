@@ -109,10 +109,11 @@ function snapshotChanges(input: ExtractionCorrectionChange[]): ExtractionCorrect
       || typeof action.reason!=="string") {
       throw new TypeError("Invalid extraction correction action");
     }
-    if (type!=="add" && !Number.isSafeInteger(action.index)) {
+    // Narrow the discriminated union using its verified own data tag.
+    if (action.action!=="add" && !Number.isSafeInteger(action.index)) {
       throw new TypeError("Invalid extraction correction index");
     }
-    if (type==="remove") return {action:"remove" as const,
+    if (action.action==="remove") return {action:"remove" as const,
       index:action.index,reason:action.reason};
     const candidate=action.candidate;
     if (!exactFields(candidate,["serviceCode","units","start","end","excerpt"])) {
@@ -120,7 +121,7 @@ function snapshotChanges(input: ExtractionCorrectionChange[]): ExtractionCorrect
     }
     const copy={serviceCode:candidate.serviceCode, units:candidate.units,
       start:candidate.start,end:candidate.end,excerpt:candidate.excerpt};
-    return type==="add"
+    return action.action==="add"
       ? {action:"add" as const,candidate:copy,reason:action.reason}
       : {action:"replace" as const,index:action.index,candidate:copy,
         reason:action.reason};
