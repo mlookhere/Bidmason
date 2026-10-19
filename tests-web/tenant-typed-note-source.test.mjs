@@ -426,3 +426,38 @@ test("canonical null-prototype typed-note request remains valid",async()=>{
  assert.equal(saved.state,"ready-for-extraction");
  assert.equal(f.calls().count,1);
 });
+
+test("stored evidence arrays reject holes, decorated arrays and getters before evaluating elements",async()=>{
+ const f=fixture(),saved=await commitAuthorizedTypedNote(f.store,"operator",note);
+ const check=row=>verifyTypedNoteSourceRecord(row,note,saved.textSha256,ACTOR);
+ const extracted=advanceToExtraction(f,saved.sourceId);
+ let getterCalls=0;
+ for(const field of ["extractionAudit","candidates"]){
+  const row=structuredClone(extracted);
+  const array=field==="candidates"?row.review.candidates:row.extractionAudit;
+  Object.defineProperty(array,"0",{enumerable:true,configurable:true,
+   get(){getterCalls++;throw Error("Accessed untrusted array getter");}});
+  assert.throws(()=>check(row),/immutable original|extraction progression/);
+ }
+ for(const field of ["extractionAudit","candidates"]){
+  const row=structuredClone(extracted);
+  const array=field==="candidates"?row.review.candidates:row.extractionAudit;
+  Object.defineProperty(array,"send",{value:true});
+  assert.throws(()=>check(row),/immutable original|extraction progression/);
+ }
+ const sparse=structuredClone(extracted);
+ sparse.extractionAudit=new Array(1);
+ assert.throws(()=>check(sparse),/immutable original/);
+ const inherited=structuredClone(extracted);
+ Object.setPrototypeOf(inherited.review.candidates,Object.create(Array.prototype));
+ assert.throws(()=>check(inherited),/extraction progression/);
+ for(const field of ["selectedIndices","acceptedAddonCodes"]){
+  const row=structuredClone(advanceToScope(f,saved.sourceId));
+  const array=row.scopeReview[field];
+  if(array.length===0)array.push("painting");
+  Object.defineProperty(array,"0",{enumerable:true,configurable:true,
+   get(){getterCalls++;throw Error("Accessed untrusted scope getter");}});
+  assert.throws(()=>check(row),/reviewed scope progression/);
+ }
+ assert.equal(getterCalls,0);
+});

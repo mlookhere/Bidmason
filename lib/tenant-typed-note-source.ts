@@ -73,6 +73,20 @@ function exactKeys(value: unknown, keys: readonly string[]): boolean {
     });
 }
 
+
+/** Reject sparse, accessor-backed and decorated arrays before element access. */
+function canonicalArray(value: unknown, maxLength: number): value is unknown[] {
+  if (!Array.isArray(value) || value.length > maxLength
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+    if (descriptor?.enumerable !== true
+      || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
+}
+
 const SOURCE_KEYS = ["organizationId", "sourceId", "revision", "original",
   "review", "extractionAudit", "scopeReview", "creationAudit"];
 const REVIEW_KEYS = ["state", "kind", "sourceSha256", "candidatesSha256", "candidates"];
@@ -123,7 +137,7 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
     || record.original.kind !== "typed-note"
     || record.original.text !== request.text
     || record.original.transcriptionSucceeded !== undefined
-    || !Array.isArray(record.extractionAudit)
+    || !canonicalArray(record.extractionAudit, 1)
     || !exactKeys(record.creationAudit, ["actorId", "requestId", "textSha256"])
     || record.creationAudit.actorId !== actorId
     || record.creationAudit.requestId !== request.requestId
@@ -142,7 +156,7 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
   const review = record.review;
   const audit = record.extractionAudit[0];
   if (!exactKeys(review, REVIEW_KEYS)
-    || !review || !Array.isArray(review.candidates)
+    || !review || !canonicalArray(review.candidates, 50)
     || review.candidates.some(candidate => !exactKeys(candidate, CANDIDATE_KEYS))
     || record.extractionAudit.length !== 1 || !exactKeys(audit,
       ["sourceRevision", "actorId", "sourceSha256", "candidatesSha256"])
@@ -176,8 +190,8 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
     || !Number.isSafeInteger(scope.policyRevision) || scope.policyRevision < 1
     || scope.sourceSha256 !== review.sourceSha256
     || scope.candidatesSha256 !== review.candidatesSha256
-    || !Array.isArray(scope.selectedIndices) || scope.selectedIndices.length === 0
-    || !Array.isArray(scope.acceptedAddonCodes)
+    || !canonicalArray(scope.selectedIndices, 50) || scope.selectedIndices.length === 0
+    || !canonicalArray(scope.acceptedAddonCodes, 50)
     || scope.acceptedAddonCodes.some(code => typeof code !== "string"
       || !/^[a-z][a-z0-9_-]{0,63}$/.test(code))
     || new Set(scope.acceptedAddonCodes).size !== scope.acceptedAddonCodes.length) {
