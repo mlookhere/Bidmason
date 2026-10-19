@@ -255,3 +255,67 @@ test("stale but canonical local selections are reset to the current policy key",
  const result=prepareReviewPreviewRequest(model,nullPrototype);
  assert.deepEqual(result.selectedIndices,[0]);
 });
+
+
+test("workbench rejects hostile company policy fields without running getters",()=>{
+ let getters=0,serializers=0;
+ const corrupt=[
+  ()=>{const p=structuredClone(policy);Object.defineProperty(p,"revision",{
+    enumerable:true,get(){getters++;throw Error("unsafe revision");}});return p;},
+  ()=>{const p=structuredClone(policy);Object.defineProperty(p,"pricing",{
+    enumerable:true,get(){getters++;throw Error("unsafe ratecard");}});return p;},
+  ()=>{const p=structuredClone(policy);Object.defineProperty(p.pricing.services.clean,"rateCents",{
+    enumerable:true,get(){getters++;throw Error("unsafe unit rate");}});return p;},
+  ()=>{const p=structuredClone(policy);Object.defineProperty(p,"excludedServiceCodes",{
+    enumerable:true,get(){getters++;throw Error("unsafe exclusions");}});return p;},
+  ()=>{const p=structuredClone(policy);Object.defineProperty(p.pricing.services.clean,"toJSON",{
+    enumerable:true,value(){serializers++;return {rateCents:1};}});return p;},
+  ()=>{const p=structuredClone(policy);Object.defineProperty(p.pricing.services.clean,"hidden",{
+    value:"approved"});return p;},
+  ()=>{const p=structuredClone(policy);p.pricing.services.clean[Symbol("send")]=true;return p;},
+  ()=>{const p=structuredClone(policy);Object.setPrototypeOf(p.pricing.services.clean,{
+    rateCents:1});return p;},
+ ];
+ for(const make of corrupt){
+  assert.throws(()=>buildReviewWorkbench(original,
+    prepareExtractionReview(original,candidates),make()),
+    /valid company-owned pricing policy/);
+ }
+ assert.equal(getters,0);
+ assert.equal(serializers,0);
+ const nullPrototype=Object.assign(Object.create(null),structuredClone(policy));
+ const unchanged=buildReviewWorkbench(original,
+  prepareExtractionReview(original,candidates),nullPrototype);
+ assert.deepEqual(unchanged.rows.map(x=>x.status),
+  ["available","optional","pending","excluded"]);
+ assert.equal(unchanged.key,build().key);
+});
+
+test("workbench never traverses unvalidated source and review getters",()=>{
+ let getters=0;
+ const invalid=[
+  ()=>{const x=prepareExtractionReview(original,candidates);Object.defineProperty(x,"candidates",{
+    enumerable:true,get(){getters++;throw Error("unsafe candidates");}});return {source:original,review:x};},
+  ()=>{const x=prepareExtractionReview(original,candidates);Object.defineProperty(x.candidates,"0",{
+    enumerable:true,get(){getters++;throw Error("unsafe index");}});return {source:original,review:x};},
+  ()=>{const x=prepareExtractionReview(original,candidates);Object.defineProperty(x.candidates[0],"units",{
+    enumerable:true,get(){getters++;throw Error("unsafe units");}});return {source:original,review:x};},
+  ()=>{const x=prepareExtractionReview(original,candidates);delete x.candidates[0];
+    return {source:original,review:x};},
+  ()=>{const x=prepareExtractionReview(original,candidates);x.candidates[Symbol("approved")]=true;
+    return {source:original,review:x};},
+  ()=>{const x=prepareExtractionReview(original,candidates);Object.defineProperty(x,"approved",{
+    value:true});return {source:original,review:x};},
+  ()=>{const x=prepareExtractionReview(original,candidates);const source={...original};
+    Object.defineProperty(source,"text",{enumerable:true,
+      get(){getters++;throw Error("unsafe source text");}});return {source,review:x};},
+ ];
+ for(const make of invalid){
+  const {source,review}=make();
+  assert.throws(()=>buildReviewWorkbench(source,review,policy));
+ }
+ assert.equal(getters,0);
+ const valid=build();
+ assert.equal(valid.rows.length,4);
+ assert.equal(valid.rows[0].units,2);
+});
