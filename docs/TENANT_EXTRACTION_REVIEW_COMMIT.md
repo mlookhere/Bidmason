@@ -1147,3 +1147,59 @@ private evidence, maintained antivirus, retention, privacy/legal and
 security acceptance remain nonwaivable Item 3 gates. No customer
 approval, quote send, billing, live endpoint or production deployment
 is authorized by these synthetic test results.
+
+
+## Source-backed internal review workbench and non-sendable pricing preview
+
+The same server-owned `createTrustedTypedNoteScopeCommit` adapter now
+exposes **read-only** `readWorkbench({session, organizationId, sourceId})`
+and `preview({session, organizationId, sourceId, reviewKey,
+selectedIndices, acceptedAddonCodes})` operations. These are staged
+server contracts, not public API routes, and they reuse the **exact same
+private source / active-policy PostgreSQL reads and validators as the
+human scope-commit path**. Browser callers provide no actor ID, raw
+source, extracted candidates, price schedule, policy JSON or quote amount.
+
+Both operations freshly verify the creator's active session, read the
+creator-owned revision-2 source through
+`read_typed_note_for_extraction`, verify the immutable original,
+creation audit, UTF-16 candidate provenance and extraction review,
+and read the current organization-owned approved pricing revision via
+a separate same-tenant, membership-locked active-head JOIN.
+They require an extraction still awaiting human review (revision 2,
+no `scopeReview`). After computing the workbench or pricing preview,
+they perform **another separately authenticated PRIMARY source read
+and approved policy read**. Any change in the complete source record
+or active policy revision/SHA during those two observations fails
+closed and requires refresh.
+
+`readWorkbench` returns an internal-only `ReviewWorkbenchModel`
+with row indices, grounded excerpts, policy-relative availability,
+pending/excluded/unlisted service statuses and a source/policy-bound
+review key. `preview` requires that same key and revalidates sorted
+unique selection and explicit optional add-on consent through
+`prepareReviewPreviewRequest`, then computes deterministic company
+economics solely from the current stored evidence and approved
+policy. It returns a `preview-only` result and selection fingerprint:
+**no SQL write, signed approval, customer-ready quote, send or billing**.
+The independent `commit` operation remains the only staged
+creator-owned 2→3 scope CAS and still reauthorizes/reads back its
+single write.
+
+`tests-web/trusted-typed-note-scope-commit.test.mjs` adds zero-write
+positive previews, forbidden actor/price/source inputs, stale keys,
+missing optional acknowledgement, revoked membership, changed
+immutable evidence and changed active policy between read passes.
+The existing mandatory `intake-db`
+`ci/intake_scope_commit_bridge.test.mjs` now exercises both read-only
+methods through **real disposable PostgreSQL**, including current
+approved policy fingerprints, actual candidate excerpts, optional
+consent, no private scope CAS, denied foreign/revoked actor, and
+rejection after a completed human review. The existing 8 required
+CI jobs and production approval gates are unchanged.
+
+This is not a deployed browser review UI or live customer approval.
+Production Supabase Auth, separate reviewer consent,
+PostgREST/RLS/private Storage, signed maintained antivirus,
+retention, privacy/legal and security acceptance under Item 3
+remain mandatory before exposing this functionality.
