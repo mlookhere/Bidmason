@@ -206,3 +206,52 @@ test("preview selection rejects hidden directives and accessors before evaluatio
  const canonical=Object.assign(Object.create(null),selected);
  assert.deepEqual(prepareReviewPreviewRequest(model,canonical).selectedIndices,[0]);
 });
+
+test("editing review selections rejects corrupted state and forged actions before getters run",()=>{
+ const model=build(),prior=changeReviewSelection(model,emptyReviewSelection(model.key),
+  {type:"select",index:0,checked:true});
+ let invoked=0;
+ const hiddenState={...prior};
+ Object.defineProperty(hiddenState,"approved",{value:true});
+ const inheritedState=Object.assign(Object.create({send:true}),prior);
+ const accessorState={...prior};
+ Object.defineProperty(accessorState,"key",{enumerable:true,
+  get(){invoked++;throw Error("unsafe state getter");}});
+ const accessorArray={...prior,selectedIndices:[0]};
+ Object.defineProperty(accessorArray.selectedIndices,"0",{enumerable:true,
+  get(){invoked++;throw Error("unsafe array getter");}});
+ const sparse={...prior,selectedIndices:new Array(1)};
+ const decorated={...prior,acceptedAddonCodes:[]};
+ Object.defineProperty(decorated.acceptedAddonCodes,"send",{value:true});
+ for(const bad of [hiddenState,inheritedState,accessorState,accessorArray,
+  sparse,decorated]){
+  assert.throws(()=>changeReviewSelection(model,bad,
+   {type:"select",index:0,checked:false}),/Malformed review selection state/);
+ }
+ const actionGetter={type:"select",index:0,checked:true};
+ Object.defineProperty(actionGetter,"index",{enumerable:true,
+  get(){invoked++;throw Error("unsafe action getter");}});
+ const extraAction={type:"reset",send:true};
+ const hiddenAction={type:"select",index:0,checked:true};
+ Object.defineProperty(hiddenAction,"approved",{value:true});
+ for(const action of [actionGetter,extraAction,hiddenAction]){
+  assert.throws(()=>changeReviewSelection(model,prior,action),
+   /Unsupported review selection action/);
+ }
+ assert.equal(invoked,0);
+ assert.deepEqual(prior.selectedIndices,[0]);
+ // A deliberate user reset still recovers even a damaged local selection.
+ assert.deepEqual(changeReviewSelection(model,accessorState,{type:"reset"}),
+  emptyReviewSelection(model.key));
+});
+
+test("stale but canonical local selections are reset to the current policy key",()=>{
+ const model=build();
+ const stale={key:"prior-policy-key",selectedIndices:[0,1],
+  acceptedAddonCodes:["floor"]};
+ const next=changeReviewSelection(model,stale,{type:"select",index:0,checked:true});
+ assert.deepEqual(next,{key:model.key,selectedIndices:[0],acceptedAddonCodes:[]});
+ const nullPrototype=Object.assign(Object.create(null),next);
+ const result=prepareReviewPreviewRequest(model,nullPrototype);
+ assert.deepEqual(result.selectedIndices,[0]);
+});

@@ -11,11 +11,10 @@ export type ReviewWorkbenchAction =
   | { type: "acknowledge-addon"; serviceCode: string; checked: boolean }
   | { type: "reset" };
 
-/** Reject untrusted selection directives without evaluating any getters. */
-function exactSelection(value: unknown): value is ReviewWorkbenchSelection {
+/** Reject untrusted review directives without evaluating any getters. */
+function exactFields(value: unknown, keys: readonly string[]): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
-  const keys = ["key", "selectedIndices", "acceptedAddonCodes"];
   return Reflect.ownKeys(value).length === keys.length && keys.every(key => {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     return descriptor?.enumerable === true
@@ -34,6 +33,37 @@ function canonicalSelectionArray(value: unknown): value is unknown[] {
   return true;
 }
 
+
+function canonicalSelection(value: unknown, requireSelection: boolean):
+  value is ReviewWorkbenchSelection {
+  if (!exactFields(value, ["key", "selectedIndices", "acceptedAddonCodes"])) return false;
+  const current = value as ReviewWorkbenchSelection;
+  return typeof current.key === "string"
+    && canonicalSelectionArray(current.selectedIndices)
+    && (!requireSelection || current.selectedIndices.length > 0)
+    && current.selectedIndices.every((index, i) => Number.isSafeInteger(index)
+      && index >= 0 && (i === 0 || index > current.selectedIndices[i - 1]))
+    && canonicalSelectionArray(current.acceptedAddonCodes)
+    && current.acceptedAddonCodes.every((code, i) => typeof code === "string"
+      && /^[a-z][a-z0-9_-]{0,63}$/.test(code)
+      && (i === 0 || code > current.acceptedAddonCodes[i - 1]));
+}
+
+function canonicalAction(action: unknown): action is ReviewWorkbenchAction {
+  if (!exactFields(action, ["type"])) {
+    // Select and optional acknowledgement require specific, no-extra data keys.
+    if (!exactFields(action, ["type", "index", "checked"])
+      && !exactFields(action, ["type", "serviceCode", "checked"])) return false;
+  }
+  const type = (action as ReviewWorkbenchAction).type;
+  return type === "reset"
+    ? exactFields(action, ["type"])
+    : type === "select"
+      ? exactFields(action, ["type", "index", "checked"])
+      : type === "acknowledge-addon"
+        && exactFields(action, ["type", "serviceCode", "checked"]);
+}
+
 export function emptyReviewSelection(key: string): ReviewWorkbenchSelection {
   return { key, selectedIndices: [], acceptedAddonCodes: [] };
 }
@@ -43,9 +73,13 @@ export function changeReviewSelection(
   current: ReviewWorkbenchSelection,
   action: ReviewWorkbenchAction,
 ): ReviewWorkbenchSelection {
+  if (!canonicalAction(action))
+    throw new TypeError("Unsupported review selection action");
+  if (action.type === "reset") return emptyReviewSelection(model.key);
+  if (current != null && !canonicalSelection(current, false))
+    throw new TypeError("Malformed review selection state");
   const prior = current?.key === model.key
     ? current : emptyReviewSelection(model.key);
-  if (action.type === "reset") return emptyReviewSelection(model.key);
   if (action.type === "select") {
     const row = model.rows.find(x => x.index === action.index);
     if (!row || !["available", "optional"].includes(row.status)
@@ -82,15 +116,7 @@ export function prepareReviewPreviewRequest(
   model: ReviewWorkbenchModel, selection: ReviewWorkbenchSelection,
 ): { reviewKey: string; selectedIndices: number[];
   acceptedAddonCodes: string[] } {
-  if (!exactSelection(selection) || selection.key !== model.key
-    || !canonicalSelectionArray(selection.selectedIndices)
-    || selection.selectedIndices.length === 0
-    || selection.selectedIndices.some((index, i) => !Number.isSafeInteger(index)
-      || index < 0 || (i > 0 && index <= selection.selectedIndices[i - 1]))
-    || !canonicalSelectionArray(selection.acceptedAddonCodes)
-    || selection.acceptedAddonCodes.some((code, i) => typeof code !== "string"
-      || !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
-      || (i > 0 && code <= selection.acceptedAddonCodes[i - 1]))) {
+  if (!canonicalSelection(selection, true) || selection.key !== model.key) {
     throw new Error("Review selection is stale or incomplete (noncanonical selection)");
   }
   const selectedCodes = new Set<string>();
