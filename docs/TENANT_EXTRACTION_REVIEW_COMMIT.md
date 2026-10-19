@@ -38,3 +38,20 @@ authentication signatures.
 No live Auth, RLS, private Storage, antivirus, retention, API, uploads,
 payments or outbound sending are enabled. Item 3's genuine multiuser
 Supabase security acceptance and approval are still mandatory before merge.
+
+
+## Shared original and review lifecycle consistency
+
+The extraction store now reuses the **same** original-source validator as the
+review/preview path. It denies unexpected original fields, NUL, or unpaired
+surrogates before it can process text. A missing review is not equivalent to an
+explicit null review. A source with no committed review cannot contain an
+extraction audit or completed scope decision. An extracted source must have a
+single actor-provenance audit whose source/candidate hashes match a complete
+validated review of ALL candidates, with a plausible source revision.
+
+The preparation-to-commit consistency marker now covers any creation audit
+and reviewed scope carried by the tenant source record. This prevents
+unrelated source lifecycle changes from being ignored by optimistic CAS.
+These checks are **defense-in-depth**, not a replacement for a trusted DB
+transaction, real RLS, or original-byte Auth verification.

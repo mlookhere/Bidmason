@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import type { IntakeSource, ExtractionReview } from "./intake-review.ts";
+import { validateIntakeSource, selectReviewedServices,
+  type IntakeSource, type ExtractionReview } from "./intake-review.ts";
 import { parseUntrustedExtraction } from "./intake-extraction-adapter.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -19,6 +20,9 @@ export type TenantExtractionRecord = {
   original: IntakeSource;
   review: ExtractionReview | null;
   extractionAudit: ExtractionAudit[];
+  /** Optional on the tenant-owned superset; never trust for extraction. */
+  creationAudit?: unknown;
+  scopeReview?: unknown;
 };
 
 /** Implement with a trusted, atomic tenant-scoped database transaction.
@@ -52,17 +56,39 @@ function checkRecord(record: TenantExtractionRecord | null, input: Selector):
   if (!record || record.organizationId !== input.organizationId
     || record.sourceId !== input.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 1
-    || !record.original || typeof record.original.text !== "string"
-    || !["typed-note", "transcript"].includes(record.original.kind)
-    || record.original.text.trim().length === 0
-    || Buffer.byteLength(record.original.text, "utf8") > 65536
-    || (record.original.kind === "transcript"
-       && record.original.transcriptionSucceeded !== true)
-    || (record.review !== null && record.review !== undefined
-      && (record.review.state !== "needs-human-review"
-        || record.review.kind !== record.original.kind))
+    || !Object.hasOwn(record, "review")
     || !Array.isArray(record.extractionAudit)
     || record.extractionAudit.length > 1) {
+    throw new Error("Tenant-owned extraction source missing or invalid");
+  }
+  try {
+    validateIntakeSource(record.original);
+    // An extraction cannot be both "not yet reviewed" and audit-complete.
+    // Do not infer absence when a backend omitted the review property.
+    if (record.review === null) {
+      if (record.extractionAudit.length !== 0
+        || (record.scopeReview !== null && record.scopeReview !== undefined)) {
+        throw new Error("Inconsistent unreviewed source");
+      }
+      return;
+    }
+    const review = record.review;
+    const audit = record.extractionAudit[0];
+    if (!audit || record.extractionAudit.length !== 1
+      || Object.keys(audit).length !== 4
+      || !["sourceRevision", "actorId", "sourceSha256", "candidatesSha256"]
+        .every(key => Object.hasOwn(audit, key))
+      || !Number.isSafeInteger(audit.sourceRevision)
+      || audit.sourceRevision < 2 || audit.sourceRevision > record.revision
+      || typeof audit.actorId !== "string" || !UUID.test(audit.actorId)
+      || audit.sourceSha256 !== review.sourceSha256
+      || audit.candidatesSha256 !== review.candidatesSha256) {
+      throw new Error("Inconsistent extraction audit");
+    }
+    // Verify ALL suggested evidence, not just the selected candidates.
+    selectReviewedServices(record.original, review,
+      review.candidates.map((_, index) => index));
+  } catch {
     throw new Error("Tenant-owned extraction source missing or invalid");
   }
 }
@@ -72,6 +98,7 @@ function fingerprint(record: TenantExtractionRecord): string {
   return createHash("sha256").update(JSON.stringify([
     record.organizationId, record.sourceId, record.revision,
     record.original, record.review, record.extractionAudit,
+    record.creationAudit ?? null, record.scopeReview ?? null,
   ])).digest("hex");
 }
 

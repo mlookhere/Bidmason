@@ -40,7 +40,7 @@ function exactFields(value: unknown, names: readonly string[]): boolean {
     && names.every(name => Object.hasOwn(value, name));
 }
 
-function validateSource(source: IntakeSource): void {
+export function validateIntakeSource(source: IntakeSource): void {
   if (!source || !["typed-note", "transcript"].includes(source.kind)
     || typeof source.text !== "string"
     || source.text.trim().length === 0
@@ -49,6 +49,17 @@ function validateSource(source: IntakeSource): void {
   }
   if (source.kind === "transcript" && source.transcriptionSucceeded !== true) {
     throw new Error("Failed or unverified transcription cannot be extracted");
+  }
+  // A source's SHA-256 binds only kind and text. Never allow a second
+  // unbound field to carry a hidden price, approval or sender instruction.
+  const required = source.kind === "typed-note"
+    ? ["kind", "text"] : ["kind", "text", "transcriptionSucceeded"];
+  if (!exactFields(source, required)) {
+    throw new TypeError("Intake source contains unsupported fields");
+  }
+  if (source.text.includes("\u0000")
+    || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(source.text)) {
+    throw new TypeError("Valid bounded original intake text is required");
   }
 }
 
@@ -88,7 +99,7 @@ function candidatesDigest(candidates: ServiceCandidate[]): string {
 export function prepareExtractionReview(
   source: IntakeSource, candidates: ServiceCandidate[],
 ): ExtractionReview {
-  validateSource(source);
+  validateIntakeSource(source);
   validateCandidates(source, candidates);
   const snapshot = candidates.map(c => ({ ...c }));
   return {
@@ -116,7 +127,7 @@ export function selectReviewedServices(
   review: ExtractionReview,
   selectedIndices: number[],
 ): { serviceCode: string; units: number }[] {
-  validateSource(original);
+  validateIntakeSource(original);
   if (!exactFields(review, REVIEW_FIELDS) || !review
     || review.state !== "needs-human-review"
     || review.kind !== original.kind || review.sourceSha256 !== digest(original)) {

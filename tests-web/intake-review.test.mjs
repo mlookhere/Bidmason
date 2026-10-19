@@ -121,3 +121,22 @@ test("valid source-bound suggestions continue producing non-sendable previews", 
   assert.equal(priced.quote.totalCents, 90000);
   assert.equal(Object.hasOwn(priced, "send"), false);
 });
+
+
+test("shared intake source rejects hidden directives and malformed Unicode",()=>{
+ for(const extra of [{approved:true},{send:true},{rateCents:1},{actorId:"browser"}]){
+  assert.throws(()=>prepareExtractionReview({...note,...extra},
+    [{serviceCode:"repaint",units:2,start:0,end:13,excerpt:"Paint 2 units"}]),
+    /unsupported fields/);
+ }
+ for(const text of ["Paint 2 units\u0000","Paint 2 units\uD800"]){
+  assert.throws(()=>prepareExtractionReview({...note,text},
+    [{serviceCode:"repaint",units:2,start:0,end:13,excerpt:"Paint 2 units"}]),
+    /bounded/);
+ }
+ const transcript={kind:"transcript",text:"clean",transcriptionSucceeded:true};
+ const candidate={serviceCode:"clean",units:1,start:0,end:5,excerpt:"clean"};
+ assert.throws(()=>prepareExtractionReview({...transcript,send:true},[candidate]),
+   /unsupported fields/);
+ assert.equal(prepareExtractionReview(transcript,[candidate]).state,"needs-human-review");
+});

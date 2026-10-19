@@ -188,3 +188,60 @@ test("persisted source can feed approved-only company review and preview without
  assert.equal(preview.economics.quote.totalCents,12000);
  assert.equal(Object.hasOwn(preview,"send"),false);
 });
+
+
+test("missing or inconsistent review and extraction audit cannot enter an extraction transaction", async()=>{
+ for(const mutate of [
+   row=>{delete row.review},
+   row=>{row.review={state:"needs-human-review"}},
+   row=>{row.extractionAudit=[{sourceRevision:2,actorId:ACTOR,sourceSha256:"x",candidatesSha256:"y"}]},
+   row=>{row.scopeReview={state:"reviewed-for-proposal-draft"}},
+   row=>{row.original={...row.original,approved:true}},
+   row=>{row.original={...row.original,rateCents:1}},
+   row=>{row.original={...row.original,text:row.original.text+"\u0000"}},
+   row=>{row.original={...row.original,text:row.original.text+"\uD800"}},
+ ]){
+  const f=fixture(),record=f.read();mutate(record);f.set(record);
+  await assert.rejects(readExtractionPreparation(f.store,"operator",selector),
+    /source missing or invalid/);
+  assert.equal(f.counts().writes,0);
+ }
+});
+test("unbound source approval or sender directives are denied at locked extraction commit",async()=>{
+ for(const mutate of [
+  row=>{row.original.send=true},
+  row=>{row.original.approved=true},
+  row=>{row.original.rateCents=1},
+  row=>{row.scopeReview={approved:true}},
+ ]){
+  const f=fixture(),req=await request(f),row=f.read();mutate(row);f.set(row);
+  await assert.rejects(commitAuthorizedExtraction(f.store,"operator",req),/source missing or invalid/);
+  assert.equal(f.read().review,null);
+ }
+});
+test("creation audit changes invalidate extraction CAS even with unchanged revision",async()=>{
+ const f=fixture(),initial=f.read();
+ initial.creationAudit={actorId:ACTOR,requestId:SOURCE,textSha256:"a".repeat(64)};
+ f.set(initial);
+ const req=await request(f),changed=f.read();
+ changed.creationAudit.textSha256="b".repeat(64);
+ f.set(changed);
+ await assert.rejects(commitAuthorizedExtraction(f.store,"operator",req),/Stale/);
+ assert.equal(f.read().extractionAudit.length,0);
+});
+test("malformed stored candidates or disjoint audit fingerprints cannot be read as valid",async()=>{
+ const f=fixture();await commitAuthorizedExtraction(f.store,"operator",await request(f));
+ for(const mutate of [
+  row=>{row.review.candidates[0].rateCents=1},
+  row=>{row.review.candidates[0].approved=true},
+  row=>{row.review.candidates[0].excerpt="fake excerpt"},
+  row=>{row.extractionAudit[0].sourceSha256="0".repeat(64)},
+  row=>{row.extractionAudit[0].sourceRevision=99},
+  row=>{row.extractionAudit[0].actorId="forged"},
+ ]){
+  const snapshot=f.read(),changed=structuredClone(snapshot);mutate(changed);f.set(changed);
+  await assert.rejects(readExtractionPreparation(f.store,"operator",selector),
+    /source missing or invalid/);
+  f.set(snapshot);
+ }
+});
