@@ -178,3 +178,53 @@ test("legacy disposable-test opt-in still fails closed in production",()=>{
   else process.env.NODE_ENV=was;
  }
 });
+
+
+test("private requested service array rejects getters, holes, symbols and decorated indexes before pricing",async()=>{
+ let invoked=0;
+ const corruptions=[
+  value=>Object.defineProperty(value,"0",{enumerable:true,configurable:true,
+   get(){invoked++;throw Error("unsafe reviewed price index getter");}}),
+  value=>{delete value[0];},
+  value=>Object.defineProperty(value,"send",{value:true}),
+  value=>{value[Symbol("approved")]=true;},
+  value=>Object.setPrototypeOf(value,Object.create(Array.prototype)),
+  value=>Object.defineProperty(value,"0",{enumerable:false,value:value[0],
+   configurable:true,writable:true}),
+ ];
+ for(const corrupt of corruptions){
+  const f=fixture(),p=payload();
+  corrupt(p.requested);f.setProjection(p);
+  await assert.rejects(f.api.preview(f.request()),
+   /Unsafe corrected economics projection/);
+  assert.equal(f.sqlCalls,1);
+  assert.equal(f.authCalls,1);
+ }
+ assert.equal(invoked,0);
+});
+
+test("private SQL row array rejects accessor-backed or decorated evidence before reading projection",async()=>{
+ let getterCalls=0;
+ const corruptions=[
+  rows=>Object.defineProperty(rows,"0",{enumerable:true,configurable:true,
+   get(){getterCalls++;throw Error("unsafe private SQL row getter");}}),
+  rows=>{delete rows[0];},
+  rows=>Object.defineProperty(rows,"send",{value:true}),
+  rows=>{rows[Symbol("approved")]=true;},
+  rows=>Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+ ];
+ for(const corrupt of corruptions){
+  let sqlCalls=0;
+  const rows=[{projection:payload()}];corrupt(rows);
+  const db={async query(){sqlCalls++;return {rows};}};
+  const auth={async verifyActiveSession(){return {userId:actor};}};
+  const api=createTrustedCorrectedEconomicsPreview(
+   auth,db,"disposable-postgres-test-no-session-lock");
+  await assert.rejects(api.preview({
+   organizationId:org,sourceId:source,
+   expectedDecisionSha256:decision,session:"trusted-private-session",
+  }),/Approved internal corrected pricing evidence unavailable/);
+  assert.equal(sqlCalls,1);
+ }
+ assert.equal(getterCalls,0);
+});
