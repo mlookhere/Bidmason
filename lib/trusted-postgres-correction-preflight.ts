@@ -88,7 +88,7 @@ export function createTrustedPostgresCorrectionPreflightStore(
       // A changed schema/projection must fail validation above until a
       // separately reviewed, tested correction-specific SQL adapter exists.
       return {...record,pendingCorrection:null,activatedCorrection:null}
-        as TenantExtractionCorrectionRecord;
+        satisfies TenantExtractionCorrectionRecord;
     },
     async mutateAuthorized(_input){
       // This MUST remain unavailable until a real database migration
