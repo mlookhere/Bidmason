@@ -159,3 +159,26 @@ test("session-bound verifier passes only independently verified session UUID",as
  assert.deepEqual(queries[1].params,[org,actor,sessionId,source,decision]);
  assert.deepEqual(queries[2].params,[actor,sessionId]);
 });
+
+test("locked pricing refuses invalid or unsafe bearer values before Auth and SQL",async()=>{
+ let authCalls=0,sqlCalls=0,getters=0;
+ const auth={async verifySessionBinding(){authCalls++;
+  return {userId:actor,sessionId};}};
+ const db={async query(){sqlCalls++;
+  return {rows:[{projection:snapshot()}]};}};
+ const api=createTrustedSessionLockedCorrectedEconomicsPreview(auth,db);
+ const injected=Object.defineProperty({},"toString",{get(){
+  getters++;throw Error("must not stringify bearer");
+ }});
+ for(const session of [
+  null,undefined,0,false,{},injected,new String("opaque-private-bearer"),
+  ""," bearer","bearer ","bearer\nnewline","bearer\rnewline",
+  "bearer\tpart","bearer\u007fpart","x".repeat(16385),
+ ]){
+  await assert.rejects(api.preview({...input(),session}),
+   /Invalid private corrected economics selector/);
+ }
+ assert.equal(authCalls,0);
+ assert.equal(sqlCalls,0);
+ assert.equal(getters,0);
+});
