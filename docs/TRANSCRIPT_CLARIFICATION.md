@@ -33,3 +33,9 @@ overlapping source references, oversized output and extraction blocking.
 The underlying Item 3 tenant Auth/Storage, review roles, antivirus, retention
 and customer-input release gates remain deferred but mandatory. This module
 does not enable a new public route or live transcription provider.
+
+## Canonical correction-input boundary
+
+Clarification inputs are **untrusted** even when they originated with a previously accepted transcription provider. The helper requires an exact plain-data blocked-transcript envelope and original source, dense undecorated uncertainty and decision arrays, and exact own enumerable data fields on each uncertainty and proposed human correction. Accessor getters, hidden or symbol directives, inherited fields, sparse/decorated collections and noncanonical prototypes fail closed before data are read. Valid plain and null-prototype data are accepted and copied into inert correction records prior to generating the correction fingerprint.
+
+These local checks do not authenticate the human reviewer, prove any spoken words, or authorize extraction. The draft remains `awaiting-authorized-correction` with `transcriptionSucceeded=false`; server-side authorization, immutable persistence and separate activation remain mandatory.
