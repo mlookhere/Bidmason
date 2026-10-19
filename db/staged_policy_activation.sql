@@ -24,7 +24,9 @@ create table bm_intake_private.active_policy_heads(
 );
 revoke all on bm_intake_private.approved_policy_versions,
  bm_intake_private.active_policy_heads from public,anon,authenticated;
-grant select,insert on bm_intake_private.approved_policy_versions to service_role;
+-- FOR SHARE on policy versions needs UPDATE privilege; the BEFORE trigger
+-- rejects any actual attempt to rewrite historical approved evidence.
+grant select,insert,update on bm_intake_private.approved_policy_versions to service_role;
 grant select,insert,update on bm_intake_private.active_policy_heads to service_role;
 alter table bm_intake_private.approved_policy_versions enable row level security;
 alter table bm_intake_private.approved_policy_versions force row level security;
