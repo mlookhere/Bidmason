@@ -185,7 +185,7 @@ begin
      or v_excluded ? v_code
      or (v_rule ? 'optionalAddon'
        and jsonb_typeof(v_rule->'optionalAddon') is distinct from 'boolean')
-     or ((v_rule->>'optionalAddon')='true')
+     or coalesce((v_rule->>'optionalAddon')='true',false)
         is distinct from (v_code=any(v_accepted_codes)) then
       return false;
    end if;
