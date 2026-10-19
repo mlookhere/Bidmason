@@ -179,7 +179,7 @@ test("tampered proposed data, history and correction metadata classify as confli
  const mutations=[
   value=>{value.pendingCorrection.proposedCandidates[0].units=99;},
   value=>{value.pendingCorrection.changes[0].reason="fabricated";},
-  value=>{value.pendingCorrection.correctedBy=OTHER;},
+  value=>{value.pendingCorrection.correctedBy="not-an-authenticated-uuid";},
   value=>{value.pendingCorrection.invalidatedScopeReview={approved:true};},
   value=>{value.review.candidates[0].units=14;},
   value=>{value.original.text+=" forged";},
@@ -234,15 +234,14 @@ test("authorization loss, cross-tenant denial and record disappearance do not im
  await assert.rejects(reconcileExtractionCorrection(f.store,"foreign",req),/Unauthorized/);
  f.permissions.delete("reviewer");
  await assert.rejects(reconcileExtractionCorrection(f.store,"reviewer",req),/Unauthorized/);
- const another=fixture(),read=another.store.readAuthorized;
+ const another=fixture();
+ const otherReq=await request(another);
+ const read=another.store.readAuthorized;
  let calls=0;
  another.store.readAuthorized=async args=>{
   const row=await read(args);
   return ++calls===2?null:row;
  };
- const otherReq=await request(another);
- // request() runs two reads, reset the count for the recovery case.
- calls=0;
  await assert.rejects(reconcileExtractionCorrection(another.store,"reviewer",otherReq),
   /unavailable/);
 });
@@ -261,4 +260,21 @@ test("reconciliation rejects hidden authority and malformed correction request g
  }
  assert.equal(reads,0);
  assert.equal(f.counts().writes,0);
+});
+
+test("matching pending evidence cannot independently prove historic actor authorization",async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ // A syntactically valid actor ID from storage is an observed assertion,
+ // not proof of the original correct-extraction grant. The trusted writer
+ // and append-only audit must establish that separately.
+ const read=f.store.readAuthorized;
+ f.store.readAuthorized=async opts=>{
+  const row=await read(opts);
+  return {...row,pendingCorrection:{...row.pendingCorrection,correctedBy:OTHER}};
+ };
+ const out=await reconcileExtractionCorrection(f.store,"reviewer",req);
+ assert.equal(out.state,"recorded-pending-at-read");
+ assert.equal(out.correctedBy,OTHER);
+ assert.equal(Object.hasOwn(out,"approved"),false);
 });
