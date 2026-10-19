@@ -7,6 +7,67 @@ const KEY = /^[A-Za-z0-9_.-]{20,4096}$/;
 const PROJECT = /^[a-z0-9-]+\.supabase\.co$/;
 const DENIED = "Fresh Supabase Auth verification required";
 
+const MAX_AUTH_BYTES = 64 * 1024;
+
+/** One absolute deadline spans BOTH headers and streamed Auth JSON. A
+ * misbehaving injected transport cannot turn a late HTTP 200 into success. */
+function beforeDeadline<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error(DENIED));
+  return new Promise<T>((resolve, reject) => {
+    let completed = false;
+    const finish = (value: T | Error, failed: boolean) => {
+      if (completed) return;
+      completed = true;
+      signal.removeEventListener("abort", abort);
+      if (failed) reject(value);
+      else resolve(value as T);
+    };
+    const abort = () => finish(new Error(DENIED), true);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) { abort(); return; }
+    work.then(
+      value => signal.aborted ? abort() : finish(value, false),
+      () => finish(new Error(DENIED), true),
+    );
+  });
+}
+
+/** Content-Length is only a hint. Enforce a cap on ACTUAL streamed,
+ * decompressed bytes, and reject invalid UTF-8, JSON, or late responses. */
+async function readBoundedAuthJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  if (!response.body || signal.aborted) throw new Error(DENIED);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let size = 0;
+  let content = "";
+  let complete = false;
+  try {
+    while (true) {
+      const chunk = await beforeDeadline(reader.read(), signal);
+      if (signal.aborted) throw new Error(DENIED);
+      if (chunk.done) {
+        complete = true;
+        break;
+      }
+      if (!(chunk.value instanceof Uint8Array) || chunk.value.byteLength === 0) {
+        throw new Error(DENIED);
+      }
+      size += chunk.value.byteLength;
+      if (size > MAX_AUTH_BYTES) throw new Error(DENIED);
+      content += decoder.decode(chunk.value, { stream: true });
+    }
+    content += decoder.decode();
+    if (signal.aborted || size === 0) throw new Error(DENIED);
+    return JSON.parse(content);
+  } finally {
+    if (!complete) {
+      try { void reader.cancel().catch(() => {}); } catch { /* reject only */ }
+    }
+    try { reader.releaseLock(); } catch { /* pending read: already rejected */ }
+  }
+}
+
+
 export interface SupabaseAuthVerifierConfig {
   /** Trusted deployment configuration; never supplied by a request body. */
   projectUrl: string;
@@ -61,7 +122,8 @@ export function createSupabaseActiveSessionVerifier(
       }
       let user: unknown;
       try {
-        const response = await fetcher(endpoint, {
+        const signal = AbortSignal.timeout(timeoutMs);
+        const response = await beforeDeadline(fetcher(endpoint, {
           method: "GET",
           headers: {
             apikey: publishableKey,
@@ -71,17 +133,20 @@ export function createSupabaseActiveSessionVerifier(
           redirect: "error",
           cache: "no-store",
           credentials: "omit",
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+          signal,
+        }), signal);
+        if (signal.aborted) throw new Error(DENIED);
         const contentType = response.headers.get("content-type") ?? "";
         const length = response.headers.get("content-length");
         if (response.status !== 200 || response.redirected
           || !/^application\/json(?:\s*;|$)/i.test(contentType)
           || (length !== null && (!/^[0-9]+$/.test(length)
-            || Number(length) > 65536))) {
+            || !Number.isSafeInteger(Number(length))
+            || Number(length) > MAX_AUTH_BYTES))) {
           throw new Error(DENIED);
         }
-        user = await response.json();
+        user = await readBoundedAuthJson(response, signal);
+        if (signal.aborted) throw new Error(DENIED);
       } catch {
         // Never put a bearer token, Auth response or network details in errors.
         throw new Error(DENIED);

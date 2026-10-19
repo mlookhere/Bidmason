@@ -30,9 +30,9 @@ function makeFetch(handler){
  return {calls,fetcher};
 }
 function okay(userInfo={id:user}){
- return {status:200,redirected:false,
-  headers:new Headers({"content-type":"application/json"}),
-  async json(){return userInfo;}};
+ return new Response(JSON.stringify(userInfo),{
+  status:200,headers:{"content-type":"application/json"}
+ });
 }
 function verifier(fetcher){
  return createSupabaseActiveSessionVerifier({
@@ -173,4 +173,99 @@ test("Auth-backed internal pricing succeeds only for an approved canonical proje
  assert.equal(requests,2);
  assert.equal(queries,1);
  assert.equal(Object.hasOwn(preview,"policy"),false);
+});
+
+
+test("streamed Auth JSON accepts bounded chunks, including split UTF-8",async()=>{
+ const valid=JSON.stringify({id:user,note:"verified 🧱 source"});
+ const bytes=new TextEncoder().encode(valid);
+ const stream=new ReadableStream({
+  start(controller){
+   for(let i=0;i<bytes.length;i+=1)controller.enqueue(bytes.slice(i,i+1));
+   controller.close();
+  }
+ });
+ const auth=verifier(async()=>new Response(stream,{
+  headers:{"content-type":"application/json; charset=utf-8"}
+ }));
+ assert.deepEqual(await auth.verifyActiveSession(token),{userId:user});
+});
+
+test("untrusted Auth payload cannot exceed 64 KiB, even with a fake short header",async()=>{
+ const base=JSON.stringify({id:user,padding:""}).length;
+ const max=64*1024;
+ const capped=JSON.stringify({id:user,padding:"x".repeat(max-base)});
+ const over=JSON.stringify({id:user,padding:"x".repeat(max+1-base)});
+ assert.equal(Buffer.byteLength(capped),max);
+ assert.equal(Buffer.byteLength(over),max+1);
+ let auth=verifier(async()=>new Response(capped,{
+  headers:{"content-type":"application/json"}
+ }));
+ assert.deepEqual(await auth.verifyActiveSession(token),{userId:user});
+ for(const [raw,headers] of [
+  [over,{"content-type":"application/json"}],
+  [over,{"content-type":"application/json","content-length":"20"}],
+  [capped,{"content-type":"application/json","content-length":"65537"}],
+  [capped,{"content-type":"application/json","content-length":"999999999999999999999999"}],
+ ]){
+  auth=verifier(async()=>new Response(raw,{headers}));
+  await assert.rejects(auth.verifyActiveSession(token),
+   /Fresh Supabase Auth verification required/);
+ }
+});
+
+test("invalid UTF-8 and malformed streamed JSON are denied without token leaks",async()=>{
+ for(const bytes of [
+  new Uint8Array([0xff,0xfe]),
+  new TextEncoder().encode('{"id":"'+user+'",'),
+  new Uint8Array(0),
+ ]){
+  const auth=verifier(async()=>new Response(bytes,{
+   headers:{"content-type":"application/json"}
+  }));
+  await assert.rejects(auth.verifyActiveSession(token),err=>{
+   assert.equal(err.message,"Fresh Supabase Auth verification required");
+   assert.equal(err.message.includes(token),false);
+   return true;
+  });
+ }
+});
+
+test("one absolute Auth deadline denies a stalled streamed body after headers",async()=>{
+ let cancelled=false;
+ const auth=createSupabaseActiveSessionVerifier({
+  projectUrl:origin,publishableKey:key,timeoutMs:1000,
+  fetcher:async(_url,options)=>{
+   const stream=new ReadableStream({
+    start(controller){
+     controller.enqueue(new TextEncoder().encode('{"id":"'+user+'"'));
+     // Simulate headers received but provider never completes JSON.
+    },
+    cancel(){cancelled=true;}
+   });
+   assert.ok(options.signal instanceof AbortSignal);
+   return new Response(stream,{headers:{"content-type":"application/json"}});
+  },
+ });
+ const start=Date.now();
+ await assert.rejects(auth.verifyActiveSession(token),
+  /Fresh Supabase Auth verification required/);
+ assert.ok(Date.now()-start<3000,"Auth stream exceeded absolute deadline");
+ assert.equal(cancelled,true);
+});
+
+test("late 200 headers cannot authorize even when injected transport ignores abort",async()=>{
+ const {setTimeout:delay}=await import("node:timers/promises");
+ let requestSignal;
+ const auth=createSupabaseActiveSessionVerifier({
+  projectUrl:origin,publishableKey:key,timeoutMs:1000,
+  fetcher:async(_url,options)=>{
+   requestSignal=options.signal;
+   await delay(1200); // transport ignores cancellation and returns HTTP 200
+   return okay();
+  },
+ });
+ await assert.rejects(auth.verifyActiveSession(token),
+  /Fresh Supabase Auth verification required/);
+ assert.equal(requestSignal.aborted,true);
 });
