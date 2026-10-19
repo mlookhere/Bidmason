@@ -207,3 +207,73 @@ test("in-place mutation of callback output cannot rewrite expected persisted aud
  await assert.rejects(commitAuthorizedTranscriptCorrection(store,"editor",input),/did not confirm commit/);
  assert.equal(f.get().correctionAudit[0].actorId,OTHER);
 });
+
+
+test("transcript commit freezes original tenant, digest and nested decisions before async CAS",async()=>{
+ const f=fixture(),req=await prepare(f);
+ req.decisions=structuredClone(req.decisions);
+ const expectedHash=req.expectedCorrectionSha256;
+ f.onCommit(()=>{
+  req.organizationId=OTHER;
+  req.sourceId="22222222-2222-4222-8222-222222222222";
+  req.expectedRevision=99;
+  req.expectedSnapshotSha256="0".repeat(64);
+  req.expectedCorrectionSha256="f".repeat(64);
+  req.decisions[0].replacement="999999";
+  req.decisions[0].explanation="forged after submission";
+ });
+ const result=await commitAuthorizedTranscriptCorrection(f.store,"editor",req);
+ assert.equal(result.state,"corrected-for-human-review");
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.revision,2);
+ assert.equal(result.correctionSha256,expectedHash);
+ assert.equal(f.get().activeSource.text,"Paint 15 units, install 40 fixtures.");
+ assert.equal(f.get().correctionAudit[0].changes[0].replacement,"15");
+ assert.equal(f.mutations(),1);
+});
+
+test("transcript preview retains original selector if caller changes it during authorized read",async()=>{
+ const f=fixture(),changed={...selector};
+ const reader={readAuthorized:async args=>{
+  const data=await f.store.readAuthorized(args);
+  changed.organizationId=OTHER;
+  changed.sourceId="22222222-2222-4222-8222-222222222222";
+  return data;
+ }};
+ const result=await readTranscriptCorrectionContext(reader,"editor",changed);
+ assert.equal(result.organizationId,ORG);
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.state,"requires-human-clarification");
+});
+
+test("transcript correction denies hidden, inherited, sparse and accessor directives before CAS",async()=>{
+ const f=fixture(),base=await prepare(f);
+ let getterCalls=0;
+ const hidden={...base};Object.defineProperty(hidden,"send",{value:true});
+ const symbol={...base};symbol[Symbol("approved")]=true;
+ const inherited=Object.assign(Object.create({approved:true}),base);
+ const indexGetter={...base,decisions:structuredClone(base.decisions)};
+ Object.defineProperty(indexGetter.decisions,"0",{enumerable:true,
+  get(){getterCalls++;throw Error("unsafe decision index getter");}});
+ const fieldGetter={...base,decisions:structuredClone(base.decisions)};
+ Object.defineProperty(fieldGetter.decisions[0],"replacement",{enumerable:true,
+  get(){getterCalls++;throw Error("unsafe replacement getter");}});
+ const decorated={...base,decisions:structuredClone(base.decisions)};
+ Object.defineProperty(decorated.decisions,"send",{value:true});
+ const nestedHidden={...base,decisions:structuredClone(base.decisions)};
+ Object.defineProperty(nestedHidden.decisions[0],"approved",{value:true});
+ const sparse={...base,decisions:new Array(2)};
+ const wrongSelector={...selector};
+ Object.defineProperty(wrongSelector,"organizationId",{enumerable:true,
+  get(){getterCalls++;throw Error("unsafe organization getter");}});
+ for(const wrong of [hidden,symbol,inherited,indexGetter,fieldGetter,
+  decorated,nestedHidden,sparse]){
+  await assert.rejects(commitAuthorizedTranscriptCorrection(f.store,"editor",wrong),
+   /Invalid transcript correction request/);
+ }
+ await assert.rejects(readTranscriptCorrectionContext(f.store,"editor",wrongSelector),
+  /Invalid tenant transcript selector/);
+ assert.equal(getterCalls,0);
+ assert.equal(f.mutations(),0);
+ assert.equal(f.get().activeSource,null);
+});
