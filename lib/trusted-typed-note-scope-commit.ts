@@ -20,7 +20,11 @@ const POLICY = `select h.revision,h.policy_sha256,v.policy,
   join bm_intake_private.approved_policy_versions v
     on v.organization_id=h.organization_id and v.revision=h.revision
     and v.policy_sha256=h.policy_sha256
-  where h.organization_id=$1::uuid`;
+  join public.bm_memberships m
+    on m.organization_id=h.organization_id and m.user_id=$2::uuid
+    and m.member_role in ('owner','operator','contractor')
+  where h.organization_id=$1::uuid
+  for share of h,v,m`;
 const COMMIT = `select source_revision, reviewed_selection_sha256
   from bm_intake_private.commit_typed_note_scope_review(
     $1::uuid,$2::uuid,$3::uuid,$4::text,$5::text,$6::jsonb)`;
@@ -109,7 +113,10 @@ export function createTrustedTypedNoteScopeCommit(
     if (await actor(input.session)!==creator) {
       throw new Error("Scope reviewer identity changed");
     }
-    const response=await db.query(POLICY,[input.organizationId]);
+    // The privileged service role bypasses RLS. Enforce current tenant
+    // membership in THIS policy query (including the final post-CAS read),
+    // not just in an earlier source read or a cached Auth identity.
+    const response=await db.query(POLICY,[input.organizationId,creator]);
     if (!response || !Array.isArray(response.rows)
       || response.rows.length!==1
       || !exact(response.rows[0],[
