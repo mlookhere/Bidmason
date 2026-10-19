@@ -46,27 +46,45 @@ create trigger bm_approved_policy_immutable
 before update or delete on bm_intake_private.approved_policy_versions
 for each row execute function bm_intake_private.deny_approved_policy_rewrite();
 
--- A trusted operator cannot roll the active pointer backward or skip
--- a revision through a direct table update. Activation uses +1 steps only.
+-- Never roll back the active pointer or skip an unreviewed revision.
+-- Gaps are permitted only with immutable submitted+rejected events for EVERY
+-- intervening revision and a matching distinct-actor approved target event.
 create function bm_intake_private.enforce_policy_head_transition()
 returns trigger language plpgsql security invoker
 set search_path=pg_catalog,public
 as $headguard$
+declare v_approved bm_intake_private.approved_policy_versions%rowtype;
 begin
  if tg_op='DELETE' then
    raise exception 'Active approved policy cannot be deleted'
      using errcode='42501';
  end if;
- if new.organization_id is distinct from old.organization_id
-    or new.revision is distinct from old.revision+1 then
-   raise exception 'Approved policy head must advance exactly one revision'
+ if tg_op='UPDATE' then
+   if new.organization_id is distinct from old.organization_id
+     or new.revision<=old.revision then
+     raise exception 'Approved policy head cannot roll back'
+       using errcode='42501';
+   end if;
+   if new.revision=old.revision+1 then return new; end if;
+ else
+   if new.revision=1 then return new; end if;
+ end if;
+ select * into v_approved
+ from bm_intake_private.approved_policy_versions
+ where organization_id=new.organization_id and revision=new.revision
+   and policy_sha256=new.policy_sha256;
+ if not found or not bm_intake_private.approved_policy_gap_is_reviewed(
+   new.organization_id,case when tg_op='INSERT' then 0 else old.revision end,
+   new.revision,new.policy_sha256,v_approved.submitted_by,
+   v_approved.reviewed_by) then
+   raise exception 'Approved policy head cannot skip unreviewed revisions'
      using errcode='42501';
  end if;
  return new;
 end;
 $headguard$;
 create trigger bm_active_policy_head_monotonic
-before update or delete on bm_intake_private.active_policy_heads
+before insert or update or delete on bm_intake_private.active_policy_heads
 for each row execute function bm_intake_private.enforce_policy_head_transition();
 
 -- Staged two-actor approved activation, not a public RPC. The policy JSON
@@ -237,18 +255,21 @@ begin
    end loop;
  end if;
  v_sha:=encode(sha256(convert_to(p_canonical_policy_text,'UTF8')),'hex');
- -- A single organization row serializes activation against scope CAS FOR SHARE.
+ -- Shared with durable draft/review decisions to prevent concurrent
+ -- submit/review events from changing while a noncontiguous activation is
+ -- being validated. Preserve existing scope-CAS row lock serialization.
+ perform pg_advisory_xact_lock(hashtextextended(p_org::text,0));
  select revision into v_previous from bm_intake_private.active_policy_heads
  where organization_id=p_org for update;
- if found then
-  if p_revision<>v_previous+1 then
+ if not found then v_previous:=0; end if;
+ if p_revision<=v_previous then
    raise exception 'Stale active company policy head' using errcode='40001';
-  end if;
- else
-  if p_revision<>1 then
-   raise exception 'First approved policy must be revision 1'
-    using errcode='40001';
-  end if;
+ end if;
+ if p_revision>v_previous+1 and not
+   bm_intake_private.approved_policy_gap_is_reviewed(
+     p_org,v_previous,p_revision,v_sha,p_submitter,p_reviewer) then
+   raise exception 'Unproven rejected policy revisions in approval gap'
+     using errcode='40001';
  end if;
  insert into bm_intake_private.approved_policy_versions(
   organization_id,revision,policy_sha256,policy,submitted_by,reviewed_by
