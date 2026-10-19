@@ -90,6 +90,20 @@ begin
     'excerpt','Paint','rateCents',1)));
   raise exception 'Hidden price field committed';
  exception when invalid_parameter_value then null; end;
+ -- Correctly shaped and source-exact candidate data must still carry the
+ -- canonical digest; the privileged SQL worker may not forge that binding.
+ begin
+  perform 1 from bm_intake_private.commit_typed_note_extraction(
+   v_org,v_actor,v_source,v_original_sha,
+   jsonb_set(v_review,'{candidatesSha256}',to_jsonb(repeat('0',64))));
+  raise exception 'Forged canonical digest committed';
+ exception when invalid_parameter_value then null; end;
+ begin
+  perform 1 from bm_intake_private.commit_typed_note_extraction(
+   v_org,v_actor,v_source,v_original_sha,
+   jsonb_set(v_review,'{candidates,0,units}','3'::jsonb));
+  raise exception 'Changed service quantity retained stale digest';
+ exception when invalid_parameter_value then null; end;
  if (select revision from public.bm_intake_sources
    where organization_id=v_org and id=v_source)<>1 then
    raise exception 'Rejected extraction mutated a source';
