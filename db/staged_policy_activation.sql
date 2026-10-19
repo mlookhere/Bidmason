@@ -65,9 +65,7 @@ begin
      raise exception 'Approved policy head cannot roll back'
        using errcode='42501';
    end if;
-   if new.revision=old.revision+1 then return new; end if;
- else
-   if new.revision=1 then return new; end if;
+   -- Adjacent versions require the same immutable target approval as gaps.
  end if;
  select * into v_approved
  from bm_intake_private.approved_policy_versions
@@ -95,7 +93,7 @@ returns trigger language plpgsql security invoker
 set search_path=pg_catalog,public as $firsthead$
 declare v_approved bm_intake_private.approved_policy_versions%rowtype;
 begin
- if new.revision=1 then return new; end if;
+ -- Including first revision 1: no policy may activate without review.
  select * into v_approved
  from bm_intake_private.approved_policy_versions
  where organization_id=new.organization_id and revision=new.revision
@@ -291,10 +289,12 @@ begin
  if p_revision<=v_previous then
    raise exception 'Stale active company policy head' using errcode='40001';
  end if;
- if p_revision>v_previous+1 and not
-   bm_intake_private.approved_policy_gap_is_reviewed(
+ -- Even revision 1 and consecutive approvals require a matching, separately
+ -- reviewed immutable target event. Skips ALSO require every intermediate
+ -- rejection. A pair of valid member UUIDs is never approval evidence.
+ if not bm_intake_private.approved_policy_gap_is_reviewed(
      p_org,v_previous,p_revision,v_sha,p_submitter,p_reviewer) then
-   raise exception 'Unproven rejected policy revisions in approval gap'
+   raise exception 'Unproven independently reviewed policy activation'
      using errcode='40001';
  end if;
  insert into bm_intake_private.approved_policy_versions(
