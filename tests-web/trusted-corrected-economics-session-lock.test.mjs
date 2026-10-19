@@ -173,7 +173,7 @@ test("locked pricing refuses invalid or unsafe bearer values before Auth and SQL
  for(const session of [
   null,undefined,0,false,{},injected,new String("opaque-private-bearer"),
   ""," bearer","bearer ","bearer\nnewline","bearer\rnewline",
-  "bearer\tpart","bearer\u007fpart","x".repeat(16385),
+  "bearer\tpart","bearer\u007fpart","bearer/part","bearer+c","é", "x".repeat(16385),
  ]){
   await assert.rejects(api.preview({...input(),session}),
    /Invalid private corrected economics selector/);
