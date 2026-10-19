@@ -772,3 +772,64 @@ approval, billing right or verified consent.
 approval and disposable PostgreSQL. It cannot validate actual user
 signatures, live Supabase Auth/RLS/Storage, antivirus or organizational
 policy ownership. No public route, customer send or billing is enabled.
+
+
+## Trusted two-person approved-policy activation bridge (staged)
+
+`lib/trusted-company-policy-activation.ts` closes the former adapter gap
+between `company-policy-revisions.ts`/the durable
+`TrustedPolicyStore` read contract and private
+`bm_intake_private.activate_scope_policy` in PostgreSQL. The adapter
+accepts **only** an organization ID and opaque reviewer session:
+there are **no** client-provided rates, policy object, actor IDs,
+approval flag, revision or checksum. The trusted store must have
+previously persisted an independently submitted-and-reviewed immutable
+policy history through its own authorization and CAS mechanism. The
+activation adapter does **not** create that review or claim a human
+approval merely because the client supplied a session.
+
+The activation sequence:
+
+1. Freshly authenticate the reviewer; freshly authorize the exact
+   organization's *durable* history through `TrustedPolicyStore`.
+   Recompute/validate every immutable revision, active head, actors,
+   policy shape and canonical SHA-256. Require the current last revision
+   to be **approved by this same authenticated, distinct reviewer**.
+   Reject draft/rejected/noncontiguous history.
+2. Re-authenticate and read the current private PostgreSQL policy head
+   through a membership-bound, row-locked query; compare its revision
+   and SHA against the last already activated version. An absent head
+   is valid only for a first revision.
+3. Re-authenticate and call exactly **one** private
+   `activate_scope_policy` with *server-computed* canonical JSON bytes.
+   SQL independently checks and locks current submitter/reviewer
+   membership, roles and head, validates economics, and writes immutable
+   approved history and the next head atomically.
+4. After the write, perform another independent freshly authenticated
+   authorized store read and current membership-bound primary
+   PostgreSQL read-back. The approved revision, SHA, canonical policy,
+   original submitter and reviewer must all match. An ambiguous result,
+   changed reviewer or policy, revoked membership or lost acknowledgement
+   **fails closed**. There is never an automatic retry or assumption
+   that an exception means rollback.
+
+The only success result is
+`activated-for-internal-review` with a revision and policy SHA,
+**not** an approved proposal, customer send, billing or deployed
+production ratecard. The adapter still needs a genuine provider-backed
+`TrustedPolicyStore`, live Supabase Auth verification, appropriate
+separate approval records and real tenant/RLS/Storage/security
+acceptance. Two synthetic members or a forged in-memory history are
+not an actual independently consented policy approval.
+
+`tests-web/trusted-company-policy-activation.test.mjs` verifies
+fresh reviewer checks, immutable histories, one-write semantics,
+replays, rejected/self-reviewed/forged policies, changed or revoked
+sessions, historical and database read-back integrity and lost
+acknowledgements. The existing mandatory disposable `intake-db`
+gate now executes `ci/intake_policy_activation_bridge.test.mjs` with
+real PostgreSQL membership locks and versioned policy activation,
+checking successful version 1 and 2, replay denial, authenticated
+reviewer mismatch, DB membership revocation and a durable version 3
+when the provider's acknowledgement is deliberately lost. Nothing is
+merged or enabled for customers by these tests.
