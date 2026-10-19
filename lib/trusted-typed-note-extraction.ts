@@ -31,6 +31,25 @@ function digest(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+function validateRequest(input: Request): void {
+  if (!exact(input, ["session", "organizationId", "sourceId", "rawExtractionResponse"])
+    || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
+    || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)
+    || typeof input.rawExtractionResponse !== "string"
+    || !input.rawExtractionResponse
+    || Buffer.byteLength(input.rawExtractionResponse, "utf8") > 32768) {
+    throw new TypeError("Invalid trusted extraction request");
+  }
+}
+
+export type ExtractionReadOnlyReconciliation =
+  | { state: "matching-extraction-at-read"; organizationId: string;
+      sourceId: string; revision: 2 | 3; sourceSha256: string;
+      candidatesSha256: string }
+  | { state: "unprocessed-at-read"; organizationId: string; sourceId: string }
+  | { state: "changed-during-read"; organizationId: string; sourceId: string }
+  | { state: "different-extraction-at-read"; organizationId: string; sourceId: string };
+
 /**
  * Staged server-only adapter; caller supplies approved implementations of both
  * ports. Neither this adapter nor the SQL files authenticate users on their
@@ -87,14 +106,7 @@ export function createTrustedTypedNoteExtraction(
       state: "needs-human-review"; organizationId: string; sourceId: string;
       revision: 2; sourceSha256: string; candidatesSha256: string;
     }> {
-      if (!exact(input, ["session", "organizationId", "sourceId", "rawExtractionResponse"])
-        || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
-        || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)
-        || typeof input.rawExtractionResponse !== "string"
-        || !input.rawExtractionResponse
-        || Buffer.byteLength(input.rawExtractionResponse, "utf8") > 32768) {
-        throw new TypeError("Invalid trusted extraction request");
-      }
+      validateRequest(input);
       const {actor,record,textSha256} = await readSource(
         input.session, input.organizationId, input.sourceId,
       );
@@ -143,6 +155,49 @@ export function createTrustedTypedNoteExtraction(
         sourceId:input.sourceId, revision:2,
         sourceSha256:review.sourceSha256,
         candidatesSha256:review.candidatesSha256,
+      };
+    },
+
+    /**
+     * READ ONLY inspection for an ambiguous extraction outcome. Two fresh
+     * authorized primary reads, with no CAS/write/retry and no approval.
+     *
+     * "matching" only means matching evidence was present at both reads:
+     * the prior ambiguous call is NOT proven to be its originating writer.
+     * "unprocessed" is likewise never proof a competing writer cannot
+     * commit after these observations. Callers must not retry blindly.
+     */
+    async reconcile(input: Request): Promise<ExtractionReadOnlyReconciliation> {
+      validateRequest(input);
+      const first = await readSource(
+        input.session, input.organizationId, input.sourceId,
+      );
+      // No browser-provided digest, raw source, actor or pricing data.
+      const expected = parseUntrustedExtraction(
+        first.record.original, input.rawExtractionResponse,
+      );
+      const second = await readSource(
+        input.session, input.organizationId, input.sourceId, first.actor,
+      );
+      const selector = {
+        organizationId:input.organizationId, sourceId:input.sourceId,
+      };
+      if (first.textSha256 !== second.textSha256
+        || !isDeepStrictEqual(first.record, second.record)) {
+        return {...selector, state:"changed-during-read"};
+      }
+      if (second.record.revision === 1) {
+        return {...selector, state:"unprocessed-at-read"};
+      }
+      if (!isDeepStrictEqual(second.record.review, expected)
+        || second.record.extractionAudit[0]?.actorId !== first.actor) {
+        return {...selector, state:"different-extraction-at-read"};
+      }
+      return {
+        ...selector, state:"matching-extraction-at-read",
+        revision:second.record.revision as 2 | 3,
+        sourceSha256:expected.sourceSha256,
+        candidatesSha256:expected.candidatesSha256,
       };
     },
   };
