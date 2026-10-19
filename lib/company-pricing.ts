@@ -1,3 +1,5 @@
+import { canonicalCompanyPolicyText } from "./company-policy-fingerprint.ts";
+
 /**
  * Draft company-configurable pricing prototype.
  *
@@ -150,6 +152,13 @@ export function quoteFromPolicy(
   policy: CompanyPricePolicy,
   requested: QuoteLineInput[],
 ): QuoteResult {
+  // Canonicalize the entire company-supplied ratecard BEFORE accessing any
+  // field. This shares the versioned policy fingerprint's inert-data rules
+  // and prevents optional rate/discount getters or custom serializers.
+  const safePolicy = JSON.parse(canonicalCompanyPolicyText({
+    revision: 1, pricing: policy, tax: {method:"none",bps:0},
+  })) as {pricing: CompanyPricePolicy};
+  policy = safePolicy.pricing;
   if (policy.currency !== "USD") throw new RangeError("Unsupported currency");
   if (!policy.policyId?.trim()) throw new TypeError("A policy identifier is required");
   if (!["none", "per-line", "quote"].includes(policy.minimum.rule)) {
