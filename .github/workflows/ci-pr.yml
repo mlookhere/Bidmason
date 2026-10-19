@@ -152,3 +152,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_lookup.sql
       - name: Prove authorized recovery, actor isolation and revocation
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_lookup_test.sql
+      - name: Install staged creator-locked extraction CAS
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_commit.sql
+      - name: Test extraction transitions, forged evidence and revocation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_test.sql
