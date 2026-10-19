@@ -32,7 +32,7 @@ function sql(script,params={}) {
 }
 const hash=s=>createHash("sha256").update(s,"utf8").digest("hex");
 
-test("real PG activation SHA equals TS approval, preview and reviewed draft",()=>{
+test("real PG activation SHA equals TS approval, preview and reviewed draft",async()=>{
   const org=randomUUID(),author=randomUUID(),reviewer=randomUUID();
   const request=randomUUID();
   sql(`insert into public.bm_organizations(id,slug,name)
@@ -223,7 +223,7 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",()=
         || statement.includes("commit_typed_note_scope_review")
         || params.length!==6)throw Error("Unexpected recovery SQL statement");
       const binds=Object.fromEntries(params.map((v,i)=>["p"+(i+1),v]));
-      const expression=statement.replace(/\\$([1-6])(?=::)/g,(_match,n)=>":'p"+n+"'");
+      const expression=statement.replace(/\$([1-6])(?=::)/g,(_match,n)=>":'p"+n+"'");
       if(expression.includes("$"))throw Error("Unreplaced SQL bind");
       const line=sql("set role service_role; select row_to_json(x) from ("+
         expression+") x;",binds);
