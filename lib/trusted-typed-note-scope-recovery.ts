@@ -105,7 +105,16 @@ export function createTrustedTypedNoteScopeRecovery(
       || result.rows.length !== 1) {
       throw new Error("No unambiguous primary scope inspection result");
     }
-    return {actor, evidence:parseObservation(result.rows[0])};
+    const evidence = parseObservation(result.rows[0]);
+    if (evidence.state === "different-scope-at-read") {
+      if (evidence.observedSelectionSha256 === input.reviewedSelectionSha256) {
+        throw new Error("Private scope result contradicts requested selection");
+      }
+    } else if (evidence.state !== "unreviewed-at-read"
+      && evidence.observedSelectionSha256 !== input.reviewedSelectionSha256) {
+      throw new Error("Private scope result misrepresents expected selection");
+    }
+    return {actor, evidence};
   }
 
   return {
