@@ -126,7 +126,7 @@ function createInternalCorrectedEconomicsPreview(
       // execute a rows getter or contradict its own SELECT/row-count receipt.
       const descriptor=result && typeof result==="object" && !Array.isArray(result)
         ? Object.getOwnPropertyDescriptor(result,"rows") : undefined;
-      const rows=descriptor && Object.hasOwn(descriptor,"value")
+      const rows=descriptor?.enumerable===true && Object.hasOwn(descriptor,"value")
         ? descriptor.value : null;
       const metadataValid=(["rowCount","command"] as const).every((key)=>{
         if(!result || typeof result!=="object")return false;
