@@ -29,10 +29,12 @@ const COMMIT = `select source_revision, reviewed_selection_sha256
   from bm_intake_private.commit_typed_note_scope_review(
     $1::uuid,$2::uuid,$3::uuid,$4::text,$5::text,$6::jsonb)`;
 
-type Request = {
+type Selector = {
   session: unknown;
   organizationId: string;
   sourceId: string;
+};
+type Request = Selector & {
   reviewKey: string;
   selectedIndices: number[];
   acceptedAddonCodes: string[];
@@ -46,6 +48,15 @@ function exact(value: unknown, keys: readonly string[]): value is Record<string,
 function digest(text: string): string {
   return createHash("sha256").update(text,"utf8").digest("hex");
 }
+function validateSelector(input: Selector): void {
+  if (!exact(input,["session","organizationId","sourceId"])
+    || input.session===null || input.session===undefined
+    || typeof input.organizationId!=="string" || !UUID.test(input.organizationId)
+    || typeof input.sourceId!=="string" || !UUID.test(input.sourceId)) {
+    throw new TypeError("Invalid trusted typed-note workbench selector");
+  }
+}
+
 function validate(input: Request): void {
   if (!exact(input,["session","organizationId","sourceId","reviewKey",
     "selectedIndices","acceptedAddonCodes"])
@@ -82,7 +93,7 @@ export function createTrustedTypedNoteScopeCommit(
     }
     return identity.userId;
   }
-  async function source(input: Request, creator: string): Promise<TypedNoteSourceRecord> {
+  async function source(input: Selector, creator: string): Promise<TypedNoteSourceRecord> {
     if (await actor(input.session)!==creator) {
       throw new Error("Scope reviewer identity changed");
     }
@@ -108,7 +119,7 @@ export function createTrustedTypedNoteScopeCommit(
     return record;
   }
   async function activePolicy(
-    input: Request, creator: string,
+    input: Selector, creator: string,
   ): Promise<{revision:number; sha:string; policy:VersionedEconomicsPolicy}> {
     if (await actor(input.session)!==creator) {
       throw new Error("Scope reviewer identity changed");
@@ -141,7 +152,67 @@ export function createTrustedTypedNoteScopeCommit(
     return {revision:row.revision as number,sha:row.policy_sha256 as string,policy};
   }
 
+  function awaitingReview(record: TypedNoteSourceRecord):void {
+    if (record.revision!==2 || !record.review || record.scopeReview!==null) {
+      throw new Error("Scope source is not awaiting human review");
+    }
+  }
+  async function stable(
+    input: Selector, creator: string, original: TypedNoteSourceRecord,
+    policy: {revision:number;sha:string},
+  ):Promise<void> {
+    // Two separately authorized PRIMARY reads recheck creator membership,
+    // original/extraction evidence and company-owned policy head.
+    const after=await source(input,creator);
+    if (!isDeepStrictEqual(after,original)) {
+      throw new Error("Intake evidence changed during private preview; refresh");
+    }
+    const latest=await activePolicy(input,creator);
+    if (latest.revision!==policy.revision || latest.sha!==policy.sha) {
+      throw new Error("Approved company policy changed during private preview; refresh");
+    }
+  }
+
   return {
+    /** Source-backed, read-only, currently authorized review workbench. */
+    async readWorkbench(input: Selector) {
+      validateSelector(input);
+      const creator=await actor(input.session);
+      const record=await source(input,creator);
+      awaitingReview(record);
+      const active=await activePolicy(input,creator);
+      const model=buildReviewWorkbench(record.original,record.review!,active.policy);
+      await stable(input,creator,record,active);
+      return {state:"requires-human-service-review" as const,
+        sourceId:input.sourceId,organizationId:input.organizationId,
+        sourceRevision:2 as const,model};
+    },
+
+    /** Server-calculated, non-sendable preview: never a quote or approval. */
+    async preview(input: Request) {
+      validate(input);
+      const creator=await actor(input.session);
+      const record=await source(input,creator);
+      awaitingReview(record);
+      const active=await activePolicy(input,creator);
+      const model=buildReviewWorkbench(record.original,record.review!,active.policy);
+      if(model.key!==input.reviewKey) {
+        throw new Error("Scope or approved company policy changed; refresh");
+      }
+      const selection=prepareReviewPreviewRequest(model,{
+        key:input.reviewKey,selectedIndices:input.selectedIndices,
+        acceptedAddonCodes:input.acceptedAddonCodes,
+      });
+      const preview=previewReviewedEconomics(record.original,record.review!,
+        selection.selectedIndices,active.policy,selection.acceptedAddonCodes);
+      if(preview.economics.policySha256!==active.sha
+        || preview.economics.policyRevision!==active.revision) {
+        throw new Error("Approved policy fingerprint differs from scope preview");
+      }
+      await stable(input,creator,record,active);
+      return {...preview,reviewKey:model.key,sourceId:input.sourceId};
+    },
+
     /**
      * One and only one private 2->3 SQL CAS. An exception after attempting
      * COMMIT is INDETERMINATE, never proof of rollback or retry permission.
