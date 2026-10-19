@@ -16,6 +16,8 @@ import {prepareExtractionReview} from "../lib/intake-review.ts";
 import {buildReviewWorkbench} from "../lib/intake-review-workbench.ts";
 import {prepareReviewPreviewRequest} from "../lib/intake-review-selection.ts";
 import {previewReviewedEconomics} from "../lib/intake-quote-preview.ts";
+import {createTrustedTypedNoteScopeRecovery}
+  from "../lib/trusted-typed-note-scope-recovery.ts";
 
 function sql(script,params={}) {
   const args=["-X","-q","-A","-t","-v","ON_ERROR_STOP=1"];
@@ -203,6 +205,47 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",()=
   assert.equal(persisted.original_text,original.text);
   assert.equal(persisted.extraction_audit.length,1);
   assert.equal(persisted.extraction_audit[0].actorId,author);
+  // Exercise the actual JS production-contract adapter against real private
+  // PostgreSQL. Each read authorizes the synthetic actor anew and runs ONLY
+  // the allowlisted read-only SQL function on isolated primary storage.
+  let reviewerActor=author;
+  const recoveryCalls=[];
+  const recovery=createTrustedTypedNoteScopeRecovery({
+    async verifyActiveSession(session){
+      if(session!=="bridge-session")throw Error("Synthetic Auth invalid");
+      return {userId:reviewerActor};
+    },
+  },{
+    async query(statement,params){
+      recoveryCalls.push({statement,params});
+      if(!statement.startsWith("select observation, persisted_revision, observed_selection_sha256")
+        || !statement.includes("bm_intake_private.inspect_typed_note_scope_commit")
+        || statement.includes("commit_typed_note_scope_review")
+        || params.length!==6)throw Error("Unexpected recovery SQL statement");
+      const binds=Object.fromEntries(params.map((v,i)=>["p"+(i+1),v]));
+      const expression=statement.replace(/\\$([1-6])(?=::)/g,(_match,n)=>":'p"+n+"'");
+      if(expression.includes("$"))throw Error("Unreplaced SQL bind");
+      const line=sql("set role service_role; select row_to_json(x) from ("+
+        expression+") x;",binds);
+      return {rows:line?[JSON.parse(line)]:[]};
+    },
+  });
+  const selector={session:"bridge-session",organizationId:org,sourceId,
+    sourceSha256:review.sourceSha256,
+    candidatesSha256:review.candidatesSha256,
+    reviewedSelectionSha256:scope.reviewedSelectionSha256};
+  assert.equal((await recovery.reconcile(selector)).state,"matching-scope-at-read");
+  assert.equal(recoveryCalls.length,2);
+  assert.deepEqual(recoveryCalls[0].params,[
+    org,author,sourceId,review.sourceSha256,review.candidatesSha256,
+    scope.reviewedSelectionSha256]);
+  assert.equal((await recovery.reconcile({
+    ...selector,reviewedSelectionSha256:"f".repeat(64),
+  })).state,"different-scope-at-read");
+  assert.equal(recoveryCalls.length,4);
+  reviewerActor=reviewer;
+  await assert.rejects(recovery.reconcile(selector));
+  reviewerActor=author;
   // Model a lost acknowledgement: two fresh read-only observations agree
   // on the persisted matching draft. Neither performs another CAS.
   const proof1=inspect(),proof2=inspect();
@@ -242,11 +285,14 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",()=
     observation:"matching-stale-policy-at-read",persisted_revision:3,
     observed_selection_sha256:scope.reviewedSelectionSha256,
   });
+  assert.equal((await recovery.reconcile(selector)).state,
+    "matching-stale-policy-at-read");
   // Membership revocation must invalidate even read-only reconciliation.
   sql(`delete from public.bm_memberships
      where organization_id=:'p1'::uuid and user_id=:'p2'::uuid;`,
     {p1:org,p2:author});
   assert.throws(()=>inspect());
+  await assert.rejects(recovery.reconcile(selector));
   assert.equal(Object.hasOwn(result,"approved"),false);
   assert.equal(Object.hasOwn(result,"quoteTotalCents"),false);
 });
