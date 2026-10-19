@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { hasCorrectionLifecycle } from "./tenant-service-review.ts";
-import type { ExtractionReview, IntakeSource } from "./intake-review.ts";
+import { selectReviewedServices, type ExtractionReview,
+  type IntakeSource } from "./intake-review.ts";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readAuthorizedReviewWorkbench, previewAuthorizedWorkbenchSelection,
   snapshotInternalPreviewRequest, type InternalPreviewRequest }
@@ -52,17 +53,34 @@ function snapshotSelector(selector: SourceSelector): SourceSelector {
   return {organizationId:selector.organizationId,sourceId:selector.sourceId};
 }
 
+/** A persisted record may have additional database columns, but its
+ * authority-bearing projection must be own enumerable inert data. */
+function hasDataFields(value: unknown, keys: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  return keys.every(key => {
+    const field = Object.getOwnPropertyDescriptor(value, key);
+    return field?.enumerable === true && Object.hasOwn(field, "value");
+  });
+}
+
 function checkedRecord(record: AuthorizedIntakeRecord | null,
   selector: SourceSelector): {record: AuthorizedIntakeRecord; stamp: string} {
-  if (!record || record.organizationId !== selector.organizationId
+  if (!hasDataFields(record, [
+    "organizationId", "sourceId", "revision", "original", "review",
+  ]) || record.organizationId !== selector.organizationId
     || record.sourceId !== selector.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 1
-    || !record.original || !record.review
-    || typeof record.original.text !== "string"
-    || Buffer.byteLength(record.original.text, "utf8") > 65536
-    || !Array.isArray(record.review.candidates)
-    || record.review.candidates.length > 50
     || hasCorrectionLifecycle(record)) {
+    throw new Error("Tenant-owned intake record missing or inconsistent");
+  }
+  try {
+    // Verifies the *entire* canonical original and extraction review, including
+    // every candidate, exact excerpt, source SHA and candidate SHA. Run this
+    // before traversing the collection or passing data to JSON.stringify;
+    // its index-zero probe is never a reviewer selection or approval.
+    selectReviewedServices(record.original, record.review, [0]);
+  } catch {
     throw new Error("Tenant-owned intake record missing or inconsistent");
   }
   // Consistency stamp detects source/extraction mutation even when a buggy
