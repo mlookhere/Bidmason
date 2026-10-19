@@ -34,13 +34,43 @@ const MAX_CANDIDATES = 50;
 const CANDIDATE_FIELDS = ["serviceCode", "units", "start", "end", "excerpt"];
 const REVIEW_FIELDS = ["state", "kind", "sourceSha256", "candidatesSha256", "candidates"];
 
+/** Only canonical plain JSON-like records may cross the source boundary. */
 function exactFields(value: unknown, names: readonly string[]): boolean {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === names.length
-    && names.every(name => Object.hasOwn(value, name));
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(value);
+  return keys.length === names.length && keys.every(key => {
+    if (typeof key !== "string" || !names.includes(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true
+      && Object.hasOwn(descriptor, "value");
+  });
+}
+
+/** Holes, extra keys and accessor elements are never valid JSON arrays. */
+function exactArray(value: unknown, limit: number): value is unknown[] {
+  if (!Array.isArray(value) || value.length > limit
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== value.length + 1) {
+    return false;
+  }
+  for (let index = 0; index < value.length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor?.enumerable !== true
+      || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
 }
 
 export function validateIntakeSource(source: IntakeSource): void {
+  // Validate descriptors BEFORE inspecting kind/text: a getter must never
+  // rewrite immutable evidence between provenance checks and persistence.
+  if (!exactFields(source, ["kind", "text"])
+    && !exactFields(source, ["kind", "text", "transcriptionSucceeded"])) {
+    throw new TypeError("Intake source contains unsupported fields");
+  }
   if (!source || !["typed-note", "transcript"].includes(source.kind)
     || typeof source.text !== "string"
     || source.text.trim().length === 0
@@ -64,9 +94,9 @@ export function validateIntakeSource(source: IntakeSource): void {
 }
 
 function validateCandidates(source: IntakeSource, candidates: ServiceCandidate[]): void {
-  if (!Array.isArray(candidates) || candidates.length === 0
-    || candidates.length > MAX_CANDIDATES) {
-    throw new TypeError("One to 50 extraction candidates are required");
+  if (!exactArray(candidates, MAX_CANDIDATES)
+    || candidates.length === 0) {
+    throw new TypeError("One to 50 canonical extraction candidates are required");
   }
   for (const c of candidates) {
     if (!exactFields(c, CANDIDATE_FIELDS) || !c
@@ -137,7 +167,8 @@ export function selectReviewedServices(
   if (review.candidatesSha256 !== candidatesDigest(review.candidates)) {
     throw new Error("Reviewed candidate snapshot was modified");
   }
-  if (!Array.isArray(selectedIndices) || selectedIndices.length === 0
+  if (!exactArray(selectedIndices, MAX_CANDIDATES)
+    || selectedIndices.length === 0
     || selectedIndices.length > review.candidates.length) {
     throw new TypeError("Explicit reviewed candidate selections are required");
   }

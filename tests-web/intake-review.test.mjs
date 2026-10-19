@@ -154,3 +154,81 @@ test("direct source-bound quoting rejects reordered candidate selections", () =>
   assert.deepEqual(previewReviewedQuote(note,review,[0,1],approved)
     .quote.lines.map(x=>x.serviceCode),["repaint","touchup"]);
 });
+
+test("original source rejects hidden fields and getter values before executing code",()=>{
+ const base={kind:"typed-note",text:"Paint 2 units"};
+ const candidate={serviceCode:"repaint",units:2,start:0,end:13,excerpt:"Paint 2 units"};
+ let invoked=0;
+ const getter={...base};
+ Object.defineProperty(getter,"text",{enumerable:true,get(){invoked++;return base.text}});
+ const hidden={...base};
+ Object.defineProperty(hidden,"approved",{value:true});
+ const symbolic={...base,[Symbol("send")]:true};
+ const inherited=Object.assign(Object.create({send:true}),base);
+ for(const source of [getter,hidden,symbolic,inherited]){
+  assert.throws(()=>prepareExtractionReview(source,[candidate]),/unsupported fields/);
+ }
+ assert.equal(invoked,0,"no untrusted getter should run during intake validation");
+ const canonical=Object.assign(Object.create(null),base);
+ assert.equal(prepareExtractionReview(canonical,[candidate]).state,"needs-human-review");
+});
+
+test("source-bound candidate records and arrays reject hidden or accessor directives",()=>{
+ const base={serviceCode:"repaint",units:2,start:0,end:13,excerpt:"Paint 2 units"};
+ let invoked=0;
+ const getter={...base};
+ Object.defineProperty(getter,"units",{enumerable:true,get(){invoked++;return 2}});
+ const hidden={...base};
+ Object.defineProperty(hidden,"send",{value:true});
+ const symbol={...base,[Symbol("approved")]:true};
+ const inherited=Object.assign(Object.create({priceCents:1}),base);
+ const extra={...base,toJSON(){return {...base,units:99}}};
+ for(const candidate of [getter,hidden,symbol,inherited,extra]){
+  assert.throws(()=>prepareExtractionReview(
+   {kind:"typed-note",text:"Paint 2 units"},[candidate]),/provenance/);
+ }
+ assert.equal(invoked,0,"extraction candidate accessor must not execute");
+ const sparse=new Array(2);
+ sparse[0]=base;
+ const extraArray=[base];
+ Object.defineProperty(extraArray,"send",{value:true});
+ const getterArray=[base];
+ Object.defineProperty(getterArray,"0",{enumerable:true,configurable:true,
+  get(){invoked++;return base;}});
+ for(const list of [sparse,extraArray,getterArray]){
+  assert.throws(()=>prepareExtractionReview(
+   {kind:"typed-note",text:"Paint 2 units"},list),/canonical extraction candidates/);
+ }
+ assert.equal(invoked,0);
+});
+
+test("persisted review and unselected suggestions reject noncanonical hidden data",()=>{
+ const original={kind:"typed-note",text:"Paint 2 units; quarterly visit pending."};
+ const a={serviceCode:"repaint",units:2,start:0,end:13,excerpt:"Paint 2 units"};
+ const b={serviceCode:"touchup",units:1,start:15,end:30,excerpt:"quarterly visit"};
+ const fresh=()=>prepareExtractionReview(original,[a,b]);
+ const hidden=fresh();
+ Object.defineProperty(hidden,"approved",{value:true});
+ const symbolic=fresh();
+ symbolic[Symbol("send")]=true;
+ let invoked=0;
+ const accessor=fresh();
+ Object.defineProperty(accessor,"sourceSha256",{enumerable:true,
+  get(){invoked++;return "a".repeat(64);}});
+ const tamperedUnselected=fresh();
+ Object.defineProperty(tamperedUnselected.candidates[1],"priceCents",{value:1});
+ const extraCandidates=fresh();
+ extraCandidates.candidates.note="send";
+ const accepted={...painting,services:{...painting.services,
+  touchup:{...painting.services.touchup,billing:"charged"}}};
+ for(const review of [hidden,symbolic,accessor,tamperedUnselected,extraCandidates]){
+  assert.throws(()=>previewReviewedQuote(original,review,[0],accepted));
+ }
+ assert.equal(invoked,0,"review checksum getter must never run");
+ const valid=fresh();
+ const selected=[0];
+ Object.defineProperty(selected,"approved",{value:true});
+ assert.throws(()=>previewReviewedQuote(original,valid,selected,accepted),
+  /Explicit reviewed candidate selections/);
+ assert.equal(previewReviewedQuote(original,valid,[0],accepted).state,"preview-only");
+});

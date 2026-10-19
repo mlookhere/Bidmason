@@ -64,3 +64,7 @@ deterministic company-owned pricing, or human authorization requirements.
 
 No live database, browser route, customer action or additional production
 permissions are created. Hashes only support consistency, never authentication.
+
+## Canonical original, candidate and review data boundaries
+
+The shared source validator now checks **own enumerable data-property descriptors** on plain (or null-prototype) records rather than trusting `Object.keys` alone. Hidden properties, symbol keys, inherited directives, getters, setters and unrecognized `toJSON` methods are refused before they can influence the immutable original, suggested service candidates, or a previously stored review. Candidate and selected-index arrays must be dense, ordinary arrays without hidden metadata, accessor-backed elements or extra keys. These checks run on both initial extraction and later direct review/preview, including unselected suggestions. Normal exact-source typed notes and confirmed transcript reviews remain valid. Tests explicitly assert malicious accessors never execute. Hashes remain **consistency-only**, and the adapter does not prove authenticated tenant membership, approved pricing, storage safety or authorization.
