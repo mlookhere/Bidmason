@@ -1362,3 +1362,26 @@ two-add-on policy with canonical positive and reversed/malformed negative
 cases; production company policy activation, approval and price rules were
 not altered. No tenant authorization or customer-send permission is
 conferred by this pure calculation.
+
+## Direct pricing input allowlist and 50-line bound (staging only)
+
+The pure exported `quoteFromPolicy` calculator now refuses quote line
+objects containing fields other than `serviceCode`, `units` and the
+separately required `addonAccepted` flag. This includes hidden prices,
+rate/discount overrides, actor, recipient, approval, or outbound-send
+directives. Previously such unknown data was silently dropped by object
+destructuring; it never affected the arithmetic, but could have hidden a
+forged downstream instruction at a direct callsite. Missing own fields,
+arrays, empty objects and null entries also fail closed. The direct quote
+request is limited to **1–50 lines**, matching the existing bounded
+extraction candidate count, so bypassing a workbench cannot submit an
+unbounded calculation.
+
+The positive/negative proofs live in
+`tests-web/company-pricing.test.mjs` and
+`tests-web/company-economics.test.mjs`. These tests affirm that a normal
+painting or cleaning quote remains deterministic while malformed prices,
+signoff/send flags and oversized direct inputs are refused. The trusted
+tenant-owned approved ratecard and independent human review still must be
+established by the authenticated persistence adapters; a pure quote or
+preview does not authorize approval, publication, or sending.
