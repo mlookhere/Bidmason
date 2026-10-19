@@ -35,6 +35,10 @@ begin
    raise exception 'Source unavailable for authorized extraction'
      using errcode='42501';
  end if;
+ if v_note.created_by is distinct from p_actor_id then
+   raise exception 'Only the source creator can extract this staged note'
+     using errcode='42501';
+ end if;
  if v_note.revision<>1 or v_note.review is not null
    or v_note.extraction_audit<>'[]'::jsonb or v_note.scope_review is not null
    or v_note.text_sha256<>p_expected_text_sha256 then
