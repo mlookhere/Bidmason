@@ -76,6 +76,14 @@ function validate(input: Request): void {
   }
 }
 
+/** Observations are read-only, point-in-time and never approve or retry a CAS. */
+export type ScopeReadOnlyReconciliation =
+  | { state:"matching-scope-at-read"; organizationId:string; sourceId:string;
+      revision:3; reviewedSelectionSha256:string }
+  | { state:"unreviewed-at-read" | "changed-during-read"
+      | "different-scope-at-read" | "policy-changed-at-read";
+      organizationId:string; sourceId:string };
+
 /**
  * STAGED INTERNAL PORT. Inputs never contain actor IDs, prices or policy JSON.
  * Auth must verify a real non-revoked session on every call; the driver must
@@ -211,6 +219,69 @@ export function createTrustedTypedNoteScopeCommit(
       }
       await stable(input,creator,record,active);
       return {...preview,reviewKey:model.key,sourceId:input.sourceId};
+    },
+
+    /**
+     * Recover an uncertain 2->3 scope CAS using two fresh creator-owned
+     * primary source AND policy observations. No SQL mutations, no retries.
+     * Even a matching snapshot does not prove which attempt wrote it, and
+     * an unreviewed snapshot does not prove the earlier write rolled back.
+     */
+    async reconcile(input: Request): Promise<ScopeReadOnlyReconciliation> {
+      validate(input);
+      const creator=await actor(input.session);
+      const first=await source(input,creator);
+      const firstPolicy=await activePolicy(input,creator);
+      const second=await source(input,creator);
+      const secondPolicy=await activePolicy(input,creator);
+      const selector={organizationId:input.organizationId,sourceId:input.sourceId};
+      if (!isDeepStrictEqual(first,second)
+        || firstPolicy.revision!==secondPolicy.revision
+        || firstPolicy.sha!==secondPolicy.sha) {
+        return {...selector,state:"changed-during-read"};
+      }
+      if (second.revision===2) {
+        const model=buildReviewWorkbench(second.original,second.review!,secondPolicy.policy);
+        return {...selector,state:model.key===input.reviewKey
+          ? "unreviewed-at-read" : "different-scope-at-read"};
+      }
+      if (second.revision!==3 || !second.scopeReview) {
+        return {...selector,state:"different-scope-at-read"};
+      }
+      if (second.scopeReview.policyRevision!==secondPolicy.revision
+        || second.scopeReview.policySha256!==secondPolicy.sha) {
+        return {...selector,state:"policy-changed-at-read"};
+      }
+      const model=buildReviewWorkbench(second.original,second.review!,secondPolicy.policy);
+      if (model.key!==input.reviewKey) {
+        return {...selector,state:"different-scope-at-read"};
+      }
+      let expected: typeof second.scopeReview;
+      try {
+        const selection=prepareReviewPreviewRequest(model,{
+          key:model.key,selectedIndices:input.selectedIndices,
+          acceptedAddonCodes:input.acceptedAddonCodes,
+        });
+        const preview=previewReviewedEconomics(second.original,second.review!,
+          selection.selectedIndices,secondPolicy.policy,selection.acceptedAddonCodes);
+        expected={
+          state:"reviewed-for-proposal-draft",sourceRevision:3,
+          reviewedBy:creator,reviewKey:model.key,
+          sourceSha256:second.review!.sourceSha256,
+          candidatesSha256:second.review!.candidatesSha256,
+          selectedIndices:selection.selectedIndices,
+          acceptedAddonCodes:selection.acceptedAddonCodes,
+          policyRevision:secondPolicy.revision,policySha256:secondPolicy.sha,
+          reviewedSelectionSha256:preview.reviewedSelectionSha256,
+        };
+      } catch {
+        return {...selector,state:"different-scope-at-read"};
+      }
+      if (!isDeepStrictEqual(second.scopeReview,expected)) {
+        return {...selector,state:"different-scope-at-read"};
+      }
+      return {...selector,state:"matching-scope-at-read",revision:3,
+        reviewedSelectionSha256:expected.reviewedSelectionSha256};
     },
 
     /**
