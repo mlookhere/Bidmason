@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { submitPolicyDraft, reviewPolicyDraft, readActivePolicy
 } from "../lib/company-policy-revisions.ts";
 import { previewCompanyEconomics } from "../lib/company-economics.ts";
+import { canonicalCompanyPolicyText, companyPolicySha256
+} from "../lib/company-policy-fingerprint.ts";
 
 const orgA="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const orgB="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -154,4 +156,45 @@ test("company policy draft rejects malformed optional add-on settings",()=>{
     organizationId:orgA,submittedBy:creator,policy:invalid,
     expectedRevision:0,expectedSha256:null,
   }),/Invalid service configuration/);
+});
+
+
+test("the approved ratecard, never-send preview and database policy use one SHA",()=>{
+  const history=accept(begin());
+  const active=readActivePolicy(history,orgA);
+  const approvedSha=history.revisions[0].policySha256;
+  const preview=previewCompanyEconomics(active,[{serviceCode:"office",units:1}]);
+  assert.equal(preview.policySha256,approvedSha);
+  assert.equal(companyPolicySha256(active),approvedSha);
+  const reordered={
+    unitDirectCostsCents:{office:4000},excludedServiceCodes:["quarterly"],
+    tax:{bps:0,method:"none"},pricing:{
+      services:{
+        quarterly:{billing:"pending",rateCents:47500,unit:"visit",label:"Unapproved quarterly"},
+        office:{billing:"charged",unit:"visit",label:"Office clean",rateCents:7000},
+      },
+      calculationOrder:"discount-then-surcharge",
+      minimum:{cents:12000,rule:"quote"},currency:"USD",policyId:"cleaning-v1",
+    },revision:1,
+  };
+  assert.equal(companyPolicySha256(reordered),approvedSha);
+  assert.equal(canonicalCompanyPolicyText(reordered),canonicalCompanyPolicyText(active));
+});
+
+test("canonical policy serializer rejects non-JSON and unsafe policy values",()=>{
+  const malformed=[
+    {...policy(),tax:{method:"none",bps:Number.NaN}},
+    {...policy(),tax:{method:"none",bps:Infinity}},
+    {...policy(),tax:{method:"none",bps:1.2}},
+    {...policy(),tax:{method:"none",bps:Number.MAX_SAFE_INTEGER+1}},
+    {...policy(),tax:{method:"none",bps:undefined}},
+    {...policy(),tax:{method:"none",bps:()=>100}},
+    {...policy(),unitDirectCostsCents:{"__proto__":undefined}},
+  ];
+  for(const p of malformed.slice(0,6))
+    assert.throws(()=>canonicalCompanyPolicyText(p),/safe integral|unsupported/);
+  const injected=JSON.parse(JSON.stringify(policy()));
+  Object.defineProperty(injected.pricing.services,"__proto__",
+    {value:{label:"Injected"},enumerable:true});
+  assert.throws(()=>canonicalCompanyPolicyText(injected),/forbidden object keys/);
 });
