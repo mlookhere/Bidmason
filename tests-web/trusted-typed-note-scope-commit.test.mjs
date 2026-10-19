@@ -314,3 +314,26 @@ test("scope reconciliation fails closed on revocation, source drift and forged r
  await assert.rejects(permission.api.reconcile(request));
  assert.equal(permission.writes,0);
 });
+
+test("unreviewed scope recovery requires eligible chosen services and optional consent",async()=>{
+ // A matching review key authenticates evidence/policy, not a selected service.
+ // Ineligible selection must never appear to be a valid pending review.
+ for(const invalid of [
+   {selectedIndices:[1]},
+   {acceptedAddonCodes:[]},
+   {acceptedAddonCodes:["unselected"]},
+ ]) {
+   const f=fixture();
+   const result=await f.api.reconcile({...request,...invalid});
+   assert.deepEqual(result,{
+     state:"different-scope-at-read",organizationId:ORG,sourceId:SOURCE,
+   });
+   assert.equal(f.writes,0);
+   assert.equal(f.calls.length,4);
+   assert.equal(f.authCalls,5);
+ }
+ const valid=fixture();
+ assert.equal((await valid.api.reconcile(request)).state,"unreviewed-at-read");
+ assert.equal(valid.writes,0);
+});
+
