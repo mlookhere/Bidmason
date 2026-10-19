@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import { quoteFromPolicy, type CompanyPricePolicy, type QuoteLineInput,
   type QuoteResult } from "./company-pricing.ts";
 
@@ -44,13 +44,6 @@ function roundedRate(amount: number, bps: number): number {
     throw new RangeError("Tax exceeds safe integer cents");
   }
   return Number(cents);
-}
-
-function stableJson(value: unknown): string {
-  return JSON.stringify(value, (_, v) => v !== null && typeof v === "object"
-    && !Array.isArray(v)
-    ? Object.fromEntries(Object.entries(v).sort(([a],[b]) => a.localeCompare(b)))
-    : v);
 }
 
 /**
@@ -118,7 +111,7 @@ export function previewCompanyEconomics(
     state: "preview-only",
     policyId: quote.policyId,
     policyRevision: config.revision,
-    policySha256: createHash("sha256").update(stableJson(config)).digest("hex"),
+    policySha256: companyPolicySha256(config),
     quote, taxCents, totalWithTaxCents,
     estimatedDirectCostsCents, estimatedGrossMarginBps,
   };
