@@ -46,13 +46,13 @@ function fixture() {
   return { auth, database, authCalls, sqlCalls, revoke: () => {active = false;} };
 }
 
-test("two fresh server Auth verifications and primary SQL reads confirm original receipt", async () => {
+test("pre- and post-query Auth checks on both primary reads confirm original receipt", async () => {
   const f = fixture();
   const ledger = createTrustedTypedNoteLedger(f.auth, f.database);
   const result = await reconcileAuthorizedTypedNote(ledger, "real-session", request);
   assert.deepEqual(result, { state: "confirmed-unprocessed",
     organizationId: ORG, sourceId: SOURCE, revision: 1, textSha256: digest });
-  assert.deepEqual(f.authCalls, ["real-session", "real-session"]);
+  assert.deepEqual(f.authCalls, Array(4).fill("real-session"));
   assert.equal(f.sqlCalls.length, 2);
   for (const call of f.sqlCalls) {
     assert.match(call.sql, /bm_intake_private\.lookup_typed_note\(\$1::uuid, \$2::uuid, \$3::uuid\)/);
@@ -68,7 +68,7 @@ test("absent authorized ledger key remains read-only and not proof of rollback",
     {...request, requestId:"33333333-3333-4333-8333-333333333333"});
   assert.equal(result.state, "not-found-at-read");
   assert.equal(f.sqlCalls.length, 2);
-  assert.equal(f.authCalls.length, 2);
+  assert.equal(f.authCalls.length, 4);
 });
 
 test("caller cannot declare or override authenticated actor or authorization", async () => {
@@ -89,7 +89,7 @@ test("caller cannot declare or override authenticated actor or authorization", a
   assert.deepEqual(f.sqlCalls[0].params, [OTHER_ORG, ACTOR, REQUEST]);
 });
 
-test("revocation between receipt reads is not converted to confirmation or absence", async () => {
+test("revocation during a primary receipt read denies even the first result", async () => {
   const f = fixture(), original = f.database.query;
   f.database.query = async (...args) => {
     const response = await original(...args);
@@ -101,6 +101,43 @@ test("revocation between receipt reads is not converted to confirmation or absen
     "real-session", request), /revoked/);
   assert.equal(f.sqlCalls.length, 1);
   assert.equal(f.authCalls.length, 2);
+});
+
+test("revocation during a primary lookup denies both a receipt and a missing-key result", async () => {
+  for (const requestId of [REQUEST, "33333333-3333-4333-8333-333333333333"]) {
+    const f = fixture(), original = f.database.query;
+    f.database.query = async (...args) => {
+      const response = await original(...args);
+      f.revoke();
+      return response;
+    };
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized({organizationId: ORG, requestId,
+        session:"real-session", permission:"create-intake"}), /revoked/);
+    assert.equal(f.sqlCalls.length, 1);
+    assert.equal(f.authCalls.length, 2);
+  }
+});
+
+test("actor switching while a primary lookup is in flight fails closed", async () => {
+  for (const requestId of [REQUEST, "33333333-3333-4333-8333-333333333333"]) {
+    const f = fixture(), original = f.database.query;
+    let identity = ACTOR, checks = 0;
+    f.auth.verifyActiveSession = async () => {
+      checks++;
+      return {userId: identity};
+    };
+    f.database.query = async (...args) => {
+      const response = await original(...args);
+      identity = OTHER_ACTOR;
+      return response;
+    };
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized({organizationId: ORG, requestId,
+        session:"real-session", permission:"create-intake"}), /actor changed/);
+    assert.equal(checks, 2);
+    assert.equal(f.sqlCalls.length, 1);
+  }
 });
 
 test("invalid selector or permission never invokes Auth or SQL", async () => {

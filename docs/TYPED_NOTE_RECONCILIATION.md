@@ -58,15 +58,22 @@ security acceptance gates remain mandatory before a customer feature exists.
    **or the absence of a receipt**.
 
 The adapter verifies selector/permission shape before Auth, requires the
-verified actor UUID before any SQL, and rejects malformed or more-than-one-row
-results, incorrect returned actor, invalid ledger digest or missing JSON.
+verified actor UUID before any SQL, and **revalidates the active session and
+unchanged identity after the database query**, before returning either a
+receipt or an authorized missing-key result. A revoked or swapped identity
+during an in-flight read is denied, never reported as absent. It rejects
+malformed or more-than-one-row results, incorrect returned actor, invalid
+ledger digest or missing JSON. This second Auth check narrows the race window;
+it does not replace atomic database membership authorization or prove that
+a session stays active after the read returns.
 The existing `reconcileAuthorizedTypedNote` then verifies the complete
 original text/audit and revision-bound extraction evidence across two
 independent fresh reads. Neither component writes, retries, creates an
 idempotency key, or interprets absence as proof of rollback.
 
 Regression tests in `tests-web/trusted-typed-note-ledger.test.mjs` cover
-fresh Auth checks, revocation between reads, forged caller identity,
+fresh pre/post-query Auth checks, in-flight revocation or actor switching
+(including missing-key reads), forged caller identity,
 cross-tenant backend denial, replay absence, malformed ledger responses,
 tampering, and provider errors. They use an in-memory mocked verifier and
 database. This is a staged adapter contract, **not** evidence that a live

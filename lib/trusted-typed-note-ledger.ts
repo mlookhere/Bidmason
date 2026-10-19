@@ -41,6 +41,14 @@ export function createTrustedTypedNoteLedger(
   auth: ActiveSessionVerifier,
   database: PrivateIntakeDatabase,
 ): TrustedTypedNoteLedger {
+  async function currentActor(session: unknown): Promise<string> {
+    const identity = await auth.verifyActiveSession(session);
+    if (!exactObject(identity, ["userId"])
+      || typeof identity.userId !== "string" || !UUID.test(identity.userId)) {
+      throw new Error("Verified active Auth identity required");
+    }
+    return identity.userId;
+  }
   return {
     async lookupAuthorized(input) {
       if (!exactObject(input, ["organizationId", "requestId", "session", "permission"])
@@ -51,18 +59,18 @@ export function createTrustedTypedNoteLedger(
       }
       // Treat the opaque session only as an input to a trusted verifier. Never
       // inspect userId, actorId, role or tenant fields on the session object.
-      const identity = await auth.verifyActiveSession(input.session);
-      if (!exactObject(identity, ["userId"])
-        || typeof identity.userId !== "string" || !UUID.test(identity.userId)) {
-        throw new Error("Verified active Auth identity required");
-      }
-      const actor = identity.userId;
+      const actor = await currentActor(input.session);
       const result = await database.query(LOOKUP, [
         input.organizationId, actor, input.requestId,
       ]);
       if (!result || typeof result !== "object" || !Array.isArray(result.rows)
         || result.rows.length > 1) {
         throw new Error("Invalid primary intake lookup result");
+      }
+      // A session can expire or be revoked while the primary read is in
+      // flight. Reauthenticate before disclosing a receipt OR its absence.
+      if (await currentActor(input.session) !== actor) {
+        throw new Error("Authenticated intake actor changed during lookup");
       }
       if (result.rows.length === 0) return null;
       const row = result.rows[0];
