@@ -225,8 +225,8 @@ begin
    'activeRevision',v_active,'revisions',v_history);
 end;
 $read$;
--- An approved revision may follow rejected submission revisions, but gaps
--- are NEVER accepted on their own. Require every skipped immutable draft to
+-- Every activated revision, ADJACENT or after rejected submissions,
+-- requires an independently reviewed target event. Skips additionally require each immutable draft to
 -- have a separately recorded rejection and the target approved event to
 -- match the exact policy SHA and the two actual recorded actors.
 create function bm_intake_private.approved_policy_gap_is_reviewed(
@@ -238,7 +238,7 @@ set search_path=pg_catalog,public
 as $gap$
  select p_org is not null
    and p_previous is not null and p_previous>=0
-   and p_target is not null and p_target>p_previous+1
+   and p_target is not null and p_target>p_previous
    and p_target<=1000
    and p_submitter is not null and p_reviewer is not null
    and p_submitter<>p_reviewer
