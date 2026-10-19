@@ -8,6 +8,7 @@ import { hasCorrectionLifecycle, serviceReviewFingerprint,
 import { buildReviewWorkbench } from "./intake-review-workbench.ts";
 import { prepareReviewPreviewRequest } from "./intake-review-selection.ts";
 import { previewReviewedEconomics } from "./intake-quote-preview.ts";
+import { selectReviewedServices } from "./intake-review.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const HASH = /^[0-9a-f]{64}$/;
@@ -59,14 +60,74 @@ function checkRequest(request: ServiceReviewCommitRequest): void {
   }
 }
 
+/** Only inert primary-store projections may be inspected in recovery. Extra
+ * database columns are supported, but hidden/symbol/accessor directives are
+ * never evidence and may not be copied or serialized into a CAS fingerprint. */
+function inertProjection(value: unknown, keys: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  if (!keys.every(key => Object.hasOwn(value, key))) return false;
+  return Reflect.ownKeys(value).every(key => {
+    if (typeof key !== "string") return false;
+    const d = Object.getOwnPropertyDescriptor(value, key);
+    return d?.enumerable === true && Object.hasOwn(d, "value");
+  });
+}
 function checkAuthorizedRecord(value: TenantServiceReviewRecord | null,
   request: ServiceReviewCommitRequest): asserts value is TenantServiceReviewRecord {
-  if (!value || value.organizationId !== request.organizationId
+  if (!inertProjection(value, [
+    "organizationId", "sourceId", "revision", "original", "review",
+    "extractionAudit", "scopeReview",
+  ]) || value.organizationId !== request.organizationId
     || value.sourceId !== request.sourceId || !Number.isSafeInteger(value.revision)
-    || value.revision < 1 || !value.original || !value.review
-    || !Array.isArray(value.extractionAudit) || value.extractionAudit.length !== 1) {
+    || value.revision < 1 || !value.original || !value.review) {
     throw new Error("Authorized reviewed source missing or malformed");
   }
+}
+
+/** Return conflict for malformed but source-owned persisted evidence. An
+ * integrity probe is never an implicit human review/selection. */
+function inertStoredEvidence(record: TenantServiceReviewRecord): boolean {
+  if (!canonicalArray(record.extractionAudit, 1)
+    || record.extractionAudit.length !== 1
+    || !exactFields(record.extractionAudit[0],[
+      "sourceRevision", "actorId", "sourceSha256", "candidatesSha256",
+    ])) return false;
+  try {
+    selectReviewedServices(record.original, record.review, [0]);
+  } catch {
+    return false;
+  }
+  const audit = record.extractionAudit[0];
+  if (audit.sourceRevision !== record.revision
+    && audit.sourceRevision !== record.revision - 1) return false;
+  if (typeof audit.actorId !== "string" || !UUID.test(audit.actorId)
+    || audit.sourceSha256 !== record.review.sourceSha256
+    || audit.candidatesSha256 !== record.review.candidatesSha256) return false;
+  if (record.scopeReview === null) return true;
+  const scope = record.scopeReview;
+  if (!exactFields(scope,[
+    "state", "sourceRevision", "reviewedBy", "reviewKey", "sourceSha256",
+    "candidatesSha256", "selectedIndices", "acceptedAddonCodes",
+    "policyRevision", "policySha256", "reviewedSelectionSha256",
+  ]) || !canonicalArray(scope.selectedIndices, 50)
+    || scope.selectedIndices.length < 1
+    || !canonicalArray(scope.acceptedAddonCodes, 50)
+    || scope.selectedIndices.some(i => !Number.isSafeInteger(i) || i < 0 || i >= 50)
+    || scope.acceptedAddonCodes.some(c => typeof c !== "string"
+      || !/^[a-z][a-z0-9_-]{0,63}$/.test(c))
+    || scope.state !== "reviewed-for-proposal-draft"
+    || !Number.isSafeInteger(scope.sourceRevision)
+    || typeof scope.reviewedBy !== "string" || !UUID.test(scope.reviewedBy)
+    || typeof scope.reviewKey !== "string" || !HASH.test(scope.reviewKey)
+    || typeof scope.sourceSha256 !== "string" || !HASH.test(scope.sourceSha256)
+    || typeof scope.candidatesSha256 !== "string" || !HASH.test(scope.candidatesSha256)
+    || typeof scope.policySha256 !== "string" || !HASH.test(scope.policySha256)
+    || typeof scope.reviewedSelectionSha256 !== "string"
+    || !HASH.test(scope.reviewedSelectionSha256)
+    || !Number.isSafeInteger(scope.policyRevision)
+    || scope.policyRevision < 1) return false;
+  return true;
 }
 
 /** Read ONLY. No mutation, retry, commercial approval, or external delivery.
@@ -100,7 +161,7 @@ export async function reconcileServiceReview(
   checkAuthorizedRecord(current, target);
   // An original review can never reconcile a corrected extraction lifecycle,
   // including a mistakenly restored old scope. This is conflicting evidence.
-  if (hasCorrectionLifecycle(current)) {
+  if (hasCorrectionLifecycle(current) || !inertStoredEvidence(current)) {
     return {state:"conflict",sourceId:target.sourceId};
   }
   // Reconstruct the original revision without erasing the persisted source or
@@ -171,7 +232,7 @@ export async function reconcileServiceReview(
   // convert a source race into a confirmation or unchanged/rollback assertion.
   const last = await read();
   checkAuthorizedRecord(last, target);
-  if (hasCorrectionLifecycle(last)
+  if (hasCorrectionLifecycle(last) || !inertStoredEvidence(last)
     || serviceReviewFingerprint(last) !== serviceReviewFingerprint(current)) {
     return {state:"conflict",sourceId:target.sourceId};
   }
