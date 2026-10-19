@@ -214,7 +214,11 @@ test("policy activation and scope CAS serialize without stale-policy success",as
     // Revision 1 was current while the CAS held the policy lock. The
     // persisted draft remains historical; it is not a current price.
   } else {
-    assert.match(commit.error,/Approved company policy changed; refresh review/);
+    // Under READ COMMITTED, a competing policy-head UPDATE can make the
+    // FOR SHARE joined head temporarily invisible to this statement.
+    // Both outcomes fail closed: no old-policy scope may be persisted.
+    assert.match(commit.error,
+      /Approved company policy changed; refresh review|Current approved company pricing required/);
     assert.equal(saved.revision,2);
     assert.equal(saved.scope_review,null);
   }
