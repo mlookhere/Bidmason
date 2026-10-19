@@ -37,3 +37,7 @@ Source and policy hashing remain server-only in
 `lib/intake-review-workbench.ts`. The latter re-exports selection helpers
 for backwards compatibility with existing pure Node tests. The panel still
 has no public route or automatic network request.
+
+## Pre-selection economics eligibility (October 2026)
+
+The internal review model evaluates each otherwise selectable, approved service through `previewCompanyEconomics` using the exact extracted quantity and an *evaluation-only* optional add-on acknowledgement. This does **not** grant optional consent: the real review selection still requires a separate human acknowledgment. If declared direct costs for that line are absent, percent/cents math is invalid or overflows, or the configured tax cannot be safely evaluated, the row is `invalid` and cannot be selected. Pending, explicitly excluded, and unlisted services retain their own blocked statuses. Missing **all** direct costs remains a visible unverified-margin condition in later economics, rather than a fabricated cost or a silent approval. The check is per line; the full selected bundle is independently recalculated before any internal preview. No public integration, authorization or outbound action is added.

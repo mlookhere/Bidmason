@@ -143,3 +143,35 @@ test("reset always removes selected and optional-acknowledged services",()=>{
  state=changeReviewSelection(model,state,{type:"reset"});
  assert.deepEqual(state,emptyReviewSelection(model.key));
 });
+
+test("review rows cannot be selected when deterministic company economics fail",()=>{
+ const review=prepareExtractionReview(original,candidates);
+ const invalidPolicies=[
+   // Missing a declared unit cost is not equivalent to zero cost.
+   {...policy,unitDirectCostsCents:{floor:1000,quarterly:1000,windows:1000}},
+   // Even syntactically valid rates may overflow safe integer totals.
+   {...policy,pricing:{...policy.pricing,services:{...policy.pricing.services,
+     clean:{...policy.pricing.services.clean,rateCents:Number.MAX_SAFE_INTEGER}}}},
+   {...policy,pricing:{...policy.pricing,services:{...policy.pricing.services,
+     clean:{...policy.pricing.services.clean,surchargeBps:10001}}}},
+   {...policy,tax:{method:"exclusive-all-charged",bps:10001}},
+ ];
+ for(const candidate of invalidPolicies){
+   const model=buildReviewWorkbench(original,review,candidate);
+   assert.equal(model.rows[0].status,"invalid");
+   assert.match(model.rows[0].explanation,/require correction/);
+   assert.throws(()=>changeReviewSelection(model,emptyReviewSelection(model.key),
+     {type:"select",index:0,checked:true}),/not eligible/);
+ }
+ // An unknown cost basis is not falsely reported as a validated margin,
+ // but remains previewable when no partial cost schedule is asserted.
+ const valid=buildReviewWorkbench(original,review,policy);
+ assert.equal(valid.rows[0].status,"available");
+ const partial=buildReviewWorkbench(original,review,{
+   ...policy,unitDirectCostsCents:{clean:2000},
+ });
+ assert.equal(partial.rows[0].status,"available");
+ assert.equal(partial.rows[1].status,"invalid");
+ assert.throws(()=>changeReviewSelection(partial,emptyReviewSelection(partial.key),
+   {type:"select",index:1,checked:true}),/not eligible/);
+});

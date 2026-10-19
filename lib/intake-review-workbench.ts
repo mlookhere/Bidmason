@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { VersionedEconomicsPolicy } from "./company-economics.ts";
+import { previewCompanyEconomics, type VersionedEconomicsPolicy } from "./company-economics.ts";
 import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import { selectReviewedServices, type ExtractionReview,
   type IntakeSource } from "./intake-review.ts";
@@ -64,9 +64,23 @@ export function buildReviewWorkbench(
       status = "pending"; explanation = "Commercial terms are awaiting approval.";
     } else if (!["charged", "included"].includes(entry.billing)) {
       status = "invalid"; explanation = "Company billing configuration is invalid.";
-    } else if (entry.optionalAddon === true) {
-      status = "optional";
-      explanation = "Requires separate human acknowledgement before preview.";
+    } else {
+      // A service is not selectable merely because its label and base rate
+      // look valid. Reuse the same policy/tax/cost engine as the actual preview,
+      // so invalid math or incomplete declared costs block before selection.
+      try {
+        previewCompanyEconomics(policy, [{
+          serviceCode: candidate.serviceCode, units: candidate.units,
+          ...(entry.optionalAddon === true ? { addonAccepted: true as const } : {}),
+        }]);
+        if (entry.optionalAddon === true) {
+          status = "optional";
+          explanation = "Requires separate human acknowledgement before preview.";
+        }
+      } catch {
+        status = "invalid";
+        explanation = "Company pricing, tax, or cost inputs require correction before preview.";
+      }
     }
     return {
       index, serviceCode: candidate.serviceCode,
