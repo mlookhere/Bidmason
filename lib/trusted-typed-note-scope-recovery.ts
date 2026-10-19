@@ -26,9 +26,12 @@ export type TrustedScopeReconciliation =
 
 /** A recovery observation is never a quote, policy approval, or retry permit. */
 function exactObject(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(key => Object.hasOwn(value, key));
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  return Reflect.ownKeys(value).length === keys.length && keys.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+  });
 }
 
 function checkSelector(selector: ScopeSelector): void {
@@ -125,10 +128,19 @@ export function createTrustedTypedNoteScopeRecovery(
      */
     async reconcile(input: ScopeSelector): Promise<TrustedScopeReconciliation> {
       checkSelector(input);
-      const first = await observe(input);
-      const second = await observe(input, first.actor);
-      const base = {
+      // The session remains opaque, but source identity and evidence proofs
+      // cannot be retargeted by a caller during either asynchronous read.
+      const target: ScopeSelector = {
+        session:input.session,
         organizationId:input.organizationId, sourceId:input.sourceId,
+        sourceSha256:input.sourceSha256,
+        candidatesSha256:input.candidatesSha256,
+        reviewedSelectionSha256:input.reviewedSelectionSha256,
+      };
+      const first = await observe(target);
+      const second = await observe(target, first.actor);
+      const base = {
+        organizationId:target.organizationId, sourceId:target.sourceId,
       };
       if (first.evidence.state !== second.evidence.state
         || first.evidence.persistedRevision !== second.evidence.persistedRevision
