@@ -37,7 +37,12 @@ function snapshotSha(value: TenantServiceReviewRecord): string {
 
 function checkSelector(value: Selector): void {
   if (!value || typeof value !== "object" || Array.isArray(value)
-    || Object.keys(value).length !== 2
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== 2
+    || ["organizationId", "sourceId"].some(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor?.enumerable !== true || !Object.hasOwn(descriptor, "value");
+    })
     || typeof value.organizationId !== "string" || !UUID.test(value.organizationId)
     || typeof value.sourceId !== "string" || !UUID.test(value.sourceId)) {
     throw new TypeError("Invalid internal proposal draft selector");
@@ -80,15 +85,20 @@ export async function readAuthorizedProposalDraftPreview(
   selector: Selector,
 ): Promise<InternalProposalDraftPreview> {
   checkSelector(selector);
-  const readSource = () => sourceStore.readAuthorized({ ...selector, session });
+  // A caller may mutate its selector after the first async authorization.
+  // Keep source, policy, receipt checksum and result on one original identity.
+  const target: Selector = {
+    organizationId: selector.organizationId, sourceId: selector.sourceId,
+  };
+  const readSource = () => sourceStore.readAuthorized({ ...target, session });
   const readPolicy = () => policyStore.readAuthorized({
-    organizationId: selector.organizationId, session,
+    organizationId: target.organizationId, session,
   });
   const first = await readSource();
-  checkStoredReview(first, selector);
+  checkStoredReview(first, target);
   const history = await readPolicy();
   if (!history) throw new Error("Company approved policy is unavailable");
-  const approved = readActivePolicy(history, selector.organizationId);
+  const approved = readActivePolicy(history, target.organizationId);
   const model = buildReviewWorkbench(first.original, first.review!, approved);
   const scope = first.scopeReview!;
   if (scope.reviewKey !== model.key
@@ -122,7 +132,7 @@ export async function readAuthorizedProposalDraftPreview(
   }
   const originalSnapshotSha = snapshotSha(first);
   const latest = await readSource();
-  checkStoredReview(latest, selector);
+  checkStoredReview(latest, target);
   if (snapshotSha(latest) !== originalSnapshotSha) {
     throw new Error("Reviewed scope evidence changed during draft preview");
   }
@@ -130,7 +140,7 @@ export async function readAuthorizedProposalDraftPreview(
   if (!currentPolicyHistory) {
     throw new Error("Company approved policy became unavailable");
   }
-  const current = readActivePolicy(currentPolicyHistory, selector.organizationId);
+  const current = readActivePolicy(currentPolicyHistory, target.organizationId);
   const currentModel = buildReviewWorkbench(latest.original, latest.review!, current);
   if (currentModel.key !== scope.reviewKey) {
     throw new Error("Company ratecard changed during draft preview");
@@ -139,13 +149,13 @@ export async function readAuthorizedProposalDraftPreview(
   // idempotency key for a future send. Never trust this without a new atomic
   // check when producing a customer-visible proposal.
   const draftSnapshotSha256 = createHash("sha256").update(JSON.stringify([
-    selector.organizationId, selector.sourceId, latest.revision,
+    target.organizationId, target.sourceId, latest.revision,
     originalSnapshotSha, scope.reviewedSelectionSha256,
     preview.economics.policySha256,
   ])).digest("hex");
   return {
     state: "preview-only", purpose: "internal-proposal-draft",
-    organizationId: selector.organizationId, sourceId: selector.sourceId,
+    organizationId: target.organizationId, sourceId: target.sourceId,
     sourceRevision: latest.revision, reviewedBy: scope.reviewedBy,
     draftSnapshotSha256, preview,
   };
