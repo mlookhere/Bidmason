@@ -62,10 +62,15 @@ export function prepareReviewPreviewRequest(
   if (!selection || selection.key !== model.key
     || !Array.isArray(selection.selectedIndices)
     || selection.selectedIndices.length === 0
+    || selection.selectedIndices.length > 50
+    || selection.selectedIndices.some((index, i) => !Number.isSafeInteger(index)
+      || index < 0 || (i > 0 && index <= selection.selectedIndices[i - 1]))
     || !Array.isArray(selection.acceptedAddonCodes)
-    || new Set(selection.selectedIndices).size !== selection.selectedIndices.length
-    || new Set(selection.acceptedAddonCodes).size !== selection.acceptedAddonCodes.length) {
-    throw new Error("Review selection is stale or incomplete");
+    || selection.acceptedAddonCodes.length > 50
+    || selection.acceptedAddonCodes.some((code, i) => typeof code !== "string"
+      || !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
+      || (i > 0 && code <= selection.acceptedAddonCodes[i - 1]))) {
+    throw new Error("Review selection is stale, incomplete or noncanonical");
   }
   const selectedCodes = new Set<string>();
   for (const index of selection.selectedIndices) {
