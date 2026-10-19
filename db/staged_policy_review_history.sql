@@ -93,8 +93,9 @@ begin
  if not found then raise exception 'Current policy submitter required'
    using errcode='42501'; end if;
  -- The organization lock serializes even concurrent first-ever submissions.
- perform 1 from public.bm_organizations where id=p_org for update;
- if not found then raise exception 'Organization unavailable' using errcode='42501'; end if;
+ -- Transaction-scoped per-tenant lock also serializes concurrent first writes.
+ -- Hash collisions can only serialize unrelated tenants, never mix their data.
+ perform pg_advisory_xact_lock(hashtextextended(p_org::text,0));
  select h.revision,h.policy_sha256 into v_current,v_current_sha
    from bm_intake_private.policy_submission_heads h
    where organization_id=p_org for update;
@@ -155,8 +156,9 @@ begin
    raise exception 'Current independently authorized reviewer required'
      using errcode='42501';
  end if;
- perform 1 from public.bm_organizations where id=p_org for update;
- if not found then raise exception 'Organization unavailable' using errcode='42501'; end if;
+ -- Transaction-scoped per-tenant lock also serializes concurrent first writes.
+ -- Hash collisions can only serialize unrelated tenants, never mix their data.
+ perform pg_advisory_xact_lock(hashtextextended(p_org::text,0));
  select revision,policy_sha256 into v_head,v_sha
  from bm_intake_private.policy_submission_heads
  where organization_id=p_org for share;
