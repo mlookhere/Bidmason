@@ -121,3 +121,79 @@ revoke all on function bm_intake_private.reviewed_selection_sha256(
  jsonb,jsonb,jsonb,text) from public,anon,authenticated;
 grant execute on function bm_intake_private.reviewed_selection_sha256(
  jsonb,jsonb,jsonb,text) to service_role;
+
+
+-- Shared service eligibility invariant for BOTH private 2->3 CAS and
+-- historical read-only recovery. Correct fingerprints alone do not mean the
+-- selected services were billable or properly acknowledged at approval time.
+create function bm_intake_private.matches_approved_scope_services(
+ p_policy jsonb,p_candidates jsonb,p_selected jsonb,p_accepted jsonb
+) returns boolean
+language plpgsql immutable security invoker
+set search_path=pg_catalog,public
+as $eligibility$
+declare
+ v_selection jsonb;
+ v_ack jsonb;
+ v_idx integer;
+ v_prev integer:=-1;
+ v_code text;
+ v_rule jsonb;
+ v_selected_codes text[]:=array[]::text[];
+ v_accepted_codes text[]:=array[]::text[];
+ v_excluded jsonb;
+begin
+ if p_policy is null or jsonb_typeof(p_policy) is distinct from 'object'
+   or jsonb_typeof(p_policy->'pricing'->'services') is distinct from 'object'
+   or p_candidates is null or jsonb_typeof(p_candidates) is distinct from 'array'
+   or p_selected is null or jsonb_typeof(p_selected) is distinct from 'array'
+   or p_accepted is null or jsonb_typeof(p_accepted) is distinct from 'array'
+   or jsonb_array_length(p_selected) not between 1 and 50
+   or jsonb_array_length(p_selected)>jsonb_array_length(p_candidates)
+   or jsonb_array_length(p_accepted)>50 then
+   return false;
+ end if;
+ v_excluded:=coalesce(p_policy->'excludedServiceCodes','[]'::jsonb);
+ if jsonb_typeof(v_excluded) is distinct from 'array' then return false; end if;
+ for v_ack in select value from jsonb_array_elements(p_accepted) loop
+   if jsonb_typeof(v_ack) is distinct from 'string'
+     or coalesce(v_ack#>>'{}','') !~ '^[a-z][a-z0-9_-]{0,63}$'
+     or (v_ack#>>'{}')=any(v_accepted_codes) then
+     return false;
+   end if;
+   v_accepted_codes:=array_append(v_accepted_codes,v_ack#>>'{}');
+ end loop;
+ for v_selection in select value from jsonb_array_elements(p_selected) loop
+   if jsonb_typeof(v_selection) is distinct from 'number'
+      or coalesce(v_selection#>>'{}','') !~ '^(0|[1-9][0-9]{0,5})$' then
+      return false;
+   end if;
+   v_idx:=(v_selection#>>'{}')::integer;
+   if v_idx<=v_prev or v_idx>=jsonb_array_length(p_candidates) then
+     return false;
+   end if;
+   v_prev:=v_idx;
+   v_code:=p_candidates->v_idx->>'serviceCode';
+   if v_code is null or v_code !~ '^[a-z][a-z0-9_-]{0,63}$'
+     or v_code=any(v_selected_codes) then
+     return false;
+   end if;
+   v_selected_codes:=array_append(v_selected_codes,v_code);
+   v_rule:=p_policy->'pricing'->'services'->v_code;
+   if jsonb_typeof(v_rule) is distinct from 'object'
+     or coalesce(v_rule->>'billing','') not in ('charged','included')
+     or v_excluded ? v_code
+     or (v_rule ? 'optionalAddon'
+       and jsonb_typeof(v_rule->'optionalAddon') is distinct from 'boolean')
+     or ((v_rule->>'optionalAddon')='true')
+        is distinct from (v_code=any(v_accepted_codes)) then
+      return false;
+   end if;
+ end loop;
+ return v_accepted_codes <@ v_selected_codes;
+end;
+$eligibility$;
+revoke all on function bm_intake_private.matches_approved_scope_services(
+ jsonb,jsonb,jsonb,jsonb) from public,anon,authenticated;
+grant execute on function bm_intake_private.matches_approved_scope_services(
+ jsonb,jsonb,jsonb,jsonb) to service_role;
