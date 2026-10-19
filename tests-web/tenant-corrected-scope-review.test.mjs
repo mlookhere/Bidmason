@@ -219,3 +219,17 @@ test("invalid hidden and accessor request fields do not execute getters",async()
  assert.equal(called,0);
  assert.equal(f.get().correctedScopeReview,null);
 });
+
+test("reviewed scope cannot falsify the immutable activation revision",async()=>{
+ const f=fixture();await activated(f);const req=await request(f);
+ await commitAuthorizedCorrectedScopeReview(f.store,f.policyStore,"reviewer",req);
+ f.update(row=>{row.activatedCorrection.sourceRevision=row.revision;});
+ await assert.rejects(readCorrectedScopeContext(f.store,f.policyStore,"reviewer",selector));
+ // An additional source revision cannot silently become another reviewed scope.
+ const second=fixture();await activated(second);
+ const initial=await request(second);
+ await commitAuthorizedCorrectedScopeReview(second.store,second.policyStore,"reviewer",initial);
+ second.update(row=>{row.revision++;});
+ await assert.rejects(commitAuthorizedCorrectedScopeReview(
+  second.store,second.policyStore,"reviewer",initial));
+});

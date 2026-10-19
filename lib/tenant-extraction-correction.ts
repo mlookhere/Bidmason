@@ -538,12 +538,24 @@ export function verifyActivatedCorrectionLineage(
 ): {correctedReview: ExtractionReview; activationSha256: string} {
   selector(target);
   const active = record?.activatedCorrection;
+  const hasRenewedReview = (record as TenantExtractionCorrectionRecord & {
+    correctedScopeReview?: {state?:string; sourceRevision?:number};
+  }).correctedScopeReview != null;
   if (!active || record.organizationId !== target.organizationId
     || record.sourceId !== target.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 4
     || record.scopeReview !== null || record.pendingCorrection != null
     || active.state !== "awaiting-renewed-human-scope-review"
-    || active.sourceRevision !== record.revision
+    || !Number.isSafeInteger(active.sourceRevision)
+    || (hasRenewedReview
+      ? active.sourceRevision !== record.revision - 1
+        || (record as TenantExtractionCorrectionRecord & {
+          correctedScopeReview?: {state?:string; sourceRevision?:number};
+        }).correctedScopeReview?.state !== "reviewed-corrected-scope-internal-only"
+        || (record as TenantExtractionCorrectionRecord & {
+          correctedScopeReview?: {state?:string; sourceRevision?:number};
+        }).correctedScopeReview?.sourceRevision !== record.revision
+      : active.sourceRevision !== record.revision)
     || typeof active.activatedBy !== "string" || !UUID.test(active.activatedBy)) {
     throw new Error("Activated correction and source lineage are inconsistent");
   }
@@ -551,7 +563,9 @@ export function verifyActivatedCorrectionLineage(
   // extractor evidence, singular audit, and exact reasoned pending correction.
   const before: TenantExtractionCorrectionRecord = {
     ...record,
-    revision: record.revision - 1,
+    // The corrected-scope decision increments the source revision, but the
+    // immutable activation was based on the PRE-activation pending revision.
+    revision: active.sourceRevision - 1,
     activatedCorrection: null,
     pendingCorrection: active.priorCorrection,
     scopeReview: null,
@@ -559,12 +573,12 @@ export function verifyActivatedCorrectionLineage(
   checkRecord(before, target, true);
   const {pending, correctedReview} = verifiedPending(before);
   const expectedActivationSha256 = createHash("sha256").update(JSON.stringify([
-    record.organizationId,record.sourceId,record.revision,active.activatedBy,
+    record.organizationId,record.sourceId,active.sourceRevision,active.activatedBy,
     fingerprint(before),pending.correctionSha256,correctedReview.candidatesSha256,
   ])).digest("hex");
   const expected: ActivatedExtractionCorrection = {
     state:"awaiting-renewed-human-scope-review",
-    sourceRevision:record.revision,activatedBy:active.activatedBy,
+    sourceRevision:active.sourceRevision,activatedBy:active.activatedBy,
     activationSha256:expectedActivationSha256,
     priorCorrection:pending,correctedReview,
   };
