@@ -85,6 +85,14 @@ function validatePolicy(policy: VersionedEconomicsPolicy, revision: number): voi
   }
 }
 
+/** Validates persisted history even if no company policy is active yet. */
+export function assertValidCompanyPolicyHistory(
+  history: PolicyHistory, organizationId: string,
+): void {
+  actor(organizationId);
+  validateHistory(history, organizationId);
+}
+
 function validateHistory(history: PolicyHistory, organizationId: string): void {
   if (!history || history.organizationId !== organizationId
     || !Array.isArray(history.revisions)
