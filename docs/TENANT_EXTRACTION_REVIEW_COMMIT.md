@@ -937,3 +937,50 @@ Supabase session validation, tenant-specific service-role isolation,
 production approval authorization, audit/recovery controls and Item 3
 security/privacy/legal acceptance. No customer-facing approval,
 quote sending or billing is enabled.
+
+
+## Activation after explicitly rejected policy submissions
+
+The durable `TrustedPolicyStore` keeps every submitted policy revision,
+including separately reviewed **rejections**. Previously, the staged
+activation adapter and SQL only accepted sequential *approved* revision
+numbers, so an approved third submission could not become active after
+a legitimately rejected second submission.
+
+`lib/trusted-company-policy-activation.ts` now identifies the last
+**approved** history revision (rather than the immediately preceding
+submitted revision) and requires every intervening submission to be an
+explicit `rejected` decision. The private
+`bm_intake_private.approved_policy_gap_is_reviewed` function in
+`db/staged_policy_review_history.sql` independently verifies each
+intervening immutable draft/decision event and requires an exact approved
+target matching the canonical policy SHA-256, submitter and distinct
+reviewer. `db/staged_policy_activation.sql` retains its current
+membership and economics checks, locks the approved head, and allows a
+nonconsecutive activation **only** with this immutable evidence. First
+activation at revision 2 is possible only when revision 1 has an actual
+durable rejection and revision 2 has its own independently approved
+event. A skipped, pending or missing decision remains a hard failure.
+
+The head trigger continues to deny rollbacks and unproven jumps,
+including direct updates. Initial head validation uses an **AFTER
+INSERT** trigger, because `INSERT ... ON CONFLICT DO UPDATE` invokes
+`BEFORE INSERT` even for updates; using a before-insert check would
+incorrectly reject a verified advancement of an existing head. The
+per-organization transaction advisory lock serializes activation with
+the durable reviewer ledger. The mandatory `intake-db` workflow installs
+that ledger immediately after the policy tables and **before** the
+first policy-activation test, so validation never runs without its
+supporting private function.
+
+The real `ci/intake_policy_store_bridge.test.mjs` adds both workflows:
+approved 1 → rejected 2 → approved 3, and rejected 1 → first
+approved 2. It rejects activating v3 before the rejection and before
+the target's distinct approval, proves rejected versions never appear
+as activated approvals, and ensures repeat activation is denied.
+All existing contiguous two-actor activation, tenant isolation,
+source-review CAS and concurrency gates remain enabled.
+
+This remains **staging only**; a synthetic reviewer decision is not
+independent commercial consent or live Supabase approval. No public
+route, pricing publication, customer send or billing is enabled.
