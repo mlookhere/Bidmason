@@ -39,10 +39,12 @@ begin
    || convert_to(v_text,'UTF8')),'hex');
  v_review:=jsonb_build_object(
    'state','needs-human-review','kind','typed-note',
-   'sourceSha256',v_source_sha,'candidatesSha256',repeat('a',64),
+   'sourceSha256',v_source_sha,'candidatesSha256',(v_review->>'candidatesSha256'),
    'candidates',jsonb_build_array(jsonb_build_object(
      'serviceCode','painting','units',2,
      'start',0,'end',5,'excerpt','Paint')));
+ v_review:=jsonb_set(v_review,'{candidatesSha256}',to_jsonb(
+   bm_intake_private.canonical_candidate_sha256(v_review->'candidates')));
 
  -- A valid foreign tenant and same-tenant non-creator cannot extract.
  begin
@@ -96,7 +98,7 @@ begin
  select * into v_result from bm_intake_private.commit_typed_note_extraction(
    v_org,v_actor,v_source,v_original_sha,v_review);
  if v_result.source_revision<>2 or v_result.original_sha256<>v_original_sha
-   or v_result.candidates_sha256<>repeat('a',64) then
+   or v_result.candidates_sha256<>(v_review->>'candidatesSha256') then
    raise exception 'Authorized extraction CAS returned wrong revision or hash';
  end if;
  if (select count(*) from public.bm_intake_sources
@@ -106,7 +108,7 @@ begin
     and extraction_audit->0->>'actorId'=v_actor::text
     and (extraction_audit->0->>'sourceRevision')::integer=2
     and extraction_audit->0->>'sourceSha256'=v_source_sha
-    and extraction_audit->0->>'candidatesSha256'=repeat('a',64))<>1 then
+    and extraction_audit->0->>'candidatesSha256'=(v_review->>'candidatesSha256'))<>1 then
    raise exception 'Extraction CAS lost original evidence or actor audit';
  end if;
  begin
