@@ -26,9 +26,13 @@ export type TrustedPolicyEventReconciliation={
 });
 
 function exact(value:unknown,fields:readonly string[]):value is Record<string,unknown> {
-  return value!==null && typeof value==="object" && !Array.isArray(value)
-    && Object.keys(value).length===fields.length
-    && fields.every(key=>Object.hasOwn(value,key));
+  if(value===null || typeof value!=="object" || Array.isArray(value)
+    || ![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length!==fields.length)return false;
+  return fields.every(key=>{
+    const d=Object.getOwnPropertyDescriptor(value,key);
+    return d?.enumerable===true && Object.hasOwn(d,"value");
+  });
 }
 function validate(input:Selector):void {
   if((!exact(input,["organizationId","session","revision","policySha256","kind"])
@@ -121,10 +125,20 @@ export function createTrustedCompanyPolicyEventRecovery(
   return {
     async reconcile(input:Selector):Promise<TrustedPolicyEventReconciliation> {
       validate(input);
-      const a=await observe(input);
-      const b=await observe(input,a.actor);
-      const base={organizationId:input.organizationId,
-        revision:input.revision,policySha256:input.policySha256};
+      // Bind both independent observations to the same validated request.
+      // The opaque session is carried by reference, but the tenant, revision,
+      // policy evidence and human decision cannot change between awaits.
+      const target:Selector=input.kind==="review"
+        ? {organizationId:input.organizationId,session:input.session,
+            revision:input.revision,policySha256:input.policySha256,
+            kind:"review",decision:input.decision}
+        : {organizationId:input.organizationId,session:input.session,
+            revision:input.revision,policySha256:input.policySha256,
+            kind:"submission"};
+      const a=await observe(target);
+      const b=await observe(target,a.actor);
+      const base={organizationId:target.organizationId,
+        revision:target.revision,policySha256:target.policySha256};
       if(a.receipt.state!==b.receipt.state
         || a.receipt.observedStatus!==b.receipt.observedStatus) {
         return {...base,state:"changed-during-read"};
