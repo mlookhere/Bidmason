@@ -55,3 +55,45 @@ and reviewed scope carried by the tenant source record. This prevents
 unrelated source lifecycle changes from being ignored by optimistic CAS.
 These checks are **defense-in-depth**, not a replacement for a trusted DB
 transaction, real RLS, or original-byte Auth verification.
+
+
+## Staged PostgreSQL extraction CAS primitive
+
+`db/typed_note_extraction_commit.sql` provides the private
+`bm_intake_private.commit_typed_note_extraction` operation, callable only
+by the trusted service role. This is a **candidate SQL component**, not
+a production migration or a connected `TrustedExtractionStore`.
+
+The SQL function takes tenant, server-authenticated actor, source UUID,
+expected ORIGINAL text SHA-256 and the prepared extraction review. It checks
+current membership **before source existence**, locks the membership and
+source rows, requires the **original note uploader** (until explicit reviewer
+delegation is implemented), and performs exactly one 1→2 CAS. It computes
+the typed-note source SHA-256 from stored bytes including the required NUL
+separator, checks the review shape, source and kind, bounded candidate types,
+and persists a database-authored actor/revision/digest audit. Rejected,
+duplicate, revoked or cross-tenant transitions do not update the record.
+This function cannot send, quote, approve, upload, or edit original evidence.
+
+**Deliberate trust limit:** PostgreSQL validates bounded candidate structure
+but DOES NOT independently reproduce JavaScript's UTF-16 offsets or the
+canonical candidates-array SHA-256 algorithm. Therefore it is not safe to
+invoke directly with browser or unvalidated AI JSON. A future server
+`TrustedExtractionStore` implementation must derive the actor through a
+fresh verified Supabase session, load the original under transaction/CAS
+controls, call `parseUntrustedExtraction` against that original to validate
+every exact excerpt and recompute the candidate hash, then pass only the
+validated review to this private SQL function. It must perform fresh authorized
+primary read-back and treat ambiguous commits as **indeterminate** (never
+retry blindly). This adapter and genuine provider session tests are still
+outstanding. Unrelated same-tenant actors cannot extract another member's
+private typed note with this staged function.
+
+The `intake-db` Actions job installs the candidate SQL after the prior
+source/ledger/lookup suites and executes `ci/db_intake_extraction_test.sql`.
+It checks positive original/audit preservation and adverse cases including
+foreign tenant, same-tenant other actor, missing source, wrong source hash,
+hidden approval/pricing fields, stale duplicate and post-revocation denial.
+All tests run on a disposable PostgreSQL instance, not live Supabase.
+Item 3's Auth/Storage/ClamAV/retention/security acceptance remains mandatory;
+there is no customer-facing route or approval to deploy.
