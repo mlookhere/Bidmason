@@ -86,6 +86,19 @@ begin
   raise exception 'Nonexistent scope-review source was accepted';
  exception when insufficient_privilege then null; end;
 
+ -- SQL NULL is never a valid expected-version marker: three-valued
+ -- comparison must not bypass the optimistic source/candidate binding.
+ begin
+  perform 1 from bm_intake_private.commit_typed_note_scope_review(
+   v_org,v_creator,v_id,null::text,v_candidates_sha,v_scope);
+  raise exception 'Null expected original source hash passed CAS';
+ exception when invalid_parameter_value then null; end;
+ begin
+  perform 1 from bm_intake_private.commit_typed_note_scope_review(
+   v_org,v_creator,v_id,v_source_sha,null::text,v_scope);
+  raise exception 'Null expected candidate digest passed CAS';
+ exception when invalid_parameter_value then null; end;
+
  -- Do not accept client-provided pricing/approval or actor impersonation.
  foreach v_bad in array array[
   v_scope||'{"approved":true}'::jsonb,
