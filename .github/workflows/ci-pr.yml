@@ -219,3 +219,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_evidence_review.sql
       - name: Verify two-actor correction evidence and prevent approval or scope bypass
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_evidence_review_test.sql
+      - name: Install review-bound correction activation into nonquotable revision 5
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_activation.sql
+      - name: Prove revision 5 CAS, accepted evidence and denial of quote or replay
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_activation_test.sql
