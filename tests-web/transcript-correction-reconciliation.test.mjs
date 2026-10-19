@@ -95,3 +95,46 @@ test("future unrelated version after a valid correction requires manual conflict
  const v={...committed,revision:3};
  assert.equal((await reconcileTranscriptCorrection(store(v),"editor",request)).state,"conflict");
 });
+
+
+test("transcript recovery binds original tenant, digest and decisions across authorized read",async()=>{
+ const changing={...request,decisions:structuredClone(request.decisions)};
+ let reads=0;
+ const trusted=store(committed,()=>{
+  if(++reads===1){
+   changing.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+   changing.sourceId="22222222-2222-4222-8222-222222222222";
+   changing.expectedRevision=99;
+   changing.expectedSnapshotSha256="0".repeat(64);
+   changing.expectedCorrectionSha256="f".repeat(64);
+   changing.decisions[0].replacement="9999";
+  }
+ });
+ const verified=await reconcileTranscriptCorrection(trusted,"editor",changing);
+ assert.deepEqual(verified,{state:"confirmed",sourceId:source,revision:2,
+  correctionSha256:draft.correctionSha256,correctedBy:actor});
+ assert.equal(reads,1);
+});
+
+test("reconciliation denies malicious corrections and selector getters before any authorized read",async()=>{
+ let reads=0,getters=0;
+ const s=store(committed,()=>reads++);
+ const hidden={...request};Object.defineProperty(hidden,"send",{value:true});
+ const symbol={...request};symbol[Symbol("approved")]=true;
+ const inherited=Object.assign(Object.create({send:true}),request);
+ const indexGetter={...request,decisions:structuredClone(request.decisions)};
+ Object.defineProperty(indexGetter.decisions,"0",{enumerable:true,
+  get(){getters++;throw Error("unsafe index getter");}});
+ const nestedGetter={...request,decisions:structuredClone(request.decisions)};
+ Object.defineProperty(nestedGetter.decisions[0],"explanation",{enumerable:true,
+  get(){getters++;throw Error("unsafe explanation getter");}});
+ const selectorGetter={...request};
+ Object.defineProperty(selectorGetter,"organizationId",{enumerable:true,
+  get(){getters++;throw Error("unsafe organization getter");}});
+ for(const wrong of [hidden,symbol,inherited,indexGetter,nestedGetter,selectorGetter]){
+  await assert.rejects(reconcileTranscriptCorrection(s,"editor",wrong),
+   /Invalid correction reconciliation request/);
+ }
+ assert.equal(reads,0);
+ assert.equal(getters,0);
+});
