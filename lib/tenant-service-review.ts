@@ -91,14 +91,14 @@ export async function readServiceReviewContext(
   const first = await sourceStore.readAuthorized({ ...selector, session });
   checkRecord(first, selector);
   const policy = await policySnapshot(policyStore, session, selector.organizationId);
-  const model = buildReviewWorkbench(first.original, first.review, policy);
+  const model = buildReviewWorkbench(first.original, first.review!, policy);
   const latest = await sourceStore.readAuthorized({ ...selector, session });
   checkRecord(latest, selector);
   if (fingerprint(first) !== fingerprint(latest)) {
     throw new Error("Intake evidence changed during review; refresh required");
   }
   const latestPolicy = await policySnapshot(policyStore, session, selector.organizationId);
-  const latestModel = buildReviewWorkbench(latest.original, latest.review, latestPolicy);
+  const latestModel = buildReviewWorkbench(latest.original, latest.review!, latestPolicy);
   if (latestModel.key !== model.key) {
     throw new Error("Company policy changed during review; refresh required");
   }
@@ -153,7 +153,7 @@ export async function commitAuthorizedServiceReview(
         || fingerprint(current) !== request.expectedSnapshotSha256) {
         throw new Error("Stale reviewed extraction revision; reload");
       }
-      const model = buildReviewWorkbench(current.original, current.review, policy);
+      const model = buildReviewWorkbench(current.original, current.review!, policy);
       if (model.key !== request.reviewKey) {
         throw new Error("Approved company policy or review key changed");
       }
@@ -161,7 +161,7 @@ export async function commitAuthorizedServiceReview(
         key:request.reviewKey, selectedIndices:request.selectedIndices,
         acceptedAddonCodes:request.acceptedAddonCodes,
       });
-      const preview = previewReviewedEconomics(current.original, current.review,
+      const preview = previewReviewedEconomics(current.original, current.review!,
         selection.selectedIndices, policy, selection.acceptedAddonCodes);
       if (current.revision >= Number.MAX_SAFE_INTEGER) throw new RangeError("Source revision overflow");
       const revision = current.revision + 1;
