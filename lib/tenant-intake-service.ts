@@ -3,7 +3,8 @@ import { hasCorrectionLifecycle } from "./tenant-service-review.ts";
 import type { ExtractionReview, IntakeSource } from "./intake-review.ts";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readAuthorizedReviewWorkbench, previewAuthorizedWorkbenchSelection,
-  type InternalPreviewRequest } from "./authorized-intake-workflow.ts";
+  snapshotInternalPreviewRequest, type InternalPreviewRequest }
+  from "./authorized-intake-workflow.ts";
 import type { ReviewWorkbenchModel } from "./intake-review-workbench.ts";
 import type { ReviewedEconomicsPreview } from "./intake-quote-preview.ts";
 
@@ -49,40 +50,6 @@ function snapshotSelector(selector: SourceSelector): SourceSelector {
     throw new TypeError("Invalid tenant intake record selector");
   }
   return {organizationId:selector.organizationId,sourceId:selector.sourceId};
-}
-
-function canonicalArray(value: unknown): value is unknown[] {
-  if (!Array.isArray(value) || value.length > 50
-    || Object.getPrototypeOf(value) !== Array.prototype
-    || Reflect.ownKeys(value).length !== value.length + 1) return false;
-  for (let i=0;i<value.length;i++){
-    const descriptor=Object.getOwnPropertyDescriptor(value,String(i));
-    if (descriptor?.enumerable !== true
-      || !Object.hasOwn(descriptor,"value")) return false;
-  }
-  return true;
-}
-
-/** The shared policy-bound validator still checks service eligibility and consent. */
-function snapshotPreviewRequest(request: InternalPreviewRequest): InternalPreviewRequest {
-  if (!request || typeof request !== "object" || Array.isArray(request)
-    || ![Object.prototype, null].includes(Object.getPrototypeOf(request))
-    || Reflect.ownKeys(request).length !== 3
-    || ["reviewKey","selectedIndices","acceptedAddonCodes"].some(key => {
-      const descriptor=Object.getOwnPropertyDescriptor(request,key);
-      return descriptor?.enumerable !== true || !Object.hasOwn(descriptor,"value");
-    })
-    || typeof request.reviewKey !== "string"
-    || !/^[0-9a-f]{64}$/.test(request.reviewKey)
-    || !canonicalArray(request.selectedIndices)
-    || !canonicalArray(request.acceptedAddonCodes)) {
-    throw new TypeError("Invalid internal preview request");
-  }
-  return {
-    reviewKey:request.reviewKey,
-    selectedIndices:[...request.selectedIndices] as number[],
-    acceptedAddonCodes:[...request.acceptedAddonCodes] as string[],
-  };
 }
 
 function checkedRecord(record: AuthorizedIntakeRecord | null,
@@ -148,7 +115,7 @@ export async function previewTenantIntakeSelection(
   input: SourceSelector & { request: InternalPreviewRequest },
 ): Promise<ReviewedEconomicsPreview> {
   const target = snapshotSelector(input);
-  const boundRequest = snapshotPreviewRequest(input.request);
+  const boundRequest = snapshotInternalPreviewRequest(input.request);
   const first = await load(sourceStore, session, target);
   const result = await previewAuthorizedWorkbenchSelection(policyStore, session, {
     organizationId: target.organizationId,
