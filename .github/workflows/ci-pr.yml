@@ -223,3 +223,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_activation.sql
       - name: Prove revision 5 CAS, accepted evidence and denial of quote or replay
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_activation_test.sql
+      - name: Install private pending corrected-scope review against active tenant policy
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_scope_review.sql
+      - name: Verify renewed human policy selection and continued quotation denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_scope_review_test.sql
