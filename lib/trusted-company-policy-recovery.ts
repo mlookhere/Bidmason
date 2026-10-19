@@ -43,10 +43,25 @@ type Version={revision:number;sha:string;submittedBy:string;
 type Observation={state:"not-active-at-read"|"matching-active-at-read"
   |"historical-superseded-at-read";head:Version|null};
 
+/** Reject forged SQL and authority properties without invoking accessors. */
 function exact(value:unknown,keys:readonly string[]):value is Record<string,unknown> {
-  return !!value && typeof value==="object" && !Array.isArray(value)
-    && Object.keys(value).length===keys.length
-    && keys.every(key=>Object.hasOwn(value,key));
+  if(!value || typeof value!=="object" || Array.isArray(value)
+    || ![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length!==keys.length)return false;
+  return keys.every(key=>{
+    const d=Object.getOwnPropertyDescriptor(value,key);
+    return d?.enumerable===true && Object.hasOwn(d,"value");
+  });
+}
+function rows(value:unknown):value is unknown[] {
+  if(!Array.isArray(value) || value.length>1
+    || Object.getPrototypeOf(value)!==Array.prototype
+    || Reflect.ownKeys(value).length!==value.length+1)return false;
+  for(let i=0;i<value.length;i++){
+    const d=Object.getOwnPropertyDescriptor(value,String(i));
+    if(d?.enumerable!==true || !Object.hasOwn(d,"value"))return false;
+  }
+  return true;
 }
 function version(row:unknown):Version {
   if(!exact(row,["revision","policy_sha256","policy",
@@ -130,8 +145,7 @@ export function createTrustedCompanyPolicyRecovery(
       throw new Error("Policy recovery reviewer changed before primary reads");
     }
     const headResponse=await database.query(HEAD,[input.organizationId,reviewer]);
-    if(!headResponse || !Array.isArray(headResponse.rows)
-      || headResponse.rows.length>1) {
+    if(!headResponse || !rows(headResponse.rows)) {
       throw new Error("Ambiguous private activation head");
     }
     const head=headResponse.rows.length?version(headResponse.rows[0]):null;
@@ -145,8 +159,7 @@ export function createTrustedCompanyPolicyRecovery(
     const oldResponse=await database.query(HISTORICAL,[
       input.organizationId,String(input.revision),reviewer,
     ]);
-    if(!oldResponse || !Array.isArray(oldResponse.rows)
-      || oldResponse.rows.length>1) {
+    if(!oldResponse || !rows(oldResponse.rows)) {
       throw new Error("Ambiguous immutable historical activation");
     }
     const historical=oldResponse.rows.length?version(oldResponse.rows[0]):null;
@@ -176,10 +189,15 @@ export function createTrustedCompanyPolicyRecovery(
      */
     async reconcile(input:Selector):Promise<CompanyActivationObservation> {
       check(input);
-      const first=await one(input);
-      const second=await one(input,first.actor);
-      const base={organizationId:input.organizationId,
+      // Two independently authorized observations must use one original
+      // immutable tenant, reviewer session, policy revision and fingerprint.
+      const target:Selector={organizationId:input.organizationId,
+        reviewerSession:input.reviewerSession,
         revision:input.revision,policySha256:input.policySha256};
+      const first=await one(target);
+      const second=await one(target,first.actor);
+      const base={organizationId:target.organizationId,
+        revision:target.revision,policySha256:target.policySha256};
       if(first.result.state!==second.result.state
         || first.result.head?.revision!==second.result.head?.revision
         || first.result.head?.sha!==second.result.head?.sha) {
