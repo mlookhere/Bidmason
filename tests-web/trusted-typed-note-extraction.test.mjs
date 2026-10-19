@@ -191,3 +191,85 @@ test("unavailable trusted providers never become success or automatic retry",asy
   assert.equal(f.queries.filter(x=>x.sql.includes("commit_typed_note_extraction")).length,0);
  }
 });
+
+test("read-only reconcile observes an unprocessed source, never retries",async()=>{
+ const f=fixture();
+ const state=await createTrustedTypedNoteExtraction(f.auth,f.db).reconcile(input);
+ assert.deepEqual(state,{state:"unprocessed-at-read",organizationId:ORG,sourceId:SOURCE});
+ assert.equal(f.queries.length,2);
+ assert.ok(f.queries.every(q=>q.sql.includes("read_typed_note_for_extraction")));
+ assert.equal(f.authCalls.length,2);
+});
+
+test("read-only reconcile recovers matching evidence after ambiguous durable CAS",async()=>{
+ const f=fixture(),q=f.db.query;
+ f.db.query=async(sql,params)=>{
+   const result=await q(sql,params);
+   if(sql.includes("commit_typed_note_extraction"))throw Error("response lost");
+   return result;
+ };
+ const api=createTrustedTypedNoteExtraction(f.auth,f.db);
+ await assert.rejects(api.commit(input),/response lost/);
+ const previous=f.queries.length;
+ const state=await api.reconcile(input);
+ assert.deepEqual(state,{state:"matching-extraction-at-read",
+   organizationId:ORG,sourceId:SOURCE,revision:2,
+   sourceSha256:f.get().review.sourceSha256,
+   candidatesSha256:f.get().review.candidatesSha256});
+ assert.equal(f.queries.length,previous+2);
+ assert.equal(f.queries.filter(x=>x.sql.includes("commit_typed_note_extraction")).length,1);
+ assert.equal(Object.hasOwn(state,"approved"),false);
+});
+
+test("reconcile distinguishes an alternate valid extraction without writing",async()=>{
+ const f=fixture(),api=createTrustedTypedNoteExtraction(f.auth,f.db);
+ await api.commit({...input,rawExtractionResponse:JSON.stringify({candidates:[{
+   serviceCode:"inspection",units:1,start,end:start+excerpt.length,excerpt,
+ }]})});
+ const n=f.queries.length;
+ assert.deepEqual(await api.reconcile(input),{
+   state:"different-extraction-at-read",organizationId:ORG,sourceId:SOURCE});
+ assert.equal(f.queries.length,n+2);
+ assert.equal(f.queries.filter(q=>q.sql.includes("commit_typed_note_extraction")).length,1);
+});
+
+test("reconcile catches racing authorized updates between read observations",async()=>{
+ const f=fixture(),q=f.db.query;
+ let once=false;
+ f.db.query=async(sql,params)=>{
+   const snapshot=await q(sql,params);
+   if(!once && sql.includes("read_typed_note_for_extraction")){
+     once=true;
+     const {parseUntrustedExtraction}=await import("../lib/intake-extraction-adapter.ts");
+     const review=parseUntrustedExtraction(initial.original,valid);
+     f.tamper(r=>({...r,revision:2,review,extractionAudit:[{
+       sourceRevision:2,actorId:ACTOR,sourceSha256:review.sourceSha256,
+       candidatesSha256:review.candidatesSha256,
+     }]}));
+   }
+   return snapshot;
+ };
+ assert.deepEqual(await createTrustedTypedNoteExtraction(f.auth,f.db).reconcile(input),{
+   state:"changed-during-read",organizationId:ORG,sourceId:SOURCE});
+ assert.equal(f.queries.length,2);
+});
+
+test("revocation and malformed source candidates cannot authorize reconciliation",async()=>{
+ const f=fixture(),q=f.db.query;
+ f.db.query=async(sql,params)=>{
+   const value=await q(sql,params);
+   if(sql.includes("read_typed_note_for_extraction"))f.disable();
+   return value;
+ };
+ await assert.rejects(createTrustedTypedNoteExtraction(f.auth,f.db).reconcile(input),
+   /revoked/);
+ assert.equal(f.queries.length,1);
+ const g=fixture(),api=createTrustedTypedNoteExtraction(g.auth,g.db);
+ await assert.rejects(api.reconcile({...input,send:true}),/Invalid trusted extraction/);
+ assert.equal(g.queries.length,0);
+ const forged=JSON.stringify({candidates:[{
+   serviceCode:"painting",units:1,start,end:start+excerpt.length,excerpt:"false",
+ }]});
+ await assert.rejects(api.reconcile({...input,rawExtractionResponse:forged}));
+ assert.equal(g.queries.length,1);
+});
