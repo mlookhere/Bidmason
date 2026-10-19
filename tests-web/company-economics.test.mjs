@@ -207,7 +207,7 @@ test("economics exclusion preflight cannot evaluate malicious getters",()=>{
  for(const alter of corrupt){
   const rows=valid();alter(rows);
   assert.throws(()=>previewCompanyEconomics(clean,rows),
-    /One to 50 canonical services|Quote line contains unsupported fields/);
+    /One to 50 services|Quote line contains unsupported fields/);
  }
  assert.equal(getterCalls,0);
  assert.equal(previewCompanyEconomics(clean,[valid()[0]]).state,"preview-only");
