@@ -1,3 +1,6 @@
+// Intentional opt-in for isolated legacy SQL test fixtures only.
+process.env.BIDMASON_CI_DISPOSABLE_POSTGRES="1";
+
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createSupabaseActiveSessionVerifier}
