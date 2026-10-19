@@ -186,7 +186,7 @@ test("null correction columns preserve legitimate original previews",async()=>{
  current.correctedScopeReview=null;
  f.records.set(S,current);
  const model=await readTenantIntakeWorkbench(f.sourceStore,f.policyStore,"a",selector);
- assert.equal(model.state,"needs-human-review");
+ assert.equal(model.state,"internal-review-only");
  const price=await previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
   {...selector,request});
  assert.equal(price.economics.quote.totalCents,7000);
