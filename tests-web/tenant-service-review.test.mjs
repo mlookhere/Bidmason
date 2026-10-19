@@ -294,3 +294,67 @@ test('context review snapshots selector before any async source read',async()=>{
  assert.equal(ctx.sourceId,SOURCE);
  assert.equal(ctx.expectedRevision,2);
 });
+
+
+test('stored service review context rejects hostile root, audit and extraction evidence before policy lookup',async()=>{
+ const f=fixture();
+ let getters=0,sourceReads=0,policyReads=0;
+ const bad=[
+  row=>Object.defineProperty(row,'organizationId',{enumerable:true,
+   get(){getters++;throw Error('unsafe organization');}}),
+  row=>Object.defineProperty(row,'revision',{enumerable:true,
+   get(){getters++;throw Error('unsafe revision');}}),
+  row=>Object.defineProperty(row,'original',{enumerable:true,
+   get(){getters++;throw Error('unsafe original');}}),
+  row=>Object.defineProperty(row.original,'text',{enumerable:true,
+   get(){getters++;throw Error('unsafe original text');}}),
+  row=>Object.defineProperty(row,'review',{enumerable:true,
+   get(){getters++;throw Error('unsafe review');}}),
+  row=>Object.defineProperty(row.review,'candidates',{enumerable:true,
+   get(){getters++;throw Error('unsafe candidates');}}),
+  row=>Object.defineProperty(row.review.candidates,'0',{enumerable:true,
+   get(){getters++;throw Error('unsafe candidate index');}}),
+  row=>Object.defineProperty(row.review.candidates[0],'units',{enumerable:true,
+   get(){getters++;throw Error('unsafe quantity');}}),
+  row=>{delete row.review.candidates[0];},
+  row=>{row.review.candidates[Symbol('approved')]=true;},
+  row=>{row.review.candidatesSha256='0'.repeat(64);},
+  row=>Object.defineProperty(row,'extractionAudit',{enumerable:true,
+   get(){getters++;throw Error('unsafe audit array');}}),
+  row=>Object.defineProperty(row.extractionAudit,'0',{enumerable:true,
+   get(){getters++;throw Error('unsafe audit index');}}),
+  row=>{delete row.extractionAudit[0];},
+  row=>{row.extractionAudit[Symbol('send')]=true;},
+  row=>Object.defineProperty(row.extractionAudit[0],'actorId',{enumerable:true,
+   get(){getters++;throw Error('unsafe extracted-by actor');}}),
+  row=>Object.defineProperty(row.extractionAudit[0],'send',{value:true}),
+  row=>{row.extractionAudit[0][Symbol('approved')]=true;},
+  row=>Object.setPrototypeOf(row.extractionAudit[0],{actorId:AUTHOR}),
+  row=>Object.defineProperty(row,'scopeReview',{enumerable:true,
+   get(){getters++;throw Error('unsafe scope review');}}),
+ ];
+ const policies={readAuthorized:async()=>{policyReads++;throw Error('must not read policy');}};
+ for(const mutate of bad){
+  const row=f.get();mutate(row);
+  const stored={readAuthorized:async()=>{sourceReads++;return row;}};
+  await assert.rejects(readServiceReviewContext(stored,policies,'reviewer',selector),
+   /Stored extraction is absent, malformed or already reviewed/);
+ }
+ assert.equal(sourceReads,bad.length);
+ assert.equal(policyReads,0);
+ assert.equal(getters,0);
+});
+
+test('stored service review rejects altered provenance before an atomic scope write',async()=>{
+ const f=fixture(),req=await request(f);
+ const corrupted=f.get();
+ corrupted.review.candidates[0].units=20;
+ const stored={
+  readAuthorized:async()=>corrupted,
+  mutateAuthorized:async opts=>opts.transform(corrupted,REVIEWER),
+ };
+ await assert.rejects(commitAuthorizedServiceReview(stored,f.policyStore,'reviewer',req),
+  /Stored extraction is absent, malformed or already reviewed/);
+ assert.equal(corrupted.scopeReview,null);
+ assert.equal(corrupted.revision,2);
+});
