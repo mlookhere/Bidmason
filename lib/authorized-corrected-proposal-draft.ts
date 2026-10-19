@@ -73,18 +73,22 @@ export async function readAuthorizedCorrectedProposalDraftPreview(
   session: unknown, selector: Selector,
 ): Promise<CorrectedProposalDraftPreview> {
   checkSelector(selector);
-  const readSource = () => sourceStore.readAuthorized({...selector, session});
+  // Both authenticated reads, corrected evidence verification and the
+  // deterministic fingerprint must use the original tenant/source identity.
+  const target:Selector={organizationId:selector.organizationId,
+    sourceId:selector.sourceId};
+  const readSource = () => sourceStore.readAuthorized({...target, session});
   const readPolicy = () => policyStore.readAuthorized({
-    organizationId: selector.organizationId, session,
+    organizationId: target.organizationId, session,
   });
   const first = await readSource();
-  checkReviewed(first, selector);
+  checkReviewed(first, target);
   const originalStamp = sourceStamp(first);
-  const evidence = verifyActivatedCorrectionLineage(first, selector);
+  const evidence = verifyActivatedCorrectionLineage(first, target);
   const scope = first.correctedScopeReview;
   const history = await readPolicy();
   if (!history) throw new Error("Approved company policy is unavailable");
-  const policy = readActivePolicy(history, selector.organizationId);
+  const policy = readActivePolicy(history, target.organizationId);
   const model = buildReviewWorkbench(first.original, evidence.correctedReview, policy);
   if (scope.activationSha256 !== evidence.activationSha256
     || scope.reviewKey !== model.key
@@ -116,25 +120,25 @@ export async function readAuthorizedCorrectedProposalDraftPreview(
     throw new Error("Stored corrected scope integrity check failed");
   }
   const latest = await readSource();
-  checkReviewed(latest, selector);
+  checkReviewed(latest, target);
   if (sourceStamp(latest) !== originalStamp) {
     throw new Error("Corrected evidence changed during internal draft preview");
   }
   const latestHistory = await readPolicy();
   if (!latestHistory) throw new Error("Approved company policy became unavailable");
-  const latestPolicy = readActivePolicy(latestHistory, selector.organizationId);
+  const latestPolicy = readActivePolicy(latestHistory, target.organizationId);
   const latestModel = buildReviewWorkbench(latest.original,
-    verifyActivatedCorrectionLineage(latest, selector).correctedReview, latestPolicy);
+    verifyActivatedCorrectionLineage(latest, target).correctedReview, latestPolicy);
   if (latestModel.key !== model.key) {
     throw new Error("Company pricing changed during corrected draft preview");
   }
   const draftSnapshotSha256 = createHash("sha256").update(JSON.stringify([
-    selector.organizationId, selector.sourceId, latest.revision, originalStamp,
+    target.organizationId, target.sourceId, latest.revision, originalStamp,
     evidence.activationSha256, scope.reviewedSelectionSha256,
     preview.economics.policySha256,
   ])).digest("hex");
   return {state:"preview-only", purpose:"internal-corrected-proposal-draft",
-    organizationId:selector.organizationId,sourceId:selector.sourceId,
+    organizationId:target.organizationId,sourceId:target.sourceId,
     sourceRevision:latest.revision,reviewedBy:scope.reviewedBy,
     activationSha256:evidence.activationSha256,draftSnapshotSha256,preview};
 }
