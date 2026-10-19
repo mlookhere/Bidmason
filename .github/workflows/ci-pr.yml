@@ -183,6 +183,10 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_scope_review_test.sql
       - name: Verify active two-actor company ratecard and stale-policy denial
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_active_policy_test.sql
+      - name: Install staged durable two-actor policy draft and review ledger
+        run: psql -X -v ON_ERROR_STOP=1 -f db/staged_policy_review_history.sql
+      - name: Prove immutable policy review decisions and concurrent durable CAS
+        run: node --test ci/intake_policy_durable_history.test.mjs
       - name: Verify commercial policy economics fail closed in PostgreSQL
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_policy_economics_test.sql
       - name: Prove durable reviewed-policy activation adapter against real PostgreSQL
