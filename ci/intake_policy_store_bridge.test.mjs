@@ -11,6 +11,8 @@ import {createTrustedPostgresPolicyStore}
   from "../lib/trusted-postgres-policy-store.ts";
 import {createTrustedCompanyPolicyActivation}
   from "../lib/trusted-company-policy-activation.ts";
+import {createTrustedCompanyPolicyRecovery}
+  from "../lib/trusted-company-policy-recovery.ts";
 
 function sql(source,values={}) {
   const args=["-X","-q","-A","-t","-v","ON_ERROR_STOP=1"];
@@ -235,4 +237,72 @@ test("first approved policy may follow rejected v1 only with durable gap evidenc
    from bm_intake_private.approved_policy_versions
    where organization_id=:'p1'::uuid;`,{p1:org});
  assert.equal(versions,"2");
+});
+
+
+test("read-only recovery distinguishes missing, matching and superseded policy activation",async()=>{
+  const f=fixture(),org=f.org,sub="submitter-session",rev="reviewer-session";
+  const p1=companyPolicySha256(policy(1));
+  await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+    policy:policy(1),expectedRevision:0,expectedSha256:null});
+  await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+    decision:"approve",expectedRevision:1,expectedSha256:p1});
+  const service=createTrustedCompanyPolicyActivation(f.auth,f.store,f.db);
+  const recovery=createTrustedCompanyPolicyRecovery(f.auth,f.store,f.db);
+  const selector={organizationId:org,reviewerSession:rev,
+    revision:1,policySha256:p1};
+  const before=f.writes;
+  const missing=await recovery.reconcile(selector);
+  assert.equal(missing.state,"not-active-at-read");
+  assert.equal(missing.observedHeadRevision,null);
+  assert.equal(f.writes,before);
+  await service.activate({organizationId:org,reviewerSession:rev});
+  const matching=await recovery.reconcile(selector);
+  assert.equal(matching.state,"matching-active-at-read");
+  assert.equal(matching.observedHeadRevision,1);
+  assert.equal(matching.observedHeadSha256,p1);
+  const p2=companyPolicySha256(policy(2));
+  await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+    policy:policy(2),expectedRevision:1,expectedSha256:p1});
+  await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+    decision:"approve",expectedRevision:2,expectedSha256:p2});
+  await service.activate({organizationId:org,reviewerSession:rev});
+  const prior=await recovery.reconcile(selector);
+  assert.equal(prior.state,"historical-superseded-at-read");
+  assert.equal(prior.observedHeadRevision,2);
+  assert.equal(prior.observedHeadSha256,p2);
+  assert.equal((await recovery.reconcile({...selector,revision:2,
+    policySha256:p2})).state,"matching-active-at-read");
+  const written=f.writes;
+  await assert.rejects(recovery.reconcile({...selector,policySha256:"f".repeat(64)}),
+    /No approved reviewer-owned policy/);
+  await assert.rejects(recovery.reconcile({...selector,reviewerSession:sub}),
+    /No approved reviewer-owned policy/);
+  f.revokeMembership(f.reviewer);
+  await assert.rejects(recovery.reconcile(selector));
+  assert.equal(f.writes,written);
+});
+test("lost-acknowledgement activation can only be INSPECTED without writing again",async()=>{
+  const f=fixture(),org=f.org,sub="submitter-session",rev="reviewer-session";
+  const sha=companyPolicySha256(policy(1));
+  await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+    policy:policy(1),expectedRevision:0,expectedSha256:null});
+  await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+    decision:"approve",expectedRevision:1,expectedSha256:sha});
+  let attempts=0;
+  f.setAfterWrite(()=>{
+    attempts++;
+    if(attempts===1)throw Error("Simulated lost approval acknowledgement");
+  });
+  await assert.rejects(createTrustedCompanyPolicyActivation(
+    f.auth,f.store,f.db).activate({organizationId:org,reviewerSession:rev}),
+    /Simulated lost approval acknowledgement/);
+  const prior=f.writes;
+  const observation=await createTrustedCompanyPolicyRecovery(
+    f.auth,f.store,f.db).reconcile({organizationId:org,
+      reviewerSession:rev,revision:1,policySha256:sha});
+  assert.equal(observation.state,"matching-active-at-read");
+  assert.equal(observation.observedHeadSha256,sha);
+  assert.equal(f.writes,prior);
+  assert.equal(attempts,1);
 });
