@@ -116,6 +116,32 @@ function canonicalQuoteLine(input: unknown): input is QuoteLineInput {
   });
 }
 
+/** Reject accessor indices and decorated arrays before iterating any quote lines.
+ * Return detached, whitelisted source data so later arithmetic cannot observe
+ * mutable caller-owned fields or execute custom serializers. */
+export function snapshotQuoteInputs(requested: QuoteLineInput[]): QuoteLineInput[] {
+  if (!Array.isArray(requested) || requested.length < 1 || requested.length > 50
+    || Object.getPrototypeOf(requested) !== Array.prototype
+    || Reflect.ownKeys(requested).length !== requested.length + 1) {
+    throw new TypeError("One to 50 canonical services are required");
+  }
+  const snapshot: QuoteLineInput[] = [];
+  for (let i = 0; i < requested.length; i++) {
+    const element = Object.getOwnPropertyDescriptor(requested, String(i));
+    if (element?.enumerable !== true || !Object.hasOwn(element, "value")
+      || !canonicalQuoteLine(element.value)) {
+      throw new TypeError("Quote line contains unsupported fields");
+    }
+    const row = element.value;
+    snapshot.push({
+      serviceCode: row.serviceCode, units: row.units,
+      ...(Object.hasOwn(row, "addonAccepted")
+        ? { addonAccepted: row.addonAccepted } : {}),
+    });
+  }
+  return snapshot;
+}
+
 /**
  * Evaluates approved *inputs*, without guessing company-specific contracts.
  * Pricing-policy authorization and quote approval happen outside this engine.
@@ -136,14 +162,11 @@ export function quoteFromPolicy(
   if (policy.minimum.rule === "none" && floor !== 0) {
     throw new TypeError("A disabled minimum cannot have a charge");
   }
-  if (!Array.isArray(requested) || requested.length === 0
-    || requested.length > 50) {
-    throw new TypeError("One to 50 services are required");
-  }
+  const safeRequested = snapshotQuoteInputs(requested);
   const seen = new Set<string>();
   let subtotal = 0;
   let chargeableLines = 0;
-  const lines = requested.map(input => {
+  const lines = safeRequested.map(input => {
     // The calculator is also exported independently of the trusted review
     // workflow. Never silently tolerate caller-provided prices, approval,
     // recipient or send directives, even if the arithmetic ignores them.
