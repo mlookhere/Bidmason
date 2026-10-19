@@ -239,3 +239,7 @@ jobs:
         run: node --test ci/intake_corrected_preview_bridge.test.mjs
       - name: Prove fresh Supabase Auth verification and revocation denial
         run: node --test tests-web/supabase-active-session-verifier.test.mjs
+      - name: Prove current Supabase session row isolation and revoked-signout denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_session_revocation_test.sql
+      - name: Prove verified JWT session binding before private pricing
+        run: node --test tests-web/supabase-session-bound-verifier.test.mjs
