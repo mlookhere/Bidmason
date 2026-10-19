@@ -61,6 +61,7 @@ declare
  v_policy jsonb;
  v_sha text;
  v_previous integer;
+ v_service record;
 begin
  if p_org is null or p_submitter is null or p_reviewer is null
    or p_submitter=p_reviewer
@@ -90,10 +91,45 @@ begin
    or v_policy->>'revision' is distinct from p_revision::text
    or jsonb_typeof(v_policy->'pricing'->'services') is distinct from 'object'
    or v_policy->'pricing'->>'currency' is distinct from 'USD'
-   or jsonb_typeof(v_policy->'tax') is distinct from 'object' then
+   or coalesce(v_policy->'pricing'->>'calculationOrder','')
+        not in ('surcharge-then-discount','discount-then-surcharge')
+   or coalesce(v_policy->'pricing'->'minimum'->>'rule','')
+        not in ('none','per-line','quote')
+   or jsonb_typeof(v_policy->'pricing'->'minimum'->'cents')
+        is distinct from 'number'
+   or coalesce(v_policy->'pricing'->'minimum'->>'cents','')
+        !~ '^(0|[1-9][0-9]{0,12})$'
+   or jsonb_typeof(v_policy->'tax') is distinct from 'object'
+   or coalesce(v_policy->'tax'->>'method','')
+        not in ('none','exclusive-all-charged')
+   or jsonb_typeof(v_policy->'tax'->'bps') is distinct from 'number'
+   or coalesce(v_policy->'tax'->>'bps','')
+        !~ '^(0|[1-9][0-9]{0,4})$'
+   or (v_policy->'tax'->>'bps')::integer>10000 then
    raise exception 'Policy snapshot is invalid or mismatched'
    using errcode='22023';
  end if;
+ if (select count(*) from jsonb_object_keys(v_policy->'pricing'->'services'))=0 then
+  raise exception 'Approved company policy must contain services'
+    using errcode='22023';
+ end if;
+ for v_service in select key,value from jsonb_each(v_policy->'pricing'->'services') loop
+   if v_service.key !~ '^[a-z][a-z0-9_-]{0,63}$'
+     or jsonb_typeof(v_service.value) is distinct from 'object'
+     or length(btrim(coalesce(v_service.value->>'label','')))=0
+     or length(btrim(coalesce(v_service.value->>'unit','')))=0
+     or coalesce(v_service.value->>'billing','')
+       not in ('charged','included','pending')
+     or jsonb_typeof(v_service.value->'rateCents') is distinct from 'number'
+     or coalesce(v_service.value->>'rateCents','')
+       !~ '^(0|[1-9][0-9]{0,12})$'
+     or (v_service.value ? 'optionalAddon'
+       and jsonb_typeof(v_service.value->'optionalAddon')
+         is distinct from 'boolean') then
+     raise exception 'Invalid approved company service configuration'
+       using errcode='22023';
+   end if;
+ end loop;
  v_sha:=encode(sha256(convert_to(p_canonical_policy_text,'UTF8')),'hex');
  -- A single organization row serializes activation against scope CAS FOR SHARE.
  select revision into v_previous from bm_intake_private.active_policy_heads
