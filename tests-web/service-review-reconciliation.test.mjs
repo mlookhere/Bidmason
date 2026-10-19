@@ -277,3 +277,93 @@ test('recovery freezes request identifiers, proof and selections before async au
  assert.equal(readCount,2);
  assert.deepEqual(f.get(),recorded);
 });
+
+
+test('read-only scope recovery rejects hostile persisted evidence before policy lookup',async()=>{
+ const f=fixture(),req=await request(f);
+ let getters=0,policyReads=0,sourceReads=0;
+ const sourceOriginal=f.get();
+ const corrupt=[
+  row=>Object.defineProperty(row.original,'text',{enumerable:true,
+   get(){getters++;throw Error('unsafe source text');}}),
+  row=>Object.defineProperty(row.review,'candidates',{enumerable:true,
+   get(){getters++;throw Error('unsafe candidate list');}}),
+  row=>Object.defineProperty(row.review.candidates,'0',{enumerable:true,
+   get(){getters++;throw Error('unsafe candidate index');}}),
+  row=>Object.defineProperty(row.review.candidates[0],'units',{enumerable:true,
+   get(){getters++;throw Error('unsafe candidate units');}}),
+  row=>{delete row.review.candidates[0];},
+  row=>{row.review.candidates[Symbol('send')]=true;},
+  row=>{row.review.candidatesSha256='0'.repeat(64);},
+  row=>Object.defineProperty(row.extractionAudit,'0',{enumerable:true,
+   get(){getters++;throw Error('unsafe audit index');}}),
+  row=>{delete row.extractionAudit[0];},
+  row=>{row.extractionAudit[Symbol('approved')]=true;},
+  row=>Object.defineProperty(row.extractionAudit[0],'actorId',{enumerable:true,
+   get(){getters++;throw Error('unsafe audit actor');}}),
+  row=>Object.defineProperty(row.extractionAudit[0],'approved',{value:true}),
+  row=>Object.setPrototypeOf(row.extractionAudit[0],{actorId:AUTHOR}),
+  row=>Object.defineProperty(row.extractionAudit[0],'toJSON',{value(){
+   getters++;throw Error('unsafe audit serializer');}}),
+  row=>Object.defineProperty(row,'scopeReview',{enumerable:true,
+   get(){getters++;throw Error('unsafe pending scope');}}),
+ ];
+ const policies={readAuthorized:async()=>{policyReads++;throw Error('unexpected policy read');}};
+ for(const mutate of corrupt){
+  const row=structuredClone(sourceOriginal);mutate(row);
+  const store={readAuthorized:async()=>{sourceReads++;return row;}};
+  const outcome=await reconcileServiceReview(store,policies,'reviewer',req);
+  assert.equal(outcome.state,'conflict');
+ }
+ assert.equal(sourceReads,corrupt.length);
+ assert.equal(policyReads,0);
+ assert.equal(getters,0);
+});
+
+test('recovery cannot confirm getter-backed or decorated committed scope receipts',async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ const stored=f.get(),valid=await reconcileServiceReview(
+  f.sourceStore,f.policyStore,'reviewer',req);
+ assert.equal(valid.state,'confirmed-current-at-read');
+ let getters=0,policyReads=0;
+ const changes=[
+  row=>Object.defineProperty(row.scopeReview,'selectedIndices',{enumerable:true,
+   get(){getters++;throw Error('unsafe reviewed selection');}}),
+  row=>Object.defineProperty(row.scopeReview.selectedIndices,'0',{enumerable:true,
+   get(){getters++;throw Error('unsafe index');}}),
+  row=>{row.scopeReview.selectedIndices[Symbol('approved')]=true;},
+  row=>{delete row.scopeReview.selectedIndices[0];},
+  row=>Object.defineProperty(row.scopeReview,'reviewedBy',{enumerable:true,
+   get(){getters++;throw Error('unsafe reviewed actor');}}),
+  row=>Object.defineProperty(row.scopeReview,'toJSON',{value(){
+   getters++;throw Error('unsafe scope serializer');}}),
+  row=>Object.setPrototypeOf(row.scopeReview,{send:true}),
+  row=>{row.scopeReview[Symbol('recipient')]='forged';},
+  row=>Object.defineProperty(row.scopeReview,'hiddenSend',{value:true}),
+ ];
+ for(const mutate of changes){
+  const row=structuredClone(stored);mutate(row);
+  const store={readAuthorized:async()=>row};
+  const policies={readAuthorized:async()=>{policyReads++;throw Error('unexpected policy read');}};
+  assert.equal((await reconcileServiceReview(store,policies,'reviewer',req)).state,'conflict');
+ }
+ assert.equal(policyReads,0);
+ assert.equal(getters,0);
+});
+
+test('recovery refuses second-read unsafe evidence instead of confirming stale record',async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ let reads=0,getters=0;
+ const source={readAuthorized:async input=>{
+  const value=await f.sourceStore.readAuthorized(input);
+  if(++reads===2)Object.defineProperty(value.extractionAudit[0],'actorId',{
+   enumerable:true,get(){getters++;throw Error('unsafe second read');}});
+  return value;
+ }};
+ assert.equal((await reconcileServiceReview(
+  source,f.policyStore,'reviewer',req)).state,'conflict');
+ assert.equal(reads,2);
+ assert.equal(getters,0);
+});
