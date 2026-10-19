@@ -43,11 +43,78 @@ export interface TrustedTranscriptCorrectionStore {
   }): Promise<TenantTranscriptRecord>;
 }
 
-function checkSelector(selector: Selector): void {
-  if (!selector || typeof selector !== "object"
-    || !UUID.test(selector.organizationId) || !UUID.test(selector.sourceId)) {
+/** Reject non-data directives before reading authorization identifiers. */
+function exactFields(value: unknown, keys: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== keys.length) return false;
+  return keys.every(key => {
+    const d = Object.getOwnPropertyDescriptor(value, key);
+    return d?.enumerable === true && Object.hasOwn(d, "value");
+  });
+}
+function checkSelector(input: Selector, fields: readonly string[] =
+  ["organizationId", "sourceId"]): void {
+  if (!exactFields(input, fields)
+    || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
+    || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)) {
     throw new TypeError("Invalid tenant transcript selector");
   }
+}
+
+function snapshotDecisions(input: TranscriptClarification[]): TranscriptClarification[] {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 50
+    || Object.getPrototypeOf(input) !== Array.prototype
+    || Reflect.ownKeys(input).length !== input.length + 1) {
+    throw new TypeError("Invalid transcript correction decisions");
+  }
+  const decisions: TranscriptClarification[] = [];
+  for (let i = 0; i < input.length; i++) {
+    const d = Object.getOwnPropertyDescriptor(input, String(i));
+    if (d?.enumerable !== true || !Object.hasOwn(d, "value")
+      || !exactFields(d.value, ["uncertaintyIndex", "replacement", "explanation"])) {
+      throw new TypeError("Invalid transcript correction decisions");
+    }
+    const row = d.value as TranscriptClarification;
+    if (!Number.isSafeInteger(row.uncertaintyIndex) || row.uncertaintyIndex < 0
+      || typeof row.replacement !== "string" || row.replacement.length > 512
+      || typeof row.explanation !== "string" || row.explanation.length > 500) {
+      throw new TypeError("Invalid transcript correction decisions");
+    }
+    decisions.push({uncertaintyIndex: row.uncertaintyIndex,
+      replacement: row.replacement, explanation: row.explanation});
+  }
+  return decisions;
+}
+
+/** Detached, data-only caller intent for both CAS and read-only recovery. */
+export function snapshotTranscriptCorrectionRequest(
+  request: CorrectionCommitRequest,
+  message = "Invalid transcript correction request",
+): CorrectionCommitRequest {
+  const names = ["organizationId", "sourceId", "expectedRevision",
+    "expectedSnapshotSha256", "expectedCorrectionSha256", "decisions"];
+  if (!exactFields(request, names)
+    || typeof request.organizationId !== "string" || !UUID.test(request.organizationId)
+    || typeof request.sourceId !== "string" || !UUID.test(request.sourceId)
+    || !Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1
+    || typeof request.expectedSnapshotSha256 !== "string"
+    || !HASH.test(request.expectedSnapshotSha256)
+    || typeof request.expectedCorrectionSha256 !== "string"
+    || !HASH.test(request.expectedCorrectionSha256)) {
+    throw new TypeError(message);
+  }
+  let decisions: TranscriptClarification[];
+  try {
+    decisions = snapshotDecisions(request.decisions);
+  } catch {
+    throw new TypeError(message);
+  }
+  return {organizationId:request.organizationId, sourceId:request.sourceId,
+    expectedRevision:request.expectedRevision,
+    expectedSnapshotSha256:request.expectedSnapshotSha256,
+    expectedCorrectionSha256:request.expectedCorrectionSha256,
+    decisions};
 }
 
 function checkRecord(record: TenantTranscriptRecord | null, selector: Selector):
@@ -79,8 +146,10 @@ export async function readTranscriptCorrectionContext(
   selector: Selector,
 ) {
   checkSelector(selector);
-  const current = await store.readAuthorized({...selector, session});
-  checkRecord(current, selector);
+  const target: Selector = {organizationId:selector.organizationId,
+    sourceId:selector.sourceId};
+  const current = await store.readAuthorized({...target, session});
+  checkRecord(current, target);
   if (current.activeSource || current.correctionAudit.length !== 0) {
     throw new Error("Transcript correction has already been committed");
   }
@@ -90,8 +159,8 @@ export async function readTranscriptCorrectionContext(
   }
   return {
     state: "requires-human-clarification" as const,
-    organizationId: selector.organizationId,
-    sourceId: selector.sourceId,
+    organizationId: target.organizationId,
+    sourceId: target.sourceId,
     expectedRevision: current.revision,
     expectedSnapshotSha256: fingerprint(current),
     originalText: current.originalOutcome.original.text,
@@ -116,33 +185,20 @@ export async function commitAuthorizedTranscriptCorrection(
   request: CorrectionCommitRequest,
 ): Promise<{state:"corrected-for-human-review"; sourceId:string;
   revision:number; correctionSha256:string; correctedBy:string}> {
-  checkSelector(request);
-  if (!request || Object.keys(request).length !== 6
-    || ["organizationId", "sourceId", "expectedRevision",
-      "expectedSnapshotSha256", "expectedCorrectionSha256", "decisions"]
-      .some(key => !Object.hasOwn(request, key))
-    || !Number.isSafeInteger(request.expectedRevision)
-    || request.expectedRevision < 1
-    || typeof request.expectedSnapshotSha256 !== "string"
-    || !HASH.test(request.expectedSnapshotSha256)
-    || typeof request.expectedCorrectionSha256 !== "string"
-    || !HASH.test(request.expectedCorrectionSha256)
-    || !Array.isArray(request.decisions)) {
-    throw new TypeError("Invalid transcript correction request");
-  }
+  const target = snapshotTranscriptCorrectionRequest(request);
   // Capture the only transition approved by this trusted callback. A backend
   // response alone is not proof that this transition was durably committed.
   const prepared: { record: TenantTranscriptRecord | null } = { record: null };
   const committed = await store.mutateAuthorized({
-    session, organizationId: request.organizationId, sourceId: request.sourceId,
+    session, organizationId: target.organizationId, sourceId: target.sourceId,
     permission: "correct-transcript",
     transform: (current, actorId) => {
-      checkRecord(current, request);
+      checkRecord(current, target);
       if (typeof actorId !== "string" || !UUID.test(actorId)) {
         throw new Error("Authenticated reviewer identity required");
       }
-      if (current.revision !== request.expectedRevision
-        || fingerprint(current) !== request.expectedSnapshotSha256) {
+      if (current.revision !== target.expectedRevision
+        || fingerprint(current) !== target.expectedSnapshotSha256) {
         throw new Error("Stale transcript revision; reload correction review");
       }
       if (current.activeSource || current.correctionAudit.length !== 0) {
@@ -151,8 +207,8 @@ export async function commitAuthorizedTranscriptCorrection(
       // Recompute every source span and every correction from the stored
       // original. Never accept browser-generated corrected text or audit data.
       const draft = prepareTranscriptCorrectionDraft(
-        current.originalOutcome, request.decisions);
-      if (draft.correctionSha256 !== request.expectedCorrectionSha256) {
+        current.originalOutcome, target.decisions);
+      if (draft.correctionSha256 !== target.expectedCorrectionSha256) {
         throw new Error("Transcript correction draft changed; review again");
       }
       if (current.revision >= Number.MAX_SAFE_INTEGER) {
@@ -180,11 +236,11 @@ export async function commitAuthorizedTranscriptCorrection(
       return next;
     },
   });
-  checkRecord(committed, request);
+  checkRecord(committed, target);
   const audit = committed.correctionAudit[0];
-  if (!prepared.record || committed.revision !== request.expectedRevision + 1
+  if (!prepared.record || committed.revision !== target.expectedRevision + 1
     || !audit || audit.sourceRevision !== committed.revision
-    || audit.correctionSha256 !== request.expectedCorrectionSha256
+    || audit.correctionSha256 !== target.expectedCorrectionSha256
     || !committed.activeSource || !committed.activeSource.transcriptionSucceeded
     || fingerprint(committed) !== fingerprint(prepared.record)) {
     throw new Error("Trusted transcript persistence did not confirm commit");
@@ -194,14 +250,14 @@ export async function commitAuthorizedTranscriptCorrection(
   // source revision and audit before reporting a confirmed correction. If ACLs
   // change immediately after the write, fail closed without claiming success.
   const stored = await store.readAuthorized({
-    session, organizationId: request.organizationId, sourceId: request.sourceId,
+    session, organizationId: target.organizationId, sourceId: target.sourceId,
   });
-  checkRecord(stored, request);
+  checkRecord(stored, target);
   if (fingerprint(stored) !== fingerprint(prepared.record)) {
     throw new Error("Trusted transcript read-back does not match committed correction");
   }
   return {
-    state: "corrected-for-human-review", sourceId: request.sourceId,
+    state: "corrected-for-human-review", sourceId: target.sourceId,
     revision: committed.revision, correctionSha256: audit.correctionSha256,
     correctedBy: audit.actorId,
   };
