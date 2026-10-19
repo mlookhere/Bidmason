@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { hasCorrectionLifecycle } from "./tenant-service-review.ts";
 import type { ExtractionReview, IntakeSource } from "./intake-review.ts";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readAuthorizedReviewWorkbench, previewAuthorizedWorkbenchSelection,
@@ -17,6 +18,8 @@ export type AuthorizedIntakeRecord = {
   pendingCorrection?: unknown;
   /** Corrected evidence needs renewed human scope review, never old pricing. */
   activatedCorrection?: unknown;
+  /** Even an explicitly human-reviewed correction cannot revive old scope. */
+  correctedScopeReview?: unknown;
 };
 
 /** Must validate session, organization membership and source ownership on
@@ -50,15 +53,17 @@ function checkedRecord(record: AuthorizedIntakeRecord | null,
     || Buffer.byteLength(record.original.text, "utf8") > 65536
     || !Array.isArray(record.review.candidates)
     || record.review.candidates.length > 50
-    || (record.pendingCorrection !== null && record.pendingCorrection !== undefined)
-    || (record.activatedCorrection !== null && record.activatedCorrection !== undefined)) {
+    || hasCorrectionLifecycle(record)) {
     throw new Error("Tenant-owned intake record missing or inconsistent");
   }
   // Consistency stamp detects source/extraction mutation even when a buggy
   // adapter fails to increment revision. NOT authorization or approval.
   const stamp = createHash("sha256").update(JSON.stringify([
     record.organizationId, record.sourceId, record.revision,
-    record.original, record.review, record.pendingCorrection ?? null,
+    record.original, record.review,
+    Object.getOwnPropertyDescriptor(record, "pendingCorrection")?.value ?? null,
+    Object.getOwnPropertyDescriptor(record, "activatedCorrection")?.value ?? null,
+    Object.getOwnPropertyDescriptor(record, "correctedScopeReview")?.value ?? null,
   ])).digest("hex");
   return {record, stamp};
 }

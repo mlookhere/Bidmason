@@ -144,3 +144,50 @@ test("activated correction must not expose the old provider scope through previe
  await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
   {...selector,request}),/missing or inconsistent/);
 });
+
+test("completed corrected human scope cannot be quoted through original tenant workbench",async()=>{
+ const f=fixture(),request=await selected(f);
+ const current=structuredClone(f.records.get(S));
+ // Persisted corrected-scope lifecycle keeps the original extraction intact
+ // and may have NULL pending/activated state; old preview must still be denied.
+ current.revision=5;
+ current.pendingCorrection=null;
+ current.activatedCorrection=null;
+ current.correctedScopeReview={state:"reviewed-corrected-scope-internal-only",
+  sourceRevision:5,selectedIndices:[0],reviewedBy:APPROVER};
+ f.records.set(S,current);
+ await assert.rejects(readTenantIntakeWorkbench(
+  f.sourceStore,f.policyStore,"a",selector),/missing or inconsistent/);
+ await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
+  {...selector,request}),/missing or inconsistent/);
+});
+
+test("correction arriving between original tenant source reads invalidates preview",async()=>{
+ const f=fixture(),request=await selected(f);
+ let sourceReads=0;
+ const source={readAuthorized:async input=>{
+  const value=await f.sourceStore.readAuthorized(input);
+  if(++sourceReads===1) {
+   const changed=structuredClone(f.records.get(S));
+   changed.correctedScopeReview={state:"reviewed-corrected-scope-internal-only"};
+   f.records.set(S,changed);
+  }
+  return value;
+ }};
+ await assert.rejects(previewTenantIntakeSelection(
+  source,f.policyStore,"a",{...selector,request}),/missing or inconsistent/);
+});
+
+test("null correction columns preserve legitimate original previews",async()=>{
+ const f=fixture(),request=await selected(f);
+ const current=structuredClone(f.records.get(S));
+ current.pendingCorrection=null;
+ current.activatedCorrection=null;
+ current.correctedScopeReview=null;
+ f.records.set(S,current);
+ const model=await readTenantIntakeWorkbench(f.sourceStore,f.policyStore,"a",selector);
+ assert.equal(model.state,"needs-human-review");
+ const price=await previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
+  {...selector,request});
+ assert.equal(price.economics.quote.totalCents,7000);
+});
