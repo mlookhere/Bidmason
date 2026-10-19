@@ -168,3 +168,31 @@ test("direct quote accepts only canonical own enumerable data fields", () => {
   const plain = Object.assign(Object.create(null), normal);
   assert.equal(quoteFromPolicy(cleaning, [plain]).totalCents, 12000);
 });
+
+
+test("untrusted line collections cannot execute array or item getters",()=>{
+ let getterCalls=0;
+ const baseline=()=>[{serviceCode:"visit",units:2}];
+ const corrupt=[
+  rows=>Object.defineProperty(rows,"0",{enumerable:true,configurable:true,
+    get(){getterCalls++;throw Error("malicious quote row getter");}}),
+  rows=>{delete rows[0];},
+  rows=>Object.defineProperty(rows,"0",{enumerable:false,
+    value:rows[0],configurable:true}),
+  rows=>{rows[Symbol("approved")]=true;},
+  rows=>Object.defineProperty(rows,"send",{value:true}),
+  rows=>Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  rows=>Object.defineProperty(rows[0],"serviceCode",{enumerable:true,
+    get(){getterCalls++;throw Error("malicious serviceCode getter");}}),
+  rows=>Object.defineProperty(rows[0],"units",{enumerable:true,
+    get(){getterCalls++;throw Error("malicious units getter");}}),
+ ];
+ for(const alter of corrupt){
+  const rows=baseline();alter(rows);
+  assert.throws(()=>quoteFromPolicy(cleaning,rows),
+    /One to 50 canonical services|Quote line contains unsupported fields/);
+ }
+ assert.equal(getterCalls,0);
+ const nullProto=Object.assign(Object.create(null),baseline()[0]);
+ assert.equal(quoteFromPolicy(cleaning,[nullProto]).totalCents,14000);
+});
