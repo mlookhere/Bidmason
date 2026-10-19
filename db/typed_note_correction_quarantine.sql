@@ -125,9 +125,35 @@ begin
 end;
 $guard$;
 
--- Deliberately accepts only an opaque digest of a *request to correct* and a
+-- Accepts a versioned source-and-action commitment to a request and a
 -- human reason, not corrected candidate data. The latter requires a separate,
 -- stronger human correction/activation workflow. No idempotent replay success.
+-- Versioned SQL JSONB correction-request commitment (not an Auth signature).
+create function bm_intake_private.correction_request_sha256(
+ p_org uuid,p_source uuid,p_source_sha text,p_original_sha text,
+ p_proposed_sha text,p_actions jsonb
+) returns text language plpgsql immutable security invoker
+set search_path=pg_catalog,public,bm_intake_private as $hash$
+begin
+ if p_org is null or p_source is null
+  or coalesce(p_source_sha,'') !~ '^[a-f0-9]{64}$'
+  or coalesce(p_original_sha,'') !~ '^[a-f0-9]{64}$'
+  or coalesce(p_proposed_sha,'') !~ '^[a-f0-9]{64}$'
+  or p_actions is null or jsonb_typeof(p_actions) is distinct from 'array'
+  or pg_column_size(p_actions)>32768
+  or jsonb_array_length(p_actions) not between 1 and 100 then
+  raise exception 'Invalid correction request fingerprint inputs' using errcode='22023';
+ end if;
+ return encode(sha256(convert_to(jsonb_build_array(
+   'bm-correction-request-v1',p_org::text,p_source::text,
+   p_source_sha,p_original_sha,p_proposed_sha,p_actions)::text,'UTF8')),'hex');
+end;
+$hash$;
+revoke all on function bm_intake_private.correction_request_sha256(
+ uuid,uuid,text,text,text,jsonb) from public,anon,authenticated;
+grant execute on function bm_intake_private.correction_request_sha256(
+ uuid,uuid,text,text,text,jsonb) to service_role;
+
 create function bm_intake_private.quarantine_typed_note_for_correction(
  p_org uuid,p_actor uuid,p_source uuid,p_expected_revision integer,
  p_expected_source_sha text,p_expected_candidates_sha text,

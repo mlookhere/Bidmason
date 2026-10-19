@@ -232,6 +232,14 @@ begin
    raise exception 'Correction actions do not reproduce immutable source'
     using errcode='22023';
  end if;
+ -- Recompute the original quarantine commitment from source-bound data
+ -- and every reasoned human action. An arbitrary digest cannot save a draft.
+ if bm_intake_private.correction_request_sha256(
+   p_org,p_source,v_source.review->>'sourceSha256',
+   v_original_sha,v_proposed_sha,p_changes) is distinct from p_request_sha then
+   raise exception 'Correction actions differ from original request commitment'
+     using errcode='22023';
+ end if;
  -- SQL JSONB digest is NOT the TypeScript correctionSha256 fingerprint.
  v_actions_sha:=encode(sha256(convert_to(p_changes::text,'UTF8')),'hex');
  -- Database-produced receipt digest: consistency evidence, NOT approval.

@@ -32,6 +32,9 @@ declare
  source_sha text;
  candidate_sha text;
  candidates jsonb;
+ proposed jsonb;
+ actions jsonb;
+ request_sha text;
  expected_review jsonb;
  outcome record;
 begin
@@ -49,6 +52,18 @@ begin
   'candidates',candidates);
  perform bm_intake_private.commit_typed_note_extraction(
   org,creator,src,text_sha,expected_review);
+ proposed:=jsonb_build_array(jsonb_build_object(
+  'serviceCode','painting','units',3,'start',0,
+  'end',length(txt)+1,'excerpt',txt));
+ actions:=jsonb_build_array(jsonb_build_object(
+  'action','replace','index',0,'candidate',proposed->0,
+  'reason','Correct model quantity'));
+ request_sha:=bm_intake_private.correction_request_sha256(
+  org,src,source_sha,candidate_sha,
+  bm_intake_private.canonical_candidate_sha256(proposed),actions);
+ if request_sha=repeat('1',64) then
+  raise exception 'Test request digest remained a placeholder';
+ end if;
 
  -- Untrusted direct update cannot create a quarantined source without a
  -- private receipt, even with service_role UPDATE rights.
@@ -93,7 +108,7 @@ begin
  exception when invalid_parameter_value then null; end;
 
  select * into outcome from bm_intake_private.quarantine_typed_note_for_correction(
-  org,creator,src,2,source_sha,candidate_sha,repeat('1',64),
+  org,creator,src,2,source_sha,candidate_sha,request_sha,
   'Original model candidates need human correction');
  if outcome.quarantined_revision<>4
    or outcome.hold_sha256 !~ '^[a-f0-9]{64}$' then
@@ -139,10 +154,13 @@ reset role;
 -- remain unable to SELECT or insert directly into this append-only ledger.
 do $test$
 begin
- if (select count(*) from bm_intake_private.correction_holds
+ if (select count(*) from bm_intake_private.correction_holds h
   where organization_id='dededede-dede-4ede-8ede-dededededede'
     and actor_id='abababab-abab-4bab-8bab-abababababab'
-    and request_sha256=repeat('1',64)
+    and request_sha256=(
+     select s.correction_hold->>'requestSha256' from public.bm_intake_sources s
+      where s.organization_id=h.organization_id and s.id=h.source_id)
+    and request_sha256<>repeat('1',64)
     and previous_revision=2 and invalidated_scope is null)<>1 then
    raise exception 'Private correction receipt missing or duplicated';
  end if;

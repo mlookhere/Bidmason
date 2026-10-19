@@ -29,6 +29,7 @@ declare
  source_sha text;
  candidate_sha text;
  hold_sha text;
+ request_sha text;
  proposed jsonb;
  actions jsonb;
  invalid_actions jsonb;
@@ -48,6 +49,12 @@ begin
  actions:=jsonb_build_array(jsonb_build_object(
   'action','replace','index',0,'candidate',proposed->0,
   'reason','Correct model quantity'));
+ request_sha:=hold->>'requestSha256';
+ if request_sha is distinct from bm_intake_private.correction_request_sha256(
+   org,src,source_sha,candidate_sha,
+   bm_intake_private.canonical_candidate_sha256(proposed),actions) then
+  raise exception 'Quarantine was not bound to corrected action list';
+ end if;
  -- Verify ALL supported edit forms against the stored original, without
  -- writing a second draft or weakening its one-write uniqueness bound.
  if not bm_intake_private.replay_correction_actions(
@@ -97,18 +104,18 @@ begin
  -- Absent source / unowned source / foreign tenant all deny before exposing it.
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
-   org,other,src,repeat('1',64),hold_sha,proposed,actions,'Correct model quantity');
+   org,other,src,request_sha,hold_sha,proposed,actions,'Correct model quantity');
   raise exception 'Unrelated member staged private correction';
  exception when insufficient_privilege then null; end;
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',creator,src,
-    repeat('1',64),hold_sha,proposed,actions,'Correct model quantity');
+    request_sha,hold_sha,proposed,actions,'Correct model quantity');
   raise exception 'Foreign organization staged correction';
  exception when insufficient_privilege then null; end;
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
-   org,creator,gen_random_uuid(),repeat('1',64),hold_sha,proposed,actions,'Correct model quantity');
+   org,creator,gen_random_uuid(),request_sha,hold_sha,proposed,actions,'Correct model quantity');
   raise exception 'Missing original staged correction';
  exception when insufficient_privilege then null; end;
  -- Source/excerpt, schema, digest and bounded human explanation are required.
@@ -122,7 +129,7 @@ begin
    )) loop
   begin
    perform bm_intake_private.stage_correction_candidate_draft(
-    org,creator,src,repeat('1',64),hold_sha,result_row.candidate,actions,
+    org,creator,src,request_sha,hold_sha,result_row.candidate,actions,
     'Correct model quantity');
    raise exception 'Invalid corrected candidate accepted';
   exception when invalid_parameter_value then null; end;
@@ -134,12 +141,12 @@ begin
  exception when invalid_parameter_value then null; end;
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
-   org,creator,src,repeat('1',64),repeat('0',64),proposed,actions,'Correct model quantity');
+   org,creator,src,request_sha,repeat('0',64),proposed,actions,'Correct model quantity');
   raise exception 'Forged quarantine fingerprint accepted';
  exception when invalid_parameter_value then null; end;
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
-   org,creator,src,repeat('1',64),hold_sha,proposed,actions,' ');
+   org,creator,src,request_sha,hold_sha,proposed,actions,' ');
   raise exception 'Blank human correction reason accepted';
  exception when invalid_parameter_value then null; end;
  -- An action list must reconstruct the final candidates exactly.
@@ -163,23 +170,37 @@ begin
  ] loop
   begin
    perform bm_intake_private.stage_correction_candidate_draft(
-    org,creator,src,repeat('1',64),hold_sha,proposed,invalid_actions,
+    org,creator,src,request_sha,hold_sha,proposed,invalid_actions,
     'Correct model quantity');
    raise exception 'Invalid correction action lineage accepted';
   exception when invalid_parameter_value then null; end;
  end loop;
+ -- Same corrected candidates, altered human reason: must fail the original hash.
+ begin
+  perform bm_intake_private.stage_correction_candidate_draft(
+   org,creator,src,request_sha,hold_sha,proposed,
+   jsonb_set(actions,'{0,reason}',to_jsonb('Edited reason'::text)),
+   'Correct model quantity');
+  raise exception 'Changed correction reason bypassed original commitment';
+ exception when invalid_parameter_value then null; end;
+ begin
+  perform bm_intake_private.stage_correction_candidate_draft(
+   org,creator,src,repeat('1',64),hold_sha,proposed,actions,
+   'Correct model quantity');
+  raise exception 'Arbitrary old-style opaque digest authorized draft';
+ exception when invalid_parameter_value then null; end;
  -- A privileged app role cannot directly forge private correction drafts.
  begin
   insert into bm_intake_private.correction_candidate_drafts(
    organization_id,source_id,actor_id,request_sha256,hold_sha256,
    original_candidates_sha256,proposed_candidates_sha256,
    proposed_candidates,correction_actions,actions_sha256,reason,draft_sha256
-  ) values (org,src,creator,repeat('1',64),hold_sha,candidate_sha,
+  ) values (org,src,creator,request_sha,hold_sha,candidate_sha,
     repeat('2',64),proposed,actions,repeat('4',64),'Forged',repeat('3',64));
   raise exception 'Direct service-role correction draft insert succeeded';
  exception when insufficient_privilege then null; end;
  select * into result_row from bm_intake_private.stage_correction_candidate_draft(
-  org,creator,src,repeat('1',64),hold_sha,proposed,actions,'Correct model quantity');
+  org,creator,src,request_sha,hold_sha,proposed,actions,'Correct model quantity');
  if result_row.stored_candidates_sha256 is distinct from
     bm_intake_private.canonical_candidate_sha256(proposed)
  or result_row.stored_draft_sha256 !~ '^[0-9a-f]{64}$' then
@@ -194,7 +215,7 @@ begin
  end if;
  begin
   perform bm_intake_private.stage_correction_candidate_draft(
-   org,creator,src,repeat('1',64),hold_sha,proposed,actions,'Correct model quantity');
+   org,creator,src,request_sha,hold_sha,proposed,actions,'Correct model quantity');
   raise exception 'Duplicate draft accepted';
  exception when unique_violation then null; end;
  begin
