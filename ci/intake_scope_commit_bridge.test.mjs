@@ -294,3 +294,38 @@ test("real PostgreSQL unreviewed recovery rejects invalid optional add-on select
  assert.equal(f.calls.filter(c=>
    c.statement.includes("commit_typed_note_scope_review")).length,0);
 });
+
+test("reviewed draft handoff is sourced from actual PostgreSQL and never performs another CAS",async()=>{
+ const f=fixture();
+ const selector={session:f.input.session,organizationId:f.org,sourceId:f.sourceId};
+ await assert.rejects(f.api.readReviewedDraft(selector),/persisted reviewed scope/);
+ assert.equal(f.writes,0);
+ const committed=await f.api.commit(f.input);
+ const before=f.calls.length;
+ const handoff=await f.api.readReviewedDraft(selector);
+ assert.equal(handoff.state,"internal-reviewed-scope-only");
+ assert.equal(handoff.sourceRevision,3);
+ assert.equal(handoff.reviewedBy,f.actor);
+ assert.equal(handoff.reviewedSelectionSha256,committed.reviewedSelectionSha256);
+ assert.equal(handoff.preview.economics.policySha256,companyPolicySha256(policy));
+ assert.equal(handoff.preview.selectedServices[0].addonAccepted,true);
+ assert.equal(f.calls.length-before,4);
+ assert.equal(f.writes,1);
+ assert.equal(f.calls.filter(c=>c.statement.includes("commit_typed_note_scope_review")).length,1);
+ assert.equal(Object.hasOwn(handoff,"approved"),false);
+ assert.equal(Object.hasOwn(handoff,"send"),false);
+ f.revokeMember();
+ await assert.rejects(f.api.readReviewedDraft(selector));
+ assert.equal(f.writes,1);
+});
+test("actual PostgreSQL lost scope acknowledgement can be read as draft without retry",async()=>{
+ const f=fixture({lostAck:true});
+ await assert.rejects(f.api.commit(f.input),/Simulated lost/);
+ const handoff=await f.api.readReviewedDraft({
+   session:f.input.session,organizationId:f.org,sourceId:f.sourceId,
+ });
+ assert.equal(handoff.state,"internal-reviewed-scope-only");
+ assert.equal(handoff.reviewedSelectionSha256,
+   f.stored.scope_review.reviewedSelectionSha256);
+ assert.equal(f.writes,1);
+});
