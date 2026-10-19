@@ -251,3 +251,79 @@ test("tenant preview rejects accessor-backed selectors and forged review data be
  assert.equal(called,0);
  assert.equal(f.count().sourceReads,before);
 });
+
+
+test("tenant record rejects unsafe stored fields before executing getters or reading policy",async()=>{
+ const f=fixture();
+ const request=await selected(f);
+ const baseline=f.count().policyReads;
+ let getters=0,reads=0;
+ const mutations=[
+  x=>Object.defineProperty(x,"organizationId",{enumerable:true,
+    get(){getters++;throw Error("unsafe stored tenant");}}),
+  x=>Object.defineProperty(x,"revision",{enumerable:true,
+    get(){getters++;throw Error("unsafe stored revision");}}),
+  x=>Object.defineProperty(x,"original",{enumerable:true,
+    get(){getters++;throw Error("unsafe stored original");}}),
+  x=>Object.defineProperty(x.original,"text",{enumerable:true,
+    get(){getters++;throw Error("unsafe original text");}}),
+  x=>Object.defineProperty(x,"review",{enumerable:true,
+    get(){getters++;throw Error("unsafe stored review");}}),
+  x=>Object.defineProperty(x.review,"candidates",{enumerable:true,
+    get(){getters++;throw Error("unsafe review candidates");}}),
+  x=>Object.defineProperty(x.review.candidates,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe candidate index");}}),
+  x=>Object.defineProperty(x.review.candidates[0],"units",{enumerable:true,
+    get(){getters++;throw Error("unsafe candidate units");}}),
+  x=>{delete x.review.candidates[0];},
+  x=>{x.review.candidates[Symbol("approved")]=true;},
+  x=>{x.review.candidates[0][Symbol("send")]=true;},
+  x=>Object.defineProperty(x.review,"hiddenApproval",{value:true}),
+  x=>Object.defineProperty(x.review.candidates[0],"toJSON",{
+    value(){getters++;throw Error("unsafe candidate serializer");}}),
+  x=>{x.review.candidatesSha256="0".repeat(64);},
+  x=>{x.review.candidates[0].units=9;},
+ ];
+ for(const mutate of mutations){
+  const value=structuredClone(f.records.get(S));
+  mutate(value);
+  const sourceStore={readAuthorized:async()=>{
+    reads++;return value;
+  }};
+  for(const run of [
+   ()=>readTenantIntakeWorkbench(sourceStore,f.policyStore,"a",selector),
+   ()=>previewTenantIntakeSelection(sourceStore,f.policyStore,"a",{
+     ...selector,request,
+   }),
+  ]) {
+   await assert.rejects(run(),/Tenant-owned intake record missing or inconsistent/);
+  }
+ }
+ assert.equal(reads,2*mutations.length);
+ assert.equal(getters,0);
+ assert.equal(f.count().policyReads,baseline);
+});
+
+test("canonical null-prototype tenant records preserve source-bound preview checks",async()=>{
+ const f=fixture();
+ const record=structuredClone(f.records.get(S));
+ const originalNull=Object.assign(Object.create(null),record.original);
+ const reviewNull=Object.assign(Object.create(null),record.review);
+ reviewNull.candidates=reviewNull.candidates.map(row=>
+  Object.assign(Object.create(null),row));
+ const persisted=Object.assign(Object.create(null),{
+  ...record,original:originalNull,review:reviewNull,
+ });
+ const sourceStore={readAuthorized:async()=>persisted};
+ const model=await readTenantIntakeWorkbench(sourceStore,f.policyStore,"a",selector);
+ assert.equal(model.rows[0].status,"available");
+ const chosen=changeReviewSelection(model,emptyReviewSelection(model.key),{
+  type:"select",index:0,checked:true,
+ });
+ const request=prepareReviewPreviewRequest(model,chosen);
+ const preview=await previewTenantIntakeSelection(sourceStore,f.policyStore,"a",{
+  ...selector,request,
+ });
+ assert.equal(preview.state,"preview-only");
+ assert.equal(preview.economics.quote.totalCents,7000);
+});
