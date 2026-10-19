@@ -3,7 +3,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {execFileSync} from "node:child_process";
-import {companyPolicySha256} from "../lib/company-policy-fingerprint.ts";
+import {companyPolicySha256,canonicalCompanyPolicyText}
+ from "../lib/company-policy-fingerprint.ts";
 import {createTrustedCorrectedEconomicsPreview}
  from "../lib/trusted-corrected-economics-preview.ts";
 
@@ -65,17 +66,19 @@ test("PostgreSQL returns only reviewed source lines and requires digest-parity p
  assert.equal(p.policy.pricing.services.painting.rateCents,23000);
  assert.equal(p.evidence.policyRevision,1);
  const adapter=createTrustedCorrectedEconomicsPreview(f.auth,f.db);
- const calculated=companyPolicySha256(p.policy);
- // The older PG fixture activated with policy::text, whereas production
- // must persist JS canonicalCompanyPolicyText bytes. Refuse misalignment
- // rather than quietly pricing with a different approved policy fingerprint.
- if(calculated!==p.evidence.policySha256){
-  await assert.rejects(adapter.preview(f.selector),/policy fingerprint mismatch/);
- }else{
-  const out=await adapter.preview(f.selector);
-  assert.equal(out.economics.quote.totalCents,69000);
-  assert.equal(out.economics.policySha256,p.evidence.policySha256);
- }
+ // No conditional pass: the database must contain precisely the canonical
+ // bytes computed by the production TypeScript serializer.
+ assert.equal(canonicalCompanyPolicyText(p.policy),"{\"pricing\":{\"calculationOrder\":\"surcharge-then-discount\",\"currency\":\"USD\",\"minimum\":{\"cents\":0,\"rule\":\"none\"},\"policyId\":\"correction-painting-v1\",\"services\":{\"cleaning\":{\"billing\":\"pending\",\"label\":\"Cleaning\",\"rateCents\":9900,\"unit\":\"visit\"},\"painting\":{\"billing\":\"charged\",\"label\":\"Painting\",\"optionalAddon\":false,\"rateCents\":23000,\"unit\":\"room\"}}},\"revision\":1,\"tax\":{\"bps\":0,\"method\":\"none\"}}");
+ assert.equal(companyPolicySha256(p.policy),p.evidence.policySha256,
+  "SQL-approved ratecard must be byte-identical to TypeScript canonical policy");
+ const out=await adapter.preview(f.selector);
+ assert.equal(out.state,"preview-only");
+ assert.equal(out.deliveryAuthorized,false);
+ assert.equal(out.economics.quote.totalCents,69000);
+ assert.equal(out.economics.totalWithTaxCents,69000);
+ assert.equal(out.economics.policySha256,p.evidence.policySha256);
+ assert.equal(out.evidence.internalDecisionSha256,f.selector.expectedDecisionSha256);
+ assert.equal(Object.hasOwn(out,"policy"),false);
  assert.equal(f.queries,2);
 });
 test("PostgreSQL rejects creator, foreign tenant and revoked reviewer before pricing",async()=>{

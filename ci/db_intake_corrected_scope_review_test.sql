@@ -31,6 +31,7 @@ declare
  v_prior_text text;
  source_hold jsonb;
  policy jsonb;
+ policy_canonical text;
  active record;
  candidates jsonb;
  selected jsonb:='[0]'::jsonb;
@@ -62,10 +63,17 @@ begin
      'cleaning',jsonb_build_object('label','Cleaning','unit','visit',
        'billing','pending','rateCents',9900))),
   'tax',jsonb_build_object('method','none','bps',0));
+ -- JSONB::text is NOT the canonical TypeScript policy serialization.
+ -- Store the actual canonical UTF-8 bytes; never accept a visually
+ -- equivalent JSON policy whose SHA differs from the approved ratecard.
+ policy_canonical:='{"pricing":{"calculationOrder":"surcharge-then-discount","currency":"USD","minimum":{"cents":0,"rule":"none"},"policyId":"correction-painting-v1","services":{"cleaning":{"billing":"pending","label":"Cleaning","rateCents":9900,"unit":"visit"},"painting":{"billing":"charged","label":"Painting","optionalAddon":false,"rateCents":23000,"unit":"room"}}},"revision":1,"tax":{"bps":0,"method":"none"}}';
+ if policy_canonical::jsonb is distinct from policy then
+  raise exception 'Canonical corrected policy fixture drifted from approved bytes';
+ end if;
  perform bm_intake_private.ci_stage_approved_policy(
-   org,creator,reviewer,policy::text);
+   org,creator,reviewer,policy_canonical);
  select * into active from bm_intake_private.activate_scope_policy(
-   org,creator,reviewer,1,policy::text);
+   org,creator,reviewer,1,policy_canonical);
  if active.activated_revision<>1 then
   raise exception 'Two-person company policy approval fixture unavailable';
  end if;
