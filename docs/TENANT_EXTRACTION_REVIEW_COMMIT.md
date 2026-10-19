@@ -447,3 +447,53 @@ authenticated review consent or pricing approval. Live two-person
 Supabase Auth verification, production approved-policy adapter, RLS,
 private Storage, real anti-malware checks and security/privacy/legal
 acceptance are still mandatory; no sendable quote is produced.
+
+
+## Read-only recovery for an uncertain human-review commit
+
+`db/typed_note_scope_inspect.sql` stages a **private, service-role-only
+primary PostgreSQL read** called
+`bm_intake_private.inspect_typed_note_scope_commit`. A trusted backend
+must independently verify the live session before supplying the actor
+identity. The function rejects unauthorized, revoked, foreign-tenant or
+same-tenant noncreator access before disclosing whether a source exists.
+It locks current membership and source rows for the duration of the read,
+recomputes the immutable original/candidate hashes and validates the
+extraction audit. For a persisted revision 3 it also verifies **both**
+review fingerprints against the historical immutable approved policy
+version, then checks whether the policy is still the active head.
+
+The read returns exactly one of these **point-in-time observations**, never
+an authorization decision:
+
+- `unreviewed-at-read`: source remains revision 2 with no persisted
+  human-review draft, **not proof of rollback** or permission to retry.
+- `matching-scope-at-read`: a persisted revision 3 has the expected
+  selection fingerprint and is bound to the currently active policy;
+  **not proof the caller's particular lost request created it**.
+- `different-scope-at-read`: the persisted, independently validated
+  selection fingerprint is different; no retry or overwrite.
+- `matching-stale-policy-at-read`: historical evidence matches, but a
+  newer policy is active; the review is **not a current pricing authority**.
+
+Invalid/modified evidence and revoked authorization throw instead of
+returning reassuring classifications. There is no write, no CAS retry,
+no approval, no customer send and no implicit promotion from an audit
+snapshot to an approved quote. Two fresh, separately authorized reads
+can provide additional recovery evidence, but still cannot prove the
+history of an ambiguous acknowledgement or prevent a later change.
+
+`ci/intake_policy_fingerprint_bridge.test.mjs` now exercises this
+private read against real disposable PostgreSQL before and after the
+actual TypeScript→SQL scope review, including two matching reads after
+simulating a lost acknowledgement, a different selection, a subsequent
+approved policy revision, foreign/noncreator denial and revoked
+membership. It verifies the function is unavailable to the ordinary
+authenticated role and never changes the persisted extraction audit.
+The `intake-db` CI job installs the read function and executes these
+cases without weakening any existing gate.
+
+This remains a staged recovery contract, **not** a connected real
+Supabase Auth, authorization, policy approval or provider read adapter.
+Item 3 two-user live isolation and the organization's privacy, security,
+retention and incident-recovery acceptance remain mandatory.
