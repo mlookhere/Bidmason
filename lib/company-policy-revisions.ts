@@ -97,8 +97,12 @@ function validateHistory(history: PolicyHistory, organizationId: string): void {
       || item.revision !== index + 1
       || !["draft", "approved", "rejected"].includes(item.status)
       || typeof item.submittedBy !== "string"
+      || !UUID.test(item.submittedBy)
       || (item.status === "draft" && item.reviewedBy !== null)
-      || (item.status !== "draft" && typeof item.reviewedBy !== "string")) {
+      || (item.status !== "draft"
+        && (typeof item.reviewedBy !== "string"
+          || !UUID.test(item.reviewedBy)
+          || item.reviewedBy === item.submittedBy))) {
       throw new Error("Malformed immutable policy history");
     }
     validatePolicy(item.policy, item.revision);
