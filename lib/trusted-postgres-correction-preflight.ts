@@ -87,8 +87,10 @@ export function createTrustedPostgresCorrectionPreflightStore(
       // staged database has NO correction columns and cannot write them.
       // A changed schema/projection must fail validation above until a
       // separately reviewed, tested correction-specific SQL adapter exists.
-      return {...record,pendingCorrection:null,activatedCorrection:null}
-        satisfies TenantExtractionCorrectionRecord;
+      const projected: TenantExtractionCorrectionRecord = {
+        ...record, pendingCorrection:null, activatedCorrection:null,
+      };
+      return projected;
     },
     async mutateAuthorized(_input){
       // This MUST remain unavailable until a real database migration
