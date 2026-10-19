@@ -5,7 +5,8 @@ import {execFileSync} from "node:child_process";
 import {submitCompanyPolicyDraft,reviewCompanyPolicyDraft}
   from "../lib/company-policy-service.ts";
 import {readActivePolicy} from "../lib/company-policy-revisions.ts";
-import {companyPolicySha256} from "../lib/company-policy-fingerprint.ts";
+import {canonicalCompanyPolicyText,companyPolicySha256}
+  from "../lib/company-policy-fingerprint.ts";
 import {createTrustedPostgresPolicyStore}
   from "../lib/trusted-postgres-policy-store.ts";
 import {createTrustedCompanyPolicyActivation}
@@ -165,4 +166,73 @@ test("post-write revocation or acknowledgement loss is not retried",async()=>{
         organizationId:org,session:"submitter-session"})).revisions[0].status,"draft");
     }
   }
+});
+
+test("approved policy v3 activates over an immutable rejected v2, never over missing proof",async()=>{
+ const f=fixture(),org=f.org,sub="submitter-session",rev="reviewer-session";
+ const activation=createTrustedCompanyPolicyActivation(f.auth,f.store,f.db);
+ const firstSha=companyPolicySha256(policy(1));
+ await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,policy:policy(1),
+   expectedRevision:0,expectedSha256:null});
+ await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,decision:"approve",
+   expectedRevision:1,expectedSha256:firstSha});
+ assert.equal((await activation.activate({organizationId:org,reviewerSession:rev}))
+   .revision,1);
+ const rejectedSha=companyPolicySha256(policy(2));
+ await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,policy:policy(2),
+   expectedRevision:1,expectedSha256:firstSha});
+ // Without a separately recorded rejection, no privileged SQL may skip v2.
+ const attempt=()=>sql(`set role service_role;
+   select activated_revision from bm_intake_private.activate_scope_policy(
+     :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,3,:'p4'::text);`,
+   {p1:org,p2:f.submitter,p3:f.reviewer,
+     p4:canonicalCompanyPolicyText(policy(3))});
+ assert.throws(attempt,/Unproven rejected policy revisions/);
+ await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+   decision:"reject",expectedRevision:2,expectedSha256:rejectedSha});
+ // A rejected v2 alone is insufficient: the target v3 needs an
+ // independently approved and SHA-matching event, not just actor UUIDs.
+ assert.throws(attempt,/Unproven rejected policy revisions/);
+ const sha3=companyPolicySha256(policy(3));
+ await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+   policy:policy(3),expectedRevision:2,expectedSha256:rejectedSha});
+ assert.throws(attempt,/Unproven rejected policy revisions/);
+ await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+   decision:"approve",expectedRevision:3,expectedSha256:sha3});
+ const result=await activation.activate({organizationId:org,
+   reviewerSession:rev});
+ assert.equal(result.revision,3);
+ assert.equal(result.policySha256,sha3);
+ assert.deepEqual((await f.store.readAuthorized({organizationId:org,
+   session:rev})).revisions.map(x=>x.status),
+   ["approved","rejected","approved"]);
+ assert.equal(JSON.parse(sql(`select row_to_json(t) from (
+     select revision,policy_sha256 from bm_intake_private.active_policy_heads
+     where organization_id=:'p1'::uuid) t;`,{p1:org})).revision,3);
+ assert.equal((await activation.activate({organizationId:org,
+   reviewerSession:rev}).then(()=>false,()=>true)),true);
+ const events=sql(`select count(*) from bm_intake_private.approved_policy_versions
+   where organization_id=:'p1'::uuid;`,{p1:org});
+ assert.equal(events,"2"); // v1 and v3; rejected v2 was NEVER activated
+});
+
+test("first approved policy may follow rejected v1 only with durable gap evidence",async()=>{
+ const f=fixture(),org=f.org,sub="submitter-session",rev="reviewer-session";
+ const sha1=companyPolicySha256(policy(1)),sha2=companyPolicySha256(policy(2));
+ await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+   policy:policy(1),expectedRevision:0,expectedSha256:null});
+ await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+   decision:"reject",expectedRevision:1,expectedSha256:sha1});
+ await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+   policy:policy(2),expectedRevision:1,expectedSha256:sha1});
+ await reviewCompanyPolicyDraft(f.store,rev,{organizationId:org,
+   decision:"approve",expectedRevision:2,expectedSha256:sha2});
+ const activated=await createTrustedCompanyPolicyActivation(
+   f.auth,f.store,f.db).activate({organizationId:org,reviewerSession:rev});
+ assert.equal(activated.revision,2);
+ assert.equal(activated.policySha256,sha2);
+ const versions=sql(`select string_agg(revision::text,',' order by revision)
+   from bm_intake_private.approved_policy_versions
+   where organization_id=:'p1'::uuid;`,{p1:org});
+ assert.equal(versions,"2");
 });
