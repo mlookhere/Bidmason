@@ -68,7 +68,7 @@ function exactFields(value: unknown, fields: readonly string[]): boolean {
 }
 /** Persistence may add columns, but fields used for authority and digest
  * must be own enumerable data, never inherited or accessor-backed values. */
-function dataProjection(value: unknown, fields: readonly string[]): boolean {
+function dataProjection(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
   return fields.every(key => {
