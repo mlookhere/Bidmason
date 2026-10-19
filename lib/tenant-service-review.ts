@@ -48,6 +48,29 @@ export function hasCorrectionLifecycle(record: unknown): boolean {
 }
 type Selector = { organizationId: string; sourceId: string };
 
+/** Validate data-only review requests before inspecting authorization fields. */
+function exactReviewObject(value: unknown, fields: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const own = Reflect.ownKeys(value);
+  return own.length === fields.length && own.every(key => {
+    if (typeof key !== "string" || !fields.includes(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+  });
+}
+function exactReviewArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value) || value.length > 50
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+    if (descriptor?.enumerable !== true
+      || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
+}
+
 /** Must enforce CURRENT authenticated source ownership and reviewer permission
  * inside one atomic compare-and-swap transaction. No browser actor ID. */
 export interface TrustedServiceReviewStore {
@@ -112,24 +135,27 @@ export async function readServiceReviewContext(
   session: unknown,
   selector: Selector,
 ) {
+  if (!exactReviewObject(selector, ["organizationId", "sourceId"]))
+    throw new TypeError("Invalid reviewed intake source selector");
   checkSelector(selector);
-  const first = await sourceStore.readAuthorized({ ...selector, session });
-  checkRecord(first, selector);
-  const policy = await policySnapshot(policyStore, session, selector.organizationId);
+  const target = {organizationId:selector.organizationId, sourceId:selector.sourceId};
+  const first = await sourceStore.readAuthorized({ ...target, session });
+  checkRecord(first, target);
+  const policy = await policySnapshot(policyStore, session, target.organizationId);
   const model = buildReviewWorkbench(first.original, first.review!, policy);
-  const latest = await sourceStore.readAuthorized({ ...selector, session });
-  checkRecord(latest, selector);
+  const latest = await sourceStore.readAuthorized({ ...target, session });
+  checkRecord(latest, target);
   if (serviceReviewFingerprint(first) !== serviceReviewFingerprint(latest)) {
     throw new Error("Intake evidence changed during review; refresh required");
   }
-  const latestPolicy = await policySnapshot(policyStore, session, selector.organizationId);
+  const latestPolicy = await policySnapshot(policyStore, session, target.organizationId);
   const latestModel = buildReviewWorkbench(latest.original, latest.review!, latestPolicy);
   if (latestModel.key !== model.key) {
     throw new Error("Company policy changed during review; refresh required");
   }
   return {
     state: "requires-human-service-review" as const,
-    ...selector, expectedRevision: first.revision,
+    ...target, expectedRevision: first.revision,
     expectedSnapshotSha256: serviceReviewFingerprint(first), model,
   };
 }
@@ -151,40 +177,52 @@ export async function commitAuthorizedServiceReview(
   request: ServiceReviewCommitRequest,
 ): Promise<{ state: "reviewed-for-proposal-draft"; sourceId: string;
   revision: number; reviewedSelectionSha256: string; reviewedBy: string }> {
-  checkSelector(request);
-  if (Object.keys(request).length !== 7 || [
+  if (!exactReviewObject(request, [
     "organizationId", "sourceId", "expectedRevision", "expectedSnapshotSha256",
     "reviewKey", "selectedIndices", "acceptedAddonCodes",
-  ].some(k => !Object.hasOwn(request, k))
-    || !Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1
+  ])) throw new TypeError("Invalid reviewed scope commit request");
+  checkSelector(request);
+  if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1
     || typeof request.expectedSnapshotSha256 !== "string"
     || !HASH.test(request.expectedSnapshotSha256)
     || typeof request.reviewKey !== "string" || !HASH.test(request.reviewKey)
-    || !Array.isArray(request.selectedIndices)
-    || !Array.isArray(request.acceptedAddonCodes)) {
+    || !exactReviewArray(request.selectedIndices)
+    || request.selectedIndices.length === 0
+    || !exactReviewArray(request.acceptedAddonCodes)) {
     throw new TypeError("Invalid reviewed scope commit request");
   }
-  const policy = await policySnapshot(policyStore, session, request.organizationId);
+  // Copy every client-controlled scalar and selection before awaiting the
+  // first policy or membership lookup. The caller cannot rewrite a CAS
+  // decision or its add-on acknowledgement during async authorization.
+  const target: ServiceReviewCommitRequest = {
+    organizationId:request.organizationId, sourceId:request.sourceId,
+    expectedRevision:request.expectedRevision,
+    expectedSnapshotSha256:request.expectedSnapshotSha256,
+    reviewKey:request.reviewKey,
+    selectedIndices:[...request.selectedIndices],
+    acceptedAddonCodes:[...request.acceptedAddonCodes],
+  };
+  const policy = await policySnapshot(policyStore, session, target.organizationId);
   const expected: { record: TenantServiceReviewRecord | null } = {record:null};
   const committed = await sourceStore.mutateAuthorized({
-    organizationId: request.organizationId, sourceId: request.sourceId,
+    organizationId: target.organizationId, sourceId: target.sourceId,
     session, permission: "review-extraction",
     transform(current, actorId) {
       checkRecord(current, request);
       if (typeof actorId !== "string" || !UUID.test(actorId)) {
         throw new Error("Authenticated service reviewer identity required");
       }
-      if (current.revision !== request.expectedRevision
-        || serviceReviewFingerprint(current) !== request.expectedSnapshotSha256) {
+      if (current.revision !== target.expectedRevision
+        || serviceReviewFingerprint(current) !== target.expectedSnapshotSha256) {
         throw new Error("Stale reviewed extraction revision; reload");
       }
       const model = buildReviewWorkbench(current.original, current.review!, policy);
-      if (model.key !== request.reviewKey) {
+      if (model.key !== target.reviewKey) {
         throw new Error("Approved company policy or review key changed");
       }
       const selection = prepareReviewPreviewRequest(model, {
-        key:request.reviewKey, selectedIndices:request.selectedIndices,
-        acceptedAddonCodes:request.acceptedAddonCodes,
+        key:target.reviewKey, selectedIndices:target.selectedIndices,
+        acceptedAddonCodes:target.acceptedAddonCodes,
       });
       const preview = previewReviewedEconomics(current.original, current.review!,
         selection.selectedIndices, policy, selection.acceptedAddonCodes);
@@ -211,20 +249,20 @@ export async function commitAuthorizedServiceReview(
   }
   // Authorized primary read-back; a failure is INDETERMINATE, not rollback.
   const persisted = await sourceStore.readAuthorized({
-    organizationId:request.organizationId, sourceId:request.sourceId, session,
+    organizationId:target.organizationId, sourceId:target.sourceId, session,
   });
   if (!persisted || serviceReviewFingerprint(persisted) !== serviceReviewFingerprint(expected.record)) {
     throw new Error("Reviewed scope did not match authorized read-back");
   }
   // Policy changes after the write leave a durable but stale bound decision.
   // Never claim current approval; downstream must always revalidate binding.
-  const latestPolicy = await policySnapshot(policyStore, session, request.organizationId);
+  const latestPolicy = await policySnapshot(policyStore, session, target.organizationId);
   const latestModel = buildReviewWorkbench(persisted.original, persisted.review!, latestPolicy);
-  if (latestModel.key !== request.reviewKey) {
+  if (latestModel.key !== target.reviewKey) {
     throw new Error("Company policy changed during reviewed scope commit; reconcile");
   }
   return {
-    state:"reviewed-for-proposal-draft",sourceId:request.sourceId,
+    state:"reviewed-for-proposal-draft",sourceId:target.sourceId,
     revision:persisted.revision,
     reviewedSelectionSha256:persisted.scopeReview!.reviewedSelectionSha256,
     reviewedBy:persisted.scopeReview!.reviewedBy,

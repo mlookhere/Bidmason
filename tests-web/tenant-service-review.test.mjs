@@ -209,3 +209,88 @@ test('legacy review rejects inherited and getter-backed correction state without
  assert.equal(hasCorrectionLifecycle({pendingCorrection:null,activatedCorrection:null,
   correctedScopeReview:null}),false);
 });
+test('review selectors reject hidden and accessor directives without authorizing source reads',async()=>{
+ const f=fixture(),hidden={...selector},getter={...selector},foreign={...selector};
+ let called=0;
+ Object.defineProperty(hidden,'send',{value:true});
+ Object.defineProperty(getter,'organizationId',{enumerable:true,
+  get(){called++;return ORG;}});
+ Object.setPrototypeOf(foreign,{send:true});
+ for(const bad of [hidden,getter,foreign]){
+  await assert.rejects(readServiceReviewContext(f.sourceStore,f.policyStore,
+   'reviewer',bad),/Invalid reviewed intake source selector/);
+ }
+ assert.equal(called,0);
+ assert.equal(f.counts().reads,0);
+});
+
+test('human scope commit denies forged hidden/symbol/accessor fields and array getters',async()=>{
+ const f=fixture(),req=await request(f);
+ let getterCalls=0;
+ const hidden={...req};
+ Object.defineProperty(hidden,'send',{value:true});
+ const symbolic={...req};
+ symbolic[Symbol('approved')]=true;
+ const accessor={...req};
+ Object.defineProperty(accessor,'sourceId',{enumerable:true,
+  get(){getterCalls++;return SOURCE;}});
+ const inherited=Object.assign(Object.create({send:true}),req);
+ const arrayGetter={...req,selectedIndices:[0]};
+ Object.defineProperty(arrayGetter.selectedIndices,'0',{configurable:true,enumerable:true,
+  get(){getterCalls++;return 0;}});
+ const addonGetter={...req,acceptedAddonCodes:['carpet']};
+ Object.defineProperty(addonGetter.acceptedAddonCodes,'0',{configurable:true,enumerable:true,
+  get(){getterCalls++;return 'carpet';}});
+ const extraArray={...req,selectedIndices:[0]};
+ Object.defineProperty(extraArray.selectedIndices,'send',{value:true});
+ const sparse={...req,selectedIndices:new Array(1)};
+ for(const bad of [hidden,symbolic,accessor,inherited,arrayGetter,addonGetter,extraArray,sparse]){
+  await assert.rejects(commitAuthorizedServiceReview(
+   f.sourceStore,f.policyStore,'reviewer',bad),/Invalid reviewed scope commit request/);
+ }
+ assert.equal(getterCalls,0);
+ assert.equal(f.counts().mutations,0);
+ assert.equal(f.get().scopeReview,null);
+});
+
+test('scope review snapshots tenant, source, receipts and selections before async policy read',async()=>{
+ const f=fixture(),req=await request(f);
+ let observed=0;
+ f.hooks(()=>{},()=>{},()=>{
+  observed++;
+  req.organizationId=OTHER;
+  req.sourceId=OTHER;
+  req.expectedRevision=999;
+  req.expectedSnapshotSha256='0'.repeat(64);
+  req.reviewKey='1'.repeat(64);
+  req.selectedIndices[0]=1;
+  req.acceptedAddonCodes.push('carpet');
+ });
+ const confirmed=await commitAuthorizedServiceReview(
+  f.sourceStore,f.policyStore,'reviewer',req);
+ assert.equal(confirmed.sourceId,SOURCE);
+ assert.equal(confirmed.revision,3);
+ assert.deepEqual(f.get().scopeReview.selectedIndices,[0]);
+ assert.deepEqual(f.get().scopeReview.acceptedAddonCodes,[]);
+ assert.ok(observed>=2);
+});
+
+test('context review snapshots selector before any async source read',async()=>{
+ const f=fixture(),mutable={...selector};
+ const original=f.sourceStore.readAuthorized.bind(f.sourceStore);
+ let switched=false;
+ const store={
+  readAuthorized(input){
+   if(!switched){
+    switched=true;
+    mutable.organizationId=OTHER;
+    mutable.sourceId=OTHER;
+   }
+   return original(input);
+  },mutateAuthorized:f.sourceStore.mutateAuthorized,
+ };
+ const ctx=await readServiceReviewContext(store,f.policyStore,'reviewer',mutable);
+ assert.equal(ctx.organizationId,ORG);
+ assert.equal(ctx.sourceId,SOURCE);
+ assert.equal(ctx.expectedRevision,2);
+});
