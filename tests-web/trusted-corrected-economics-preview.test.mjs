@@ -273,3 +273,22 @@ test("corrected pricing rejects SQL envelope getters and mismatched PostgreSQL m
  }
  assert.equal(getterCalls,0);
 });
+
+test("legacy corrected pricing requires a disposable CI marker",()=>{
+ const auth={async verifyActiveSession(){return {userId:actor};}};
+ const db={async query(){throw Error("unsafe legacy SQL invoked");}};
+ const was=process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+ try {
+  delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+  assert.throws(()=>createTrustedCorrectedEconomicsPreview(
+   auth,db,"disposable-postgres-test-no-session-lock"),
+   /Unsafe legacy pricing preview disabled/);
+  process.env.BIDMASON_CI_DISPOSABLE_POSTGRES="true";
+  assert.throws(()=>createTrustedCorrectedEconomicsPreview(
+   auth,db,"disposable-postgres-test-no-session-lock"),
+   /Unsafe legacy pricing preview disabled/);
+ } finally {
+  if(was===undefined)delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+  else process.env.BIDMASON_CI_DISPOSABLE_POSTGRES=was;
+ }
+});
