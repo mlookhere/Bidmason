@@ -61,6 +61,11 @@ test("trusted reviewer policy activation bridges durable TS history to real PG",
     {p1:org,p2:"policy-adapter-"+org,p3:submitter,p4:reviewer});
   let activeReviewer=reviewer;
   let history=approve(null,org,submitter,reviewer,policy1);
+  sql(`set role service_role;
+    select bm_intake_private.ci_stage_approved_policy(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:submitter,p3:reviewer,
+      p4:JSON.stringify(policy1)});
   let reads=0,writes=0,authCalls=0,lostAck=false;
   const session="trusted-ci-review";
   const auth={async verifyActiveSession(provided) {
@@ -114,6 +119,11 @@ test("trusted reviewer policy activation bridges durable TS history to real PG",
       ...policy1.pricing.services.cleaning,rateCents:14000}},
   }};
   history=approve(history,org,submitter,reviewer,secondPolicy);
+  sql(`set role service_role;
+    select bm_intake_private.ci_stage_approved_policy(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:submitter,p3:reviewer,
+      p4:JSON.stringify(secondPolicy)});
   activeReviewer=submitter;
   await assert.rejects(service.activate(input),/authenticated distinct reviewer/);
   assert.equal(writes,1);
@@ -127,6 +137,11 @@ test("trusted reviewer policy activation bridges durable TS history to real PG",
   const thirdPolicy={...secondPolicy,revision:3,pricing:{
     ...secondPolicy.pricing,policyId:"synthetic-activation-3"}};
   history=approve(history,org,submitter,reviewer,thirdPolicy);
+  sql(`set role service_role;
+    select bm_intake_private.ci_stage_approved_policy(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:submitter,p3:reviewer,
+      p4:JSON.stringify(thirdPolicy)});
   sql(`delete from public.bm_memberships
     where organization_id=:'p1'::uuid and user_id=:'p2'::uuid;`,
     {p1:org,p2:reviewer});
