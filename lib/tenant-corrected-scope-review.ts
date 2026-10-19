@@ -42,9 +42,10 @@ export interface TrustedCorrectedScopeStore {
   }):Promise<TenantCorrectedScopeRecord>;
 }
 
-function checkSelector(value:Selector):void {
+function checkSelector(value:Selector, exact=false):void {
   if(!value||typeof value!=="object"||Array.isArray(value)
     ||![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    ||(exact&&Reflect.ownKeys(value).length!==2)
     ||["organizationId","sourceId"].some(key=>{
       const d=Object.getOwnPropertyDescriptor(value,key);
       return d?.enumerable!==true||!Object.hasOwn(d,"value");
@@ -91,7 +92,7 @@ export async function readCorrectedScopeContext(
   policyStore:Pick<TrustedPolicyStore,"readAuthorized">,
   session:unknown,target:Selector,
 ){
-  checkSelector(target);
+  checkSelector(target,true);
   // Keep both policy and source authorizations bound to the original selector.
   const bound:Selector={organizationId:target.organizationId,sourceId:target.sourceId};
   const first=await sourceStore.readAuthorized({...bound,session});
