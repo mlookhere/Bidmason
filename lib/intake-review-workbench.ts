@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { VersionedEconomicsPolicy } from "./company-economics.ts";
+import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import { selectReviewedServices, type ExtractionReview,
   type IntakeSource } from "./intake-review.ts";
 
@@ -77,7 +78,7 @@ export function buildReviewWorkbench(
   });
   // Consistency key only, not a tenant authorization or server signature.
   const key = createHash("sha256").update(JSON.stringify([
-    review.sourceSha256, review.candidatesSha256, policy,
+    review.sourceSha256, review.candidatesSha256, companyPolicySha256(policy),
   ])).digest("hex");
   return {
     state: "internal-review-only", key,
