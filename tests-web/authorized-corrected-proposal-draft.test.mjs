@@ -343,3 +343,34 @@ test("unsafe evidence introduced only on second corrected draft read fails close
  assert.equal(policyReads,1);
  assert.equal(getters,0);
 });
+
+test("corrected draft snapshots each source read before its asynchronous policy lookup",async()=>{
+ for(const phase of [1,2]) {
+  const f=fixture();await reviewed(f);
+  let reads=0,policyReads=0,getters=0,mutable;
+  const source={readAuthorized:async input=>{
+   const current=await f.store.readAuthorized(input);
+   if(++reads===phase)mutable=current;
+   return current;
+  }};
+  const policies={readAuthorized:async input=>{
+   if(++policyReads===phase){
+    if(phase===1){
+     Object.defineProperty(mutable.correctedScopeReview,"reviewedBy",{
+      enumerable:true,get(){getters++;throw Error("async mutation getter");}
+     });
+    }else{
+     Object.defineProperty(mutable.original,"text",{
+      enumerable:true,get(){getters++;throw Error("late source getter");}
+     });
+    }
+   }
+   return f.policyStore.readAuthorized(input);
+  }};
+  const result=await draft(f,source,policies);
+  assert.equal(result.purpose,"internal-corrected-proposal-draft");
+  assert.equal(reads,2);
+  assert.equal(policyReads,2);
+  assert.equal(getters,0);
+ }
+});
