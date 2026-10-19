@@ -58,7 +58,7 @@ function fixture(options={}) {
     const scope=JSON.parse(params[5]);
     if(scope.reviewKey!==key || scope.sourceSha256!==review.sourceSha256)
       throw Error("Forged CAS input");
-    current={...current,revision:3,scopeReview:scope};
+    current={...current,revision:3,scopeReview:structuredClone(scope)};
     options.afterWrite?.({revoke:()=>{active=false;},
       switchActor:()=>{who=OTHER;},
       changePolicy:()=>{activePolicy={...policy,revision:2};},
