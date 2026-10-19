@@ -39,15 +39,22 @@ function digest(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+/** Only exact plain data receipts may confirm an idempotent create. */
+function exactReceipt(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const keys = ["authenticatedActorId", "textSha256", "record"];
+  return Reflect.ownKeys(value).length === keys.length && keys.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+  });
+}
+
 function inspect(receipt: Receipt, request: TypedNoteCreateRequest,
   textSha256: string): "absent" | "invalid" | "valid" {
   if (receipt === null) return "absent";
-  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)
-    || Object.keys(receipt).length !== 3
-    || !Object.hasOwn(receipt, "authenticatedActorId")
-    || !Object.hasOwn(receipt, "textSha256")
-    || !Object.hasOwn(receipt, "record")
-    || receipt.textSha256 !== textSha256) return "invalid";
+  if (!exactReceipt(receipt) || receipt.textSha256 !== textSha256)
+    return "invalid";
   try {
     verifyTypedNoteSourceRecord(receipt.record, request, textSha256,
       receipt.authenticatedActorId);
@@ -69,16 +76,23 @@ export async function reconcileAuthorizedTypedNote(
   request: TypedNoteCreateRequest,
 ): Promise<TypedNoteReconciliation> {
   validateTypedNoteCreateRequest(request);
-  const selector = {organizationId:request.organizationId, requestId:request.requestId};
-  const textSha256 = digest(request.text);
+  // The original request is caller-owned and may mutate after an await.
+  // Bind both ledger reads to one immutable text/tenant/idempotency identity.
+  const target: TypedNoteCreateRequest = {
+    organizationId:request.organizationId,
+    requestId:request.requestId,
+    text:request.text,
+  };
+  const selector = {organizationId:target.organizationId, requestId:target.requestId};
+  const textSha256 = digest(target.text);
   const read = () => ledger.lookupAuthorized({...selector, session,
     permission:"create-intake" as const});
   // Do not catch authorization, network or storage errors as "not found".
   const first = await read();
-  const a = inspect(first, request, textSha256);
+  const a = inspect(first, target, textSha256);
   // A second fresh read catches observable late commits, races and revocations.
   const last = await read();
-  const b = inspect(last, request, textSha256);
+  const b = inspect(last, target, textSha256);
   if (a === "invalid" || b === "invalid") {
     return {state:"conflict",...selector};
   }
@@ -91,7 +105,7 @@ export async function reconcileAuthorizedTypedNote(
   }
   const stored = last!.record!;
   const confirmed = {
-    organizationId:request.organizationId, sourceId:stored.sourceId,
+    organizationId:target.organizationId, sourceId:stored.sourceId,
     revision:stored.revision as 1 | 2 | 3, textSha256,
   };
   return stored.revision === 1
