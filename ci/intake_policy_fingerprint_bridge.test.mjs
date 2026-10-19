@@ -124,6 +124,37 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",()=
     policySha256:preview.economics.policySha256,
     reviewedSelectionSha256:preview.reviewedSelectionSha256,
   };
+  // PostgreSQL must reproduce *both* exact JS fingerprint byte strings.
+  const hashes=JSON.parse(sql(`set role service_role;
+    select row_to_json(x) from (
+      select bm_intake_private.review_workbench_sha256(
+        :'p1'::text,:'p2'::text,:'p3'::text) as review_key,
+        bm_intake_private.reviewed_selection_sha256(
+          :'p4'::jsonb,:'p5'::jsonb,:'p6'::jsonb,:'p3'::text)
+          as selection_sha
+    ) x;`,{p1:review.sourceSha256,p2:review.candidatesSha256,
+      p3:fingerprint,p4:JSON.stringify(review),
+      p5:JSON.stringify(selection.selectedIndices),
+      p6:JSON.stringify(selection.acceptedAddonCodes)}));
+  assert.equal(hashes.review_key,model.key);
+  assert.equal(hashes.selection_sha,preview.reviewedSelectionSha256);
+
+  const tryScope=(forged)=>sql(`set role service_role;
+    select source_revision from bm_intake_private.commit_typed_note_scope_review(
+       :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text,:'p5'::text,
+       :'p6'::jsonb);`,
+    {p1:org,p2:author,p3:sourceId,
+      p4:review.sourceSha256,p5:review.candidatesSha256,
+      p6:JSON.stringify(forged)});
+  assert.throws(()=>tryScope({...scope,reviewKey:"0".repeat(64)}));
+  assert.throws(()=>tryScope({...scope,reviewedSelectionSha256:"0".repeat(64)}));
+  const unchanged=JSON.parse(sql(`select row_to_json(x) from (
+    select revision,scope_review from public.bm_intake_sources
+      where organization_id=:'p1'::uuid and id=:'p2'::uuid
+    ) x;`,{p1:org,p2:sourceId}));
+  assert.equal(unchanged.revision,2);
+  assert.equal(unchanged.scope_review,null);
+
   const result=JSON.parse(sql(`set role service_role;
     select row_to_json(x) from (
       select source_revision, reviewed_selection_sha256
