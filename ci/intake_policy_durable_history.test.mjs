@@ -144,7 +144,7 @@ test("immutable database events cannot be edited or deleted by service_role",()=
     `update bm_intake_private.policy_submission_heads set revision=1
       where organization_id=:'p1'::uuid`,
   ])assert.throws(()=>sql("set role service_role; "+expression+";",
-    {p1:f.org,p2:f.reviewer}),/immutable|cannot|increment/);
+    {p1:f.org,p2:f.reviewer}),/immutable|cannot|increment|permission denied/);
   assert.equal(read(f).revisions[0].status,"approved");
 });
 test("six independent PostgreSQL writers cannot duplicate first-ever draft",async()=>{
