@@ -57,21 +57,41 @@ function validSpan(text: string, row: any): boolean {
     && text.slice(row.start, row.end) === row.excerpt;
 }
 
+// Provider responses are untrusted data, never executable accessors or
+// decorated arrays. Inspect descriptors BEFORE reading any values.
+function exactData(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const keys = Reflect.ownKeys(value);
+  return keys.length === fields.length && keys.every(key => {
+    if (typeof key !== "string" || !fields.includes(key)) return false;
+    const field = Object.getOwnPropertyDescriptor(value, key);
+    return field?.enumerable === true && Object.hasOwn(field, "value");
+  });
+}
+function denseDataArray(value: unknown, min: number, max: number): value is unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length < min || value.length > max
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i++) {
+    const item = Object.getOwnPropertyDescriptor(value, String(i));
+    if (item?.enumerable !== true || !Object.hasOwn(item, "value")) return false;
+  }
+  return true;
+}
+
 function parseProviderReply(reply: unknown) {
-  if (!reply || typeof reply !== "object" || Array.isArray(reply)) {
+  if (exactData(reply, ["status"]) && reply.status === "unintelligible") return null;
+  if (!exactData(reply, ["status", "text", "durationMs", "uncertainties", "segments"])) {
     throw new TypeError("Unverified transcription provider response");
   }
-  const obj = reply as Record<string, unknown>;
-  const keys = Object.keys(obj);
-  if (keys.length === 1 && obj.status === "unintelligible") return null;
-  if (keys.length !== 5 || !["status", "text", "durationMs", "uncertainties", "segments"].every(k => Object.hasOwn(obj, k))
-    || obj.status !== "ok" || typeof obj.text !== "string"
+  const obj = reply;
+  if (obj.status !== "ok" || typeof obj.text !== "string"
     || obj.text.trim().length === 0 || Buffer.byteLength(obj.text, "utf8") > MAX_TEXT_BYTES
     || !Number.isSafeInteger(obj.durationMs) || (obj.durationMs as number) <= 0
     || (obj.durationMs as number) > MAX_DURATION_MS
-    || !Array.isArray(obj.uncertainties) || obj.uncertainties.length > MAX_UNCERTAINTIES
-    || !Array.isArray(obj.segments) || obj.segments.length < 1
-    || obj.segments.length > MAX_SEGMENTS) {
+    || !denseDataArray(obj.uncertainties, 0, MAX_UNCERTAINTIES)
+    || !denseDataArray(obj.segments, 1, MAX_SEGMENTS)) {
     throw new TypeError("Unverified transcription provider response");
   }
   const text = obj.text;
@@ -82,8 +102,11 @@ function parseProviderReply(reply: unknown) {
   const uncertainties = obj.uncertainties as Uncertainty[];
   const segments = obj.segments as TranscriptSegment[];
   for (const u of uncertainties) {
-    if (!validSpan(text, u) || !["unclear-speech", "ambiguous-number", "other"].includes(u.reason)
-      || Object.keys(u).length !== 4) throw new TypeError("Invalid transcription uncertainty");
+    if (!exactData(u, ["start", "end", "excerpt", "reason"])
+      || !validSpan(text, u)
+      || !["unclear-speech", "ambiguous-number", "other"].includes(u.reason)) {
+      throw new TypeError("Invalid transcription uncertainty");
+    }
   }
   const sortedUncertainties = [...uncertainties].sort((a, b) => a.start - b.start);
   for (let index = 1; index < sortedUncertainties.length; index++) {
@@ -93,10 +116,13 @@ function parseProviderReply(reply: unknown) {
   }
   let previousTextEnd = 0, previousTimeEnd = 0;
   for (const s of segments) {
-    if (!validSpan(text, s) || !Number.isSafeInteger(s.startMs) || !Number.isSafeInteger(s.endMs)
+    if (!exactData(s, ["start", "end", "excerpt", "startMs", "endMs"])
+      || !validSpan(text, s) || !Number.isSafeInteger(s.startMs)
+      || !Number.isSafeInteger(s.endMs)
       || s.startMs < previousTimeEnd || s.start < previousTextEnd
-      || s.endMs <= s.startMs || s.endMs > durationMs
-      || Object.keys(s).length !== 5) throw new TypeError("Invalid transcript time segment");
+      || s.endMs <= s.startMs || s.endMs > durationMs) {
+      throw new TypeError("Invalid transcript time segment");
+    }
     if (!NON_SPEECH_GAP.test(text.slice(previousTextEnd, s.start))) {
       throw new TypeError("Unanchored substantive transcript text");
     }
