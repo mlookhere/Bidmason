@@ -51,7 +51,7 @@ export function snapshotInternalPreviewRequest(
     || typeof request.reviewKey !== "string" || !HASH.test(request.reviewKey)
     || !denseSelection(request.selectedIndices)
     || !denseSelection(request.acceptedAddonCodes)) {
-    throw new TypeError("Invalid internal preview request");
+    throw new TypeError("Invalid internal preview request (noncanonical selection shape)");
   }
   return {reviewKey:request.reviewKey,
     selectedIndices:[...request.selectedIndices] as number[],
