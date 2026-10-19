@@ -240,43 +240,57 @@ export function createTrustedTypedNoteScopeCommit(
         || firstPolicy.sha!==secondPolicy.sha) {
         return {...selector,state:"changed-during-read"};
       }
-      if (second.revision===2) {
-        const model=buildReviewWorkbench(second.original,second.review!,secondPolicy.policy);
-        return {...selector,state:model.key===input.reviewKey
-          ? "unreviewed-at-read" : "different-scope-at-read"};
-      }
-      if (second.revision!==3 || !second.scopeReview) {
-        return {...selector,state:"different-scope-at-read"};
-      }
-      if (second.scopeReview.policyRevision!==secondPolicy.revision
-        || second.scopeReview.policySha256!==secondPolicy.sha) {
+      // A revision-3 snapshot is tied to a particular approved ratecard;
+      // distinguish that from an invalid selection against a still-current one.
+      if (second.revision===3 && second.scopeReview
+        && (second.scopeReview.policyRevision!==secondPolicy.revision
+          || second.scopeReview.policySha256!==secondPolicy.sha)) {
         return {...selector,state:"policy-changed-at-read"};
+      }
+      if (![2,3].includes(second.revision)) {
+        return {...selector,state:"different-scope-at-read"};
       }
       const model=buildReviewWorkbench(second.original,second.review!,secondPolicy.policy);
       if (model.key!==input.reviewKey) {
         return {...selector,state:"different-scope-at-read"};
       }
-      let expected: typeof second.scopeReview;
+      // The review key binds evidence and policy, NOT a user's selection.
+      // Validate every selected service, optional acknowledgement, and
+      // pricing fingerprint even when no scope CAS is observed (revision 2).
+      // Otherwise an invalid selection could be called "unreviewed" merely
+      // because the key matched, misleading an ambiguous-write investigation.
+      let selection: ReturnType<typeof prepareReviewPreviewRequest>;
+      let preview: ReturnType<typeof previewReviewedEconomics>;
       try {
-        const selection=prepareReviewPreviewRequest(model,{
+        selection=prepareReviewPreviewRequest(model,{
           key:model.key,selectedIndices:input.selectedIndices,
           acceptedAddonCodes:input.acceptedAddonCodes,
         });
-        const preview=previewReviewedEconomics(second.original,second.review!,
+        preview=previewReviewedEconomics(second.original,second.review!,
           selection.selectedIndices,secondPolicy.policy,selection.acceptedAddonCodes);
-        expected={
-          state:"reviewed-for-proposal-draft",sourceRevision:3,
-          reviewedBy:creator,reviewKey:model.key,
-          sourceSha256:second.review!.sourceSha256,
-          candidatesSha256:second.review!.candidatesSha256,
-          selectedIndices:selection.selectedIndices,
-          acceptedAddonCodes:selection.acceptedAddonCodes,
-          policyRevision:secondPolicy.revision,policySha256:secondPolicy.sha,
-          reviewedSelectionSha256:preview.reviewedSelectionSha256,
-        };
+        if (preview.economics.policyRevision!==secondPolicy.revision
+          || preview.economics.policySha256!==secondPolicy.sha) {
+          return {...selector,state:"different-scope-at-read"};
+        }
       } catch {
         return {...selector,state:"different-scope-at-read"};
       }
+      if (second.revision===2) {
+        return {...selector,state:"unreviewed-at-read"};
+      }
+      if (!second.scopeReview) {
+        return {...selector,state:"different-scope-at-read"};
+      }
+      const expected: typeof second.scopeReview={
+        state:"reviewed-for-proposal-draft",sourceRevision:3,
+        reviewedBy:creator,reviewKey:model.key,
+        sourceSha256:second.review!.sourceSha256,
+        candidatesSha256:second.review!.candidatesSha256,
+        selectedIndices:selection.selectedIndices,
+        acceptedAddonCodes:selection.acceptedAddonCodes,
+        policyRevision:secondPolicy.revision,policySha256:secondPolicy.sha,
+        reviewedSelectionSha256:preview.reviewedSelectionSha256,
+      };
       if (!isDeepStrictEqual(second.scopeReview,expected)) {
         return {...selector,state:"different-scope-at-read"};
       }
