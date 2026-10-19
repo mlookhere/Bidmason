@@ -43,3 +43,28 @@ multi-user PostgREST and Storage byte security, maintained AV, retention,
 legal/privacy approval and customer-owned commercial terms remain required
 before merging Items 3 or 4. No HTTP route, upload, quote send, billing,
 or public customer workflow is enabled by this contract.
+
+## Canonical persisted extraction evidence before scope review
+
+The legacy, server-only scope-review adapter now validates authorized
+read-back rows **before** accessing the extraction audit, reading candidate
+values or constructing a source/review consistency checksum. Required
+tenant/source/revision/original/review/audit/scope fields must be own
+enumerable plain data. The extraction audit must be a dense, undecorated
+one-element array containing an exact four-field plain-data record with
+the authenticated source revision, actor ID and both SHA digests.
+
+The existing shared extraction validator verifies the *entire* reviewed
+candidate collection, exact source excerpts, original and candidate
+digests before any actor/audit values are trusted. Its selected-index-zero
+probe exists only to check evidence integrity; **it is not human scope
+selection or optional add-on consent**. Malformed read-back is denied
+before the first approved-policy read in the review-context path and
+before an atomic scope write in the commit path. Regression tests cover
+getter-backed fields, candidate/audit indexes, sparse/decorated
+collections, hidden/symbol/inherited directives and changed hashes.
+
+These in-memory contract checks do not replace current authenticated
+source ownership, primary SQL transaction/CAS, real Supabase RLS and
+Storage, independent reviewed ratecard approval or proposal delivery
+authorization. The scope decision remains a draft-only transition.
