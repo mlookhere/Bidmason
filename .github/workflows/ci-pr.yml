@@ -231,3 +231,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_commercial_decision.sql
       - name: Prove commercial three-person review, stale policy and nonquotable state
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_commercial_decision_test.sql
+      - name: Install private read-only corrected internal pricing inputs
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_internal_preview.sql
+      - name: Prove approved internal preview is tenant-private and never a quote
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_internal_preview_test.sql
