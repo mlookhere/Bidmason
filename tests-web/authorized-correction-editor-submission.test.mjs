@@ -70,11 +70,12 @@ function fixture(reviewed=false){
   },
   mutateAuthorized({session,organizationId,sourceId,permission,transform}){
    const work=queue.catch(()=>{}).then(()=>{
-    writes++;beforeWrite();
+    beforeWrite();
     if (permission!=="correct-extraction")throw Error("Unauthorized permission");
     const actor=authorize(session,organizationId,true);
     const next=transform(sourceId===SOURCE?structuredClone(record):null,actor);
-    record=structuredClone(next);afterWrite();
+    // Count only durable mutations, not denied/failed CAS attempts.
+    record=structuredClone(next);writes++;afterWrite();
     return structuredClone(next);
    });
    queue=work.then(()=>{},()=>{});return work;
