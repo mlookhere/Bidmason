@@ -99,6 +99,9 @@ export function createTrustedCompanyPolicyEventRecovery(
         receipt={state:"matching-record-at-read",observedStatus:row.status};
       }
     } else if(!row || row.status==="draft") {
+      if(row && row.submittedBy===subject) {
+        throw new Error("Policy submitter cannot independently review own draft");
+      }
       if(row && row.policySha256!==input.policySha256) {
         throw new Error("Unreviewed policy submission SHA differs");
       }
