@@ -15,7 +15,7 @@ insert into public.bm_memberships(organization_id,user_id,member_role)
 values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
  '77777777-7777-4777-8777-777777777777','operator'),
  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
- '88888888-8888-4888-8888-888888888888','contractor');
+ '88888888-8888-4888-8888-888888888888','operator');
 
 set role service_role;
 do $test$
@@ -35,6 +35,8 @@ declare
  v_scope jsonb;
  v_bad jsonb;
  v_reply record;
+ v_activation record;
+ v_policy jsonb;
 begin
  select source_id,original_sha256 into v_id,v_original_sha
  from bm_intake_private.create_typed_note(
@@ -60,13 +62,31 @@ begin
   v_org,v_creator,v_id,v_original_sha,v_review);
  if v_reply.source_revision<>2 then raise exception 'Setup extraction failed'; end if;
 
+ -- The first approved policy requires a second active reviewer;
+ -- never infer approval from any draft or request-supplied digest.
+ v_policy:=jsonb_build_object(
+   'revision',1,
+   'pricing',jsonb_build_object('policyId','synthetic-painting-v1',
+     'currency','USD',
+     'services',jsonb_build_object(
+       'painting',jsonb_build_object('label','Painting','unit','room',
+         'billing','charged','rateCents',25000,'optionalAddon',false),
+       'cleaning',jsonb_build_object('label','Cleaning','unit','visit',
+         'billing','pending','rateCents',12000))),
+   'tax',jsonb_build_object('method','none','bps',0));
+ select * into v_activation from bm_intake_private.activate_scope_policy(
+   v_org,v_creator,v_unrelated,1,v_policy::text);
+ if v_activation.activated_revision<>1 then
+   raise exception 'Test policy activation failed';
+ end if;
+
  v_scope:=jsonb_build_object(
   'state','reviewed-for-proposal-draft','sourceRevision',3,
   'reviewedBy',v_creator::text,'reviewKey',repeat('1',64),
   'sourceSha256',v_source_sha,'candidatesSha256',v_candidates_sha,
   'selectedIndices',jsonb_build_array(0),
   'acceptedAddonCodes','[]'::jsonb,
-  'policyRevision',1,'policySha256',repeat('2',64),
+  'policyRevision',1,'policySha256',v_activation.activated_sha256,
   'reviewedSelectionSha256',repeat('3',64));
 
  -- Absent source and different-tenant/creator denial before data disclosure.
@@ -111,7 +131,11 @@ begin
   jsonb_set(v_scope,'{selectedIndices}','[1,0]'::jsonb),
   jsonb_set(v_scope,'{selectedIndices}','[2]'::jsonb),
   jsonb_set(v_scope,'{acceptedAddonCodes}','["unselected"]'::jsonb),
-  jsonb_set(v_scope,'{acceptedAddonCodes}','["painting","painting"]'::jsonb)
+  jsonb_set(v_scope,'{acceptedAddonCodes}','["painting","painting"]'::jsonb),
+  jsonb_set(v_scope,'{reviewKey}','null'::jsonb),
+  jsonb_set(v_scope,'{policySha256}','null'::jsonb),
+  jsonb_set(v_scope,'{reviewedSelectionSha256}','null'::jsonb),
+  jsonb_set(v_scope,'{policyRevision}','null'::jsonb)
  ] loop
   begin
    perform 1 from bm_intake_private.commit_typed_note_scope_review(
