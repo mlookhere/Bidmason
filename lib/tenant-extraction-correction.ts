@@ -180,6 +180,7 @@ function checkRecord(value: TenantExtractionCorrectionRecord | null,
   if (value.organizationId !== target.organizationId
     || value.sourceId !== target.sourceId
     || !Number.isSafeInteger(value.revision) || value.revision < 2
+    || !value.original || !value.review
     || !denseArray(value.extractionAudit, 1, 1)
     || !exactFields(value.extractionAudit[0], [
       "sourceRevision", "actorId", "sourceSha256", "candidatesSha256",
