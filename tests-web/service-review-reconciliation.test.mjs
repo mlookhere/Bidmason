@@ -217,3 +217,63 @@ test('legacy review recovery notices correction inserted between authorized read
  assert.equal((await reconcileServiceReview(source,f.policyStore,'reviewer',req)).state,
   'conflict');
 });
+
+test('recovery rejects accessor, hidden and malformed review selectors without executing getters',async()=>{
+ const f=fixture(),req=await request(f),readsBefore=f.counts().reads;
+ let calls=0;
+ const hidden={...req};
+ Object.defineProperty(hidden,'send',{value:true});
+ const symbolic={...req};
+ symbolic[Symbol('approve')]=true;
+ const inherited=Object.assign(Object.create({send:true}),req);
+ const selectorGetter={...req};
+ Object.defineProperty(selectorGetter,'sourceId',{enumerable:true,
+  get(){calls++;throw Error('unsafe selector getter');}});
+ const indexedGetter={...req,selectedIndices:[0]};
+ Object.defineProperty(indexedGetter.selectedIndices,'0',{enumerable:true,
+  get(){calls++;throw Error('unsafe index getter');}});
+ const addonGetter={...req,acceptedAddonCodes:['carpet']};
+ Object.defineProperty(addonGetter.acceptedAddonCodes,'0',{enumerable:true,
+  get(){calls++;throw Error('unsafe add-on getter');}});
+ const sparse={...req,selectedIndices:new Array(1)};
+ const decorated={...req,selectedIndices:[0]};
+ Object.defineProperty(decorated.selectedIndices,'send',{value:true});
+ const altered={...req,acceptedAddonCodes:[]};
+ Object.setPrototypeOf(altered.acceptedAddonCodes,Object.create(Array.prototype));
+ for(const bad of [hidden,symbolic,inherited,selectorGetter,indexedGetter,
+  addonGetter,sparse,decorated,altered]){
+  await assert.rejects(reconcileServiceReview(f.sourceStore,f.policyStore,
+   'reviewer',bad),/Invalid scope reconciliation request/);
+ }
+ assert.equal(calls,0);
+ assert.equal(f.counts().reads,readsBefore);
+});
+
+test('recovery freezes request identifiers, proof and selections before async authorized reads',async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ const recorded=f.get();
+ let readCount=0;
+ const store={async readAuthorized(input){
+  readCount++;
+  assert.equal(input.organizationId,ORG);
+  assert.equal(input.sourceId,SOURCE);
+  const result=await f.sourceStore.readAuthorized(input);
+  if(readCount===1){
+   req.organizationId=OTHER;
+   req.sourceId=OTHER;
+   req.expectedRevision=999;
+   req.expectedSnapshotSha256='0'.repeat(64);
+   req.reviewKey='1'.repeat(64);
+   req.selectedIndices[0]=1;
+   req.acceptedAddonCodes.push('carpet');
+  }
+  return result;
+ }};
+ const outcome=await reconcileServiceReview(store,f.policyStore,'reviewer',req);
+ assert.deepEqual(outcome,{state:'confirmed-current-at-read',
+  sourceId:SOURCE,revision:3,reviewedBy:REVIEWER,
+  reviewedSelectionSha256:recorded.scopeReview.reviewedSelectionSha256});
+ assert.equal(readCount,2);
+ assert.deepEqual(f.get(),recorded);
+});
