@@ -347,8 +347,10 @@ reviewer, both membership rows locked, a sequential policy revision,
 bounded server-serialized JSON, required pricing minimum/order and service
 definitions, and a real PostgreSQL SHA-256 over the supplied policy bytes.
 It never fabricates a contractor's approval or default rate. Historical
-approved versions reject UPDATE and DELETE. The currently active head can
-advance only to the next revision through the staged privileged workflow.
+approved versions reject UPDATE and DELETE. A separate PostgreSQL trigger
+rejects direct active-head deletion, rollback, and revision skipping, even
+when an older approved snapshot remains stored. Authorized sequential
+activation advances the locked head by exactly one revision.
 
 The existing private `commit_typed_note_scope_review` now locks the
 current policy-head row and referenced immutable approved version **inside
