@@ -76,6 +76,8 @@ begin
        'cleaning',jsonb_build_object('label','Cleaning','unit','visit',
          'billing','pending','rateCents',12000))),
    'tax',jsonb_build_object('method','none','bps',0));
+ perform bm_intake_private.ci_stage_approved_policy(
+   v_org,v_creator,v_unrelated,v_policy::text);
  select * into v_activation from bm_intake_private.activate_scope_policy(
    v_org,v_creator,v_unrelated,1,v_policy::text);
  if v_activation.activated_revision<>1 then
