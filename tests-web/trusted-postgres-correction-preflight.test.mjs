@@ -169,3 +169,78 @@ test("strict selectors reject hidden fields and accessors before authentication"
  assert.equal(hits,0);
  assert.equal(f.counts.reads,0);
 });
+
+
+test("rejects forged SQL row arrays without invoking getters or permitting correction writes",async()=>{
+  let invoked=0;
+  const poison=[
+    rows=>Object.defineProperty(rows,"0",{enumerable:true,
+      get(){invoked++;throw Error("unsafe SQL index getter");}}),
+    rows=>{delete rows[0];},
+    rows=>Object.defineProperty(rows,"0",{enumerable:false,
+      configurable:true,writable:true,value:rows[0]}),
+    rows=>{rows[Symbol("approved")]=true;},
+    rows=>Object.defineProperty(rows,"send",{value:true}),
+    rows=>Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  ];
+  for(const corrupt of poison){
+    const f=fixture(),original=f.db.query.bind(f.db);
+    f.db.query=async (...args)=>{
+      const result=await original(...args);
+      corrupt(result.rows);
+      return result;
+    };
+    await assert.rejects(f.store.readAuthorized({
+      session:"session",organizationId:ORG,sourceId:SOURCE,
+    }),/Authorized correction original is unavailable/);
+    assert.equal(f.counts.reads,1);
+    assert.deepEqual(f.original,record());
+    await assert.rejects(f.store.mutateAuthorized({
+      session:"session",organizationId:ORG,sourceId:SOURCE,
+      permission:"correct-extraction",transform(){invoked++;return record();},
+    }),/Correction persistence unavailable/);
+  }
+  assert.equal(invoked,0);
+});
+
+test("rejects forged SQL record descriptor before accessing private typed-note source",async()=>{
+  let invoked=0;
+  for(const corrupt of [
+    row=>Object.defineProperty(row,"record",{enumerable:true,
+      get(){invoked++;throw Error("unsafe private record getter");}}),
+    row=>{row[Symbol("approved")]=true;},
+    row=>Object.defineProperty(row,"send",{value:true}),
+    row=>Object.setPrototypeOf(row,{record:{approved:true}}),
+  ]){
+    const f=fixture(),original=f.db.query.bind(f.db);
+    f.db.query=async (...args)=>{
+      const result=await original(...args);
+      corrupt(result.rows[0]);
+      return result;
+    };
+    await assert.rejects(f.store.readAuthorized({
+      session:"session",organizationId:ORG,sourceId:SOURCE,
+    }),/Authorized correction original is unavailable/);
+    assert.equal(f.counts.reads,1);
+  }
+  assert.equal(invoked,0);
+});
+
+test("a primary SQL preflight never normalizes forged lifecycle columns or executes a write",async()=>{
+  const f=fixture(),query=f.db.query.bind(f.db);
+  let mutation=0;
+  f.db.query=async(...args)=>{
+    const result=await query(...args);
+    result.rows[0].record.pendingCorrection={state:"injected"};
+    return result;
+  };
+  await assert.rejects(f.store.readAuthorized({
+    session:"session",organizationId:ORG,sourceId:SOURCE,
+  }),/Untrusted correction source projection/);
+  await assert.rejects(f.store.mutateAuthorized({
+    session:"session",organizationId:ORG,sourceId:SOURCE,
+    permission:"correct-extraction",transform(){mutation++;return record();},
+  }),/Correction persistence unavailable/);
+  assert.equal(mutation,0);
+  assert.equal(f.counts.reads,1);
+});
