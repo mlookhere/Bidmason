@@ -656,8 +656,12 @@ runs `ci/intake_scope_concurrency.test.mjs`, which starts **independent
    activation must advance the policy head to revision 2. The scope CAS
    may commit only while revision 1 is still the locked active head,
    leaving a **historically valid but now stale** reviewed draft, or
-   it must reject revision 1 as stale with **no source update**.
-   It must never commit a revision 1 review after observing revision 2.
+   it must reject revision 1 as stale or temporarily unavailable
+   with **no source update**. Under PostgreSQL `READ COMMITTED`, a joined
+   `FOR SHARE` read racing a policy-head UPDATE can legitimately report
+   no current approved policy rather than the explicit stale-policy
+   mismatch. Both are fail-closed rejections. It must never commit a
+   revision 1 review after observing revision 2.
 
 These tests use real PostgreSQL membership/source/head row locks and
 immutable policy version references, in addition to the existing
