@@ -96,7 +96,8 @@ test("combined installer actually runs all migrations and refuses unsafe databas
    PATH:dir+":"+process.env.PATH,
    BIDMASON_PARITY_CAPTURE:capture,
    BIDMASON_CI_DISPOSABLE_POSTGRES:"1",
-   PGHOST:"127.0.0.1",PGPORT:"5432",PGUSER:"postgres",PGDATABASE:"postgres"
+   PGHOST:"127.0.0.1",PGPORT:"5432",PGUSER:"postgres",PGDATABASE:"postgres",
+   PGHOSTADDR:"",PGSERVICE:"",PGSERVICEFILE:"",PGOPTIONS:""
   };
   const run=env=>spawnSync("bash",["ci/install_item4_on_item3_disposable.sh"],{
    env,encoding:"utf8",timeout:15000
@@ -118,7 +119,11 @@ test("combined installer actually runs all migrations and refuses unsafe databas
    ["PGHOST","production.example"],
    ["PGPORT","5433"],
    ["PGUSER","service_role"],
-   ["PGDATABASE","customer_database"]
+   ["PGDATABASE","customer_database"],
+   ["PGHOSTADDR","192.0.2.1"],
+   ["PGSERVICE","unexpected-service"],
+   ["PGSERVICEFILE","/tmp/alternate-pg-service"],
+   ["PGOPTIONS","-c search_path=public"]
   ]){
    writeFileSync(capture,"");
    const denied=run({...allowed,[key]:value});
@@ -126,6 +131,34 @@ test("combined installer actually runs all migrations and refuses unsafe databas
    assert.match(denied.stderr,/REFUSED: this migration integration/);
    assert.equal(readFileSync(capture,"utf8"),"",`Unsafe ${key} invoked SQL`);
   }
+ }finally{
+  rmSync(dir,{recursive:true,force:true});
+ }
+});
+
+test("combined disposable installer stops on the first rejected SQL migration",()=>{
+ const dir=mkdtempSync(join(tmpdir(),"bidmason-sql-failure-"));
+ const capture=join(dir,"calls");
+ try{
+  writeFileSync(join(dir,"psql"),[
+   "#!/bin/sh",
+   'printf "%s\\n" "$*" >> "$BIDMASON_PARITY_CAPTURE"',
+   'case "$*" in *db/typed_note_candidates_digest.sql*) exit 23;; esac',
+   "exit 0",
+   ""
+  ].join("\n"),{mode:0o755});
+  const result=spawnSync("bash",["ci/install_item4_on_item3_disposable.sh"],{
+   encoding:"utf8",timeout:15000,
+   env:{...process.env,PATH:dir+":"+process.env.PATH,
+    BIDMASON_PARITY_CAPTURE:capture,BIDMASON_CI_DISPOSABLE_POSTGRES:"1",
+    PGHOST:"127.0.0.1",PGPORT:"5432",PGUSER:"postgres",PGDATABASE:"postgres",
+    PGHOSTADDR:"",PGSERVICE:"",PGSERVICEFILE:"",PGOPTIONS:""}
+  });
+  assert.equal(result.status,23,"Installer must propagate the first psql failure");
+  const invocations=readFileSync(capture,"utf8").trim().split("\n");
+  assert.equal(invocations.length,2,"Installer invoked SQL after the first failed migration");
+  assert.match(invocations[1],/db\\/typed_note_candidates_digest\\.sql/);
+  assert.doesNotMatch(result.stdout,/PASS: complete staged Item 4/);
  }finally{
   rmSync(dir,{recursive:true,force:true});
  }

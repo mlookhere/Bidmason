@@ -7,7 +7,11 @@ if [[ "${BIDMASON_CI_DISPOSABLE_POSTGRES:-}" != "1" ||
       "${PGHOST:-}" != "127.0.0.1" ||
       "${PGPORT:-}" != "5432" ||
       "${PGUSER:-}" != "postgres" ||
-      "${PGDATABASE:-}" != "postgres" ]]; then
+      "${PGDATABASE:-}" != "postgres" ||
+      -n "${PGHOSTADDR:-}" ||
+      -n "${PGSERVICE:-}" ||
+      -n "${PGSERVICEFILE:-}" ||
+      -n "${PGOPTIONS:-}" ]]; then
   echo 'REFUSED: this migration integration is restricted to disposable local PostgreSQL CI' >&2
   exit 1
 fi
