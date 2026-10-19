@@ -366,3 +366,130 @@ test("tampered pending lineage and false write acknowledgements fail closed",asy
  await assert.rejects(commitAuthorizedExtractionActivation(third.store,"reviewer",thirdReq),
   /Unauthorized/);
 });
+
+
+test("correction decisions remain fixed before deferred CAS despite caller mutation",async()=>{
+ const f=fixture(),req=await request(f);
+ f.hooks.setBeforeWrite(()=>{
+  req.organizationId=OTHER;
+  req.sourceId="22222222-2222-4222-8222-222222222222";
+  req.expectedRevision=77;
+  req.expectedSnapshotSha256="0".repeat(64);
+  req.expectedCorrectionSha256="f".repeat(64);
+  req.changes[0].candidate.units=4;
+  req.changes[0].reason="changed after submission";
+  req.changes.push({action:"remove",index:1,reason:"forged extra change"});
+ });
+ const result=await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ assert.equal(result.state,"correction-committed-pending-activation");
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.revision,3);
+ assert.equal(f.get().pendingCorrection.proposedCandidates[0].units,3);
+ assert.equal(f.get().pendingCorrection.changes.length,1);
+ assert.equal(f.get().pendingCorrection.changes[0].reason,change.reason);
+ assert.equal(f.get().pendingCorrection.changes[0].after.units,3);
+ assert.equal(f.get().scopeReview,null);
+});
+
+test("read-only pending correction recovery holds submitted actions across both reads",async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ let inspected=0;
+ f.hooks.setBeforeRead(()=>{
+  if(++inspected===1){
+   req.organizationId=OTHER;
+   req.expectedRevision=99;
+   req.expectedSnapshotSha256="0".repeat(64);
+   req.expectedCorrectionSha256="f".repeat(64);
+   req.changes[0].candidate.units=5;
+   req.changes[0].reason="changed mid-recovery";
+  }
+ });
+ const result=await reconcileExtractionCorrection(f.store,"reviewer",req);
+ assert.equal(result.state,"recorded-pending-at-read");
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.revision,3);
+ assert.equal(f.counts().writes,1);
+ assert.equal(inspected,2);
+});
+
+test("activation transaction retains original digest and source after deferred write",async()=>{
+ const f=fixture(),req=await pendingActivation(f);
+ f.hooks.setBeforeWrite(()=>{
+  req.organizationId=OTHER;
+  req.sourceId="22222222-2222-4222-8222-222222222222";
+  req.expectedRevision=100;
+  req.expectedSnapshotSha256="0".repeat(64);
+  req.expectedCorrectionSha256="f".repeat(64);
+ });
+ const result=await commitAuthorizedExtractionActivation(f.store,"reviewer",req);
+ assert.equal(result.state,"activated-for-renewed-human-scope-review");
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.revision,4);
+ assert.equal(f.get().scopeReview,null);
+ assert.equal(f.get().pendingCorrection,null);
+ assert.equal(f.get().activatedCorrection.correctedReview.candidates[0].units,3);
+});
+
+test("correction and activation preparation keep original tenant across authorized reads",async()=>{
+ for(const mode of ["correction","activation"]){
+  const f=fixture();
+  if(mode==="activation") await pendingActivation(f);
+  const mutable={...selector};
+  let reads=0;
+  f.hooks.setBeforeRead(()=>{
+   if(++reads===1){
+    mutable.organizationId=OTHER;
+    mutable.sourceId="22222222-2222-4222-8222-222222222222";
+   }
+  });
+  const result=mode==="activation"
+   ?await readExtractionActivationContext(f.store,"reviewer",mutable)
+   :await readExtractionCorrectionContext(f.store,"reviewer",mutable);
+  assert.equal(result.organizationId,ORG);
+  assert.equal(result.sourceId,SOURCE);
+  assert.equal(reads,2);
+ }
+});
+
+test("forged correction action arrays and getters are rejected without a write",async()=>{
+ const f=fixture(),req=await request(f),prior=f.counts();
+ let getterInvoked=0;
+ const getter={...req,changes:[change]};
+ Object.defineProperty(getter.changes,"0",{enumerable:true,configurable:true,
+  get(){getterInvoked++;throw Error("index getter executed");}});
+ const nestedGetter={...req,changes:[{...change,candidate:{...change.candidate}}]};
+ Object.defineProperty(nestedGetter.changes[0].candidate,"units",{
+  enumerable:true,get(){getterInvoked++;throw Error("candidate getter executed");}});
+ const sparse={...req,changes:new Array(1)};
+ const decorated={...req,changes:[change]};
+ Object.defineProperty(decorated.changes,"approved",{value:true});
+ const hidden={...req,changes:[{...change}]};
+ Object.defineProperty(hidden.changes[0],"send",{value:true});
+ const symbolic={...req,changes:[{...change}]};
+ symbolic.changes[0][Symbol("approved")]=true;
+ const inherited={...req,changes:[Object.assign(Object.create({approved:true}),change)]};
+ for(const invalid of [getter,nestedGetter,sparse,decorated,hidden,symbolic,inherited]){
+  await assert.rejects(commitAuthorizedExtractionCorrection(
+   f.store,"reviewer",invalid),/Invalid extraction correction/);
+ }
+ assert.equal(getterInvoked,0);
+ assert.deepEqual(f.counts(),prior);
+ assert.equal(f.get().pendingCorrection,null);
+});
+
+test("extraction preparation rejects hidden and accessor selectors before store reads",async()=>{
+ const f=fixture(),before=f.counts(),hidden={...selector};
+ Object.defineProperty(hidden,"send",{value:true});
+ const accessor={...selector};let calls=0;
+ Object.defineProperty(accessor,"sourceId",{enumerable:true,
+  get(){calls++;throw Error("unsafe selector getter");}});
+ for(const bad of [hidden,accessor]){
+  await assert.rejects(readExtractionCorrectionContext(f.store,"reviewer",bad),
+   /Invalid extraction correction selector/);
+  await assert.rejects(readExtractionActivationContext(f.store,"reviewer",bad),
+   /Invalid extraction correction selector/);
+ }
+ assert.equal(calls,0);
+ assert.deepEqual(f.counts(),before);
+});
