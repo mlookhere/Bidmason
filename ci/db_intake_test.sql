@@ -79,7 +79,15 @@ begin
    organization_id,actor_id,request_id,source_id,text_sha256)
   values(v_org,v_actor,'33333333-3333-4333-8333-333333333333',
    v_source,repeat('0',64));
-  raise exception 'Forged source/request/digest FK accepted';
+  raise exception 'Forged source/request/digest link accepted';
+ exception when unique_violation or foreign_key_violation then null;
+ end;
+ begin
+  insert into public.bm_typed_note_requests(
+   organization_id,actor_id,request_id,source_id,text_sha256)
+  values(v_org,v_actor,'77777777-7777-4777-8777-777777777777',
+   gen_random_uuid(),repeat('0',64));
+  raise exception 'Dangling source foreign key accepted';
  exception when foreign_key_violation then null;
  end;
  begin
