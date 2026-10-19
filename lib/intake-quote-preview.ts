@@ -28,8 +28,10 @@ export function previewReviewedEconomics(
 ): ReviewedEconomicsPreview {
   const services = selectReviewedServices(original, review, selection);
   if (!Array.isArray(acceptedAddonCodes)
-    || new Set(acceptedAddonCodes).size !== acceptedAddonCodes.length
-    || acceptedAddonCodes.some(code => typeof code !== "string"
+    || acceptedAddonCodes.length > 50
+    || acceptedAddonCodes.some((code, i) => typeof code !== "string"
+      || !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
+      || (i > 0 && code <= acceptedAddonCodes[i - 1])
       || !services.some(s => s.serviceCode === code)
       || policy?.pricing?.services?.[code]?.optionalAddon !== true)) {
     throw new Error("Invalid or unselected optional add-on acceptance");
