@@ -55,7 +55,7 @@ function snapshotSelector(selector: SourceSelector): SourceSelector {
 
 /** A persisted record may have additional database columns, but its
  * authority-bearing projection must be own enumerable inert data. */
-function hasDataFields(value: unknown, keys: readonly string[]): boolean {
+function hasDataFields(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
   return keys.every(key => {
