@@ -40,10 +40,37 @@ type Request = Selector & {
   acceptedAddonCodes: string[];
 };
 
+/** Authority and SQL evidence are canonical own enumerable data. */
 function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(key => Object.hasOwn(value,key));
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== keys.length) return false;
+  return keys.every(key => {
+    const d=Object.getOwnPropertyDescriptor(value,key);
+    return d?.enumerable===true && Object.hasOwn(d,"value");
+  });
+}
+function canonicalArray(value: unknown, min: number, max: number): value is unknown[] {
+  if (!Array.isArray(value) || value.length<min || value.length>max
+    || Object.getPrototypeOf(value)!==Array.prototype
+    || Reflect.ownKeys(value).length!==value.length+1)return false;
+  for(let i=0;i<value.length;i++){
+    const d=Object.getOwnPropertyDescriptor(value,String(i));
+    if(d?.enumerable!==true || !Object.hasOwn(d,"value"))return false;
+  }
+  return true;
+}
+function snapshotSelector(input: Selector): Selector {
+  validateSelector(input);
+  return {session:input.session,organizationId:input.organizationId,
+    sourceId:input.sourceId};
+}
+function snapshotRequest(input: Request): Request {
+  validate(input);
+  return {session:input.session,organizationId:input.organizationId,
+    sourceId:input.sourceId,reviewKey:input.reviewKey,
+    selectedIndices:[...input.selectedIndices],
+    acceptedAddonCodes:[...input.acceptedAddonCodes]};
 }
 function digest(text: string): string {
   return createHash("sha256").update(text,"utf8").digest("hex");
@@ -63,12 +90,11 @@ function validate(input: Request): void {
     || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
     || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)
     || typeof input.reviewKey !== "string" || !SHA.test(input.reviewKey)
-    || !Array.isArray(input.selectedIndices) || input.selectedIndices.length<1
-    || input.selectedIndices.length>50
+    || input.session===null || input.session===undefined
+    || !canonicalArray(input.selectedIndices,1,50)
     || input.selectedIndices.some((v,i) => !Number.isSafeInteger(v)
       || v<0 || v>100000 || (i>0 && v<=input.selectedIndices[i-1]))
-    || !Array.isArray(input.acceptedAddonCodes)
-    || input.acceptedAddonCodes.length>50
+    || !canonicalArray(input.acceptedAddonCodes,0,50)
     || input.acceptedAddonCodes.some(v=>typeof v!=="string"
       || !/^[a-z][a-z0-9_-]{0,63}$/.test(v))
     || new Set(input.acceptedAddonCodes).size!==input.acceptedAddonCodes.length) {
@@ -108,13 +134,17 @@ export function createTrustedTypedNoteScopeCommit(
     const response=await db.query(SOURCE,[
       input.organizationId,creator,input.sourceId,
     ]);
-    if (!response || !Array.isArray(response.rows)
-      || response.rows.length!==1 || !exact(response.rows[0],["record"])) {
+    if (!response || !canonicalArray(response.rows,1,1)
+      || !exact(response.rows[0],["record"])) {
       throw new Error("Creator-owned scope source unavailable");
     }
     const record=response.rows[0].record as TypedNoteSourceRecord;
-    if (!record || !record.original || typeof record.original.text!=="string"
-      || !record.creationAudit || typeof record.creationAudit.requestId!=="string") {
+    if (!exact(record,["organizationId","sourceId","revision","original",
+          "review","extractionAudit","scopeReview","creationAudit"])
+      || !exact(record.original,["kind","text"])
+      || !exact(record.creationAudit,["actorId","requestId","textSha256"])
+      || typeof record.original.text!=="string"
+      || typeof record.creationAudit.requestId!=="string") {
       throw new Error("Invalid private original source record");
     }
     verifyTypedNoteSourceRecord(record,{
@@ -136,8 +166,7 @@ export function createTrustedTypedNoteScopeCommit(
     // membership in THIS policy query (including the final post-CAS read),
     // not just in an earlier source read or a cached Auth identity.
     const response=await db.query(POLICY,[input.organizationId,creator]);
-    if (!response || !Array.isArray(response.rows)
-      || response.rows.length!==1
+    if (!response || !canonicalArray(response.rows,1,1)
       || !exact(response.rows[0],[
         "revision","policy_sha256","policy","submitted_by","reviewed_by"])) {
       throw new Error("No unambiguous approved current policy");
@@ -222,28 +251,28 @@ export function createTrustedTypedNoteScopeCommit(
   return {
     /** Source-backed, read-only, currently authorized review workbench. */
     async readWorkbench(input: Selector) {
-      validateSelector(input);
-      const creator=await actor(input.session);
-      const record=await source(input,creator);
+      const target=snapshotSelector(input);
+      const creator=await actor(target.session);
+      const record=await source(target,creator);
       awaitingReview(record);
-      const active=await activePolicy(input,creator);
+      const active=await activePolicy(target,creator);
       const model=buildReviewWorkbench(record.original,record.review!,active.policy);
-      await stable(input,creator,record,active);
+      await stable(target,creator,record,active);
       return {state:"requires-human-service-review" as const,
-        sourceId:input.sourceId,organizationId:input.organizationId,
+        sourceId:target.sourceId,organizationId:target.organizationId,
         sourceRevision:2 as const,model};
     },
 
     /** Server-calculated, non-sendable preview: never a quote or approval. */
     async preview(input: Request) {
-      validate(input);
-      const creator=await actor(input.session);
-      const record=await source(input,creator);
+      const target=snapshotRequest(input);
+      const creator=await actor(target.session);
+      const record=await source(target,creator);
       awaitingReview(record);
-      const active=await activePolicy(input,creator);
-      const {expected,preview}=checkedScope(record,active,creator,input);
-      await stable(input,creator,record,active);
-      return {...preview,reviewKey:expected.reviewKey,sourceId:input.sourceId};
+      const active=await activePolicy(target,creator);
+      const {expected,preview}=checkedScope(record,active,creator,target);
+      await stable(target,creator,record,active);
+      return {...preview,reviewKey:expected.reviewKey,sourceId:target.sourceId};
     },
 
     /**
@@ -253,14 +282,14 @@ export function createTrustedTypedNoteScopeCommit(
      * This is NOT quote, operator/contractor approval, or permission to send.
      */
     async readReviewedDraft(input: Selector) {
-      validateSelector(input);
-      const creator=await actor(input.session);
-      const record=await source(input,creator);
+      const target=snapshotSelector(input);
+      const creator=await actor(target.session);
+      const record=await source(target,creator);
       if (record.revision!==3 || !record.review || !record.scopeReview
         || record.scopeReview.reviewedBy!==creator) {
         throw new Error("No creator-owned, persisted reviewed scope available");
       }
-      const active=await activePolicy(input,creator);
+      const active=await activePolicy(target,creator);
       const saved=record.scopeReview;
       if (saved.policyRevision!==active.revision || saved.policySha256!==active.sha) {
         throw new Error("Reviewed scope policy superseded; renewed review required");
@@ -272,9 +301,9 @@ export function createTrustedTypedNoteScopeCommit(
       if (!isDeepStrictEqual(saved,expected)) {
         throw new Error("Persisted reviewed scope does not match approved economics");
       }
-      await stable(input,creator,record,active);
+      await stable(target,creator,record,active);
       return {state:"internal-reviewed-scope-only" as const,
-        organizationId:input.organizationId,sourceId:input.sourceId,
+        organizationId:target.organizationId,sourceId:target.sourceId,
         sourceRevision:3 as const,reviewedBy:creator,
         reviewedSelectionSha256:saved.reviewedSelectionSha256,preview};
     },
@@ -286,13 +315,13 @@ export function createTrustedTypedNoteScopeCommit(
      * an unreviewed snapshot does not prove the earlier write rolled back.
      */
     async reconcile(input: Request): Promise<ScopeReadOnlyReconciliation> {
-      validate(input);
-      const creator=await actor(input.session);
-      const first=await source(input,creator);
-      const firstPolicy=await activePolicy(input,creator);
-      const second=await source(input,creator);
-      const secondPolicy=await activePolicy(input,creator);
-      const selector={organizationId:input.organizationId,sourceId:input.sourceId};
+      const target=snapshotRequest(input);
+      const creator=await actor(target.session);
+      const first=await source(target,creator);
+      const firstPolicy=await activePolicy(target,creator);
+      const second=await source(target,creator);
+      const secondPolicy=await activePolicy(target,creator);
+      const selector={organizationId:target.organizationId,sourceId:target.sourceId};
       if (!isDeepStrictEqual(first,second)
         || firstPolicy.revision!==secondPolicy.revision
         || firstPolicy.sha!==secondPolicy.sha) {
@@ -309,7 +338,7 @@ export function createTrustedTypedNoteScopeCommit(
         return {...selector,state:"different-scope-at-read"};
       }
       const model=buildReviewWorkbench(second.original,second.review!,secondPolicy.policy);
-      if (model.key!==input.reviewKey) {
+      if (model.key!==target.reviewKey) {
         return {...selector,state:"different-scope-at-read"};
       }
       // The review key binds evidence and policy, NOT a user's selection.
@@ -319,7 +348,7 @@ export function createTrustedTypedNoteScopeCommit(
       // because the key matched, misleading an ambiguous-write investigation.
       let expected: NonNullable<TypedNoteSourceRecord["scopeReview"]>;
       try {
-        ({expected}=checkedScope(second,secondPolicy,creator,input));
+        ({expected}=checkedScope(second,secondPolicy,creator,target));
       } catch {
         return {...selector,state:"different-scope-at-read"};
       }
@@ -345,24 +374,24 @@ export function createTrustedTypedNoteScopeCommit(
       state:"reviewed-for-proposal-draft"; sourceId:string;
       revision:3; reviewedSelectionSha256:string; reviewedBy:string;
     }> {
-      validate(input);
-      const creator=await actor(input.session);
-      const record=await source(input,creator);
+      const target=snapshotRequest(input);
+      const creator=await actor(target.session);
+      const record=await source(target,creator);
       if (record.revision!==2 || !record.review || record.scopeReview!==null) {
         throw new Error("Scope source is not awaiting human review");
       }
-      const active=await activePolicy(input,creator);
-      const {expected:scope}=checkedScope(record,active,creator,input);
+      const active=await activePolicy(target,creator);
+      const {expected:scope}=checkedScope(record,active,creator,target);
       // Auth and private SQL independently check current membership before
       // source existence, lock the source and ACTIVE approved policy row.
-      if (await actor(input.session)!==creator) {
+      if (await actor(target.session)!==creator) {
         throw new Error("Scope reviewer identity changed before commit");
       }
       const result=await db.query(COMMIT,[
-        input.organizationId,creator,input.sourceId,
+        target.organizationId,creator,target.sourceId,
         scope.sourceSha256,scope.candidatesSha256,JSON.stringify(scope),
       ]);
-      if (!result || !Array.isArray(result.rows) || result.rows.length!==1
+      if (!result || !canonicalArray(result.rows,1,1)
         || !exact(result.rows[0],[
           "source_revision","reviewed_selection_sha256"])
         || result.rows[0].source_revision!==3
@@ -370,7 +399,7 @@ export function createTrustedTypedNoteScopeCommit(
         throw new Error("Human scope CAS result indeterminate; inspect, never retry");
       }
       // Freshly authorized primary read-back confirms the complete record.
-      const after=await source(input,creator);
+      const after=await source(target,creator);
       if (after.revision!==3 || !isDeepStrictEqual(after.scopeReview,scope)
         || !isDeepStrictEqual(after.original,record.original)
         || !isDeepStrictEqual(after.review,record.review)
@@ -378,12 +407,12 @@ export function createTrustedTypedNoteScopeCommit(
         || !isDeepStrictEqual(after.creationAudit,record.creationAudit)) {
         throw new Error("Scope read-back indeterminate; inspect, never retry");
       }
-      const latest=await activePolicy(input,creator);
+      const latest=await activePolicy(target,creator);
       if (latest.revision!==active.revision || latest.sha!==active.sha) {
         throw new Error("Approved policy changed after scope commit; inspect");
       }
       return {
-        state:"reviewed-for-proposal-draft",sourceId:input.sourceId,
+        state:"reviewed-for-proposal-draft",sourceId:target.sourceId,
         revision:3,reviewedSelectionSha256:scope.reviewedSelectionSha256,
         reviewedBy:creator,
       };
