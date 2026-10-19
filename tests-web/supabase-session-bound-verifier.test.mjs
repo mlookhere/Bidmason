@@ -87,3 +87,102 @@ test("no authorization from token claims before the Auth server verifies JWT",as
  assert.equal(x.state.authCalls,1);
  assert.equal(x.state.dbCalls,0);
 });
+
+
+test("session binding captures the original Auth-verified identity before database awaits",async()=>{
+ const x=setup(),identity={userId:user};
+ x.auth.verifyActiveSession=async()=>{x.state.authCalls++;return identity;};
+ x.db.query=async(sql,params)=>{
+  x.state.dbCalls++;
+  assert.match(sql,/auth_session_is_active/);
+  assert.deepEqual(params,[user,sid]);
+  identity.userId=second;
+  return {rows:[{active:true}]};
+ };
+ assert.deepEqual(await createSessionBoundSupabaseVerifier(x.auth,x.db)
+   .verifySessionBinding(jwt()),{userId:user,sessionId:sid});
+ assert.equal(x.state.authCalls,1);
+ assert.equal(x.state.dbCalls,1);
+});
+
+test("forged, accessor-backed or decorated Auth identities deny before private session SQL",async()=>{
+ let getterCalls=0;
+ const identities=[
+  ()=>{const v={userId:user};Object.defineProperty(v,"send",{value:true});return v;},
+  ()=>{const v={userId:user};v[Symbol("approved")]=true;return v;},
+  ()=>Object.assign(Object.create({approved:true}),{userId:user}),
+  ()=>Object.defineProperty({},"userId",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe Auth identity getter");}}),
+  ()=>Object.defineProperty({userId:user},"userId",{enumerable:false,
+    value:user}),
+  ()=>({userId:user,role:"service_role"}),
+ ];
+ for(const build of identities){
+  const x=setup();
+  x.auth.verifyActiveSession=async()=>{x.state.authCalls++;return build();};
+  await assert.rejects(
+    createSessionBoundSupabaseVerifier(x.auth,x.db).verifyActiveSession(jwt()),
+    /Current verified Supabase Auth session required/);
+  assert.equal(x.state.authCalls,1);
+  assert.equal(x.state.dbCalls,0);
+ }
+ assert.equal(getterCalls,0);
+});
+
+test("private session receipt rejects SQL row-envelope, index and active getters",async()=>{
+ let getterCalls=0;
+ const corruptions=[
+  response=>Object.defineProperty(response,"rows",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe SQL rows getter");}}),
+  response=>Object.defineProperty(response.rows,"0",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe SQL index getter");}}),
+  response=>{delete response.rows[0];},
+  response=>Object.defineProperty(response.rows,"0",{enumerable:false,
+    configurable:true,value:response.rows[0]}),
+  response=>Object.defineProperty(response.rows,"send",{value:true}),
+  response=>{response.rows[Symbol("approved")]=true;},
+  response=>Object.setPrototypeOf(response.rows,Object.create(Array.prototype)),
+  response=>Object.defineProperty(response.rows[0],"active",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe active getter");}}),
+  response=>Object.defineProperty(response.rows[0],"active",{enumerable:false,
+    value:true}),
+  response=>Object.defineProperty(response.rows[0],"send",{value:true}),
+  response=>{response.rows[0][Symbol("approved")]=true;},
+  response=>Object.setPrototypeOf(response.rows[0],{active:true}),
+ ];
+ for(const corrupt of corruptions){
+  const x=setup();
+  x.db.query=async()=>{
+   x.state.dbCalls++;
+   const response={rows:[{active:true}]};
+   corrupt(response);
+   return response;
+  };
+  await assert.rejects(x.verifier.verifySessionBinding(jwt()),
+    /Current verified Supabase Auth session required/);
+  assert.equal(x.state.authCalls,1);
+  assert.equal(x.state.dbCalls,1);
+ }
+ assert.equal(getterCalls,0);
+});
+
+test("private session check supports ordinary PostgreSQL metadata but never missing or contradictory receipts",async()=>{
+ const x=setup();
+ x.db.query=async(sql,params)=>{
+  x.state.dbCalls++;
+  assert.deepEqual(params,[user,sid]);
+  return {rows:[{active:true}],rowCount:1,command:"SELECT",fields:[]};
+ };
+ assert.deepEqual(await x.verifier.verifySessionBinding(jwt()),
+  {userId:user,sessionId:sid});
+ const invalid=[{rows:[]},{rows:[{active:false}]},
+  {rows:[{active:"true"}]},{rows:[{active:true},{active:true}]},
+  {rows:null},{},null];
+ for(const receipt of invalid){
+  const y=setup();
+  y.db.query=async()=>{y.state.dbCalls++;return receipt;};
+  await assert.rejects(y.verifier.verifyActiveSession(jwt()),
+    /Current verified Supabase Auth session required/);
+  assert.equal(y.state.dbCalls,1);
+ }
+});
