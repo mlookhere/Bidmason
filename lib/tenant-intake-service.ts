@@ -36,11 +36,53 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 type SourceSelector = { organizationId: string; sourceId: string };
 
-function validateSelector(selector: SourceSelector): void {
-  if (!selector || typeof selector !== "object" || !UUID.test(selector.organizationId)
-    || !UUID.test(selector.sourceId)) {
+/** Freeze only trusted routing fields; legacy extras are ignored, not authority. */
+function snapshotSelector(selector: SourceSelector): SourceSelector {
+  if (!selector || typeof selector !== "object" || Array.isArray(selector)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(selector))
+    || ["organizationId", "sourceId"].some(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(selector, key);
+      return descriptor?.enumerable !== true || !Object.hasOwn(descriptor, "value");
+    })
+    || typeof selector.organizationId !== "string" || !UUID.test(selector.organizationId)
+    || typeof selector.sourceId !== "string" || !UUID.test(selector.sourceId)) {
     throw new TypeError("Invalid tenant intake record selector");
   }
+  return {organizationId:selector.organizationId,sourceId:selector.sourceId};
+}
+
+function canonicalArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value) || value.length > 50
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i=0;i<value.length;i++){
+    const descriptor=Object.getOwnPropertyDescriptor(value,String(i));
+    if (descriptor?.enumerable !== true
+      || !Object.hasOwn(descriptor,"value")) return false;
+  }
+  return true;
+}
+
+/** The shared policy-bound validator still checks service eligibility and consent. */
+function snapshotPreviewRequest(request: InternalPreviewRequest): InternalPreviewRequest {
+  if (!request || typeof request !== "object" || Array.isArray(request)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(request))
+    || Reflect.ownKeys(request).length !== 3
+    || ["reviewKey","selectedIndices","acceptedAddonCodes"].some(key => {
+      const descriptor=Object.getOwnPropertyDescriptor(request,key);
+      return descriptor?.enumerable !== true || !Object.hasOwn(descriptor,"value");
+    })
+    || typeof request.reviewKey !== "string"
+    || !/^[0-9a-f]{64}$/.test(request.reviewKey)
+    || !canonicalArray(request.selectedIndices)
+    || !canonicalArray(request.acceptedAddonCodes)) {
+    throw new TypeError("Invalid internal preview request");
+  }
+  return {
+    reviewKey:request.reviewKey,
+    selectedIndices:[...request.selectedIndices] as number[],
+    acceptedAddonCodes:[...request.acceptedAddonCodes] as string[],
+  };
 }
 
 function checkedRecord(record: AuthorizedIntakeRecord | null,
@@ -70,7 +112,6 @@ function checkedRecord(record: AuthorizedIntakeRecord | null,
 
 async function load(sourceStore: TrustedIntakeStore, session: unknown,
   selector: SourceSelector) {
-  validateSelector(selector);
   return checkedRecord(await sourceStore.readAuthorized({
     session, organizationId: selector.organizationId, sourceId: selector.sourceId,
   }), selector);
@@ -84,13 +125,14 @@ export async function readTenantIntakeWorkbench(
   session: unknown,
   selector: SourceSelector,
 ): Promise<ReviewWorkbenchModel> {
-  const first = await load(sourceStore, session, selector);
+  const target = snapshotSelector(selector);
+  const first = await load(sourceStore, session, target);
   const model = await readAuthorizedReviewWorkbench(policyStore, session, {
-    organizationId: selector.organizationId,
+    organizationId: target.organizationId,
     original: first.record.original,
     review: first.record.review,
   });
-  const latest = await load(sourceStore, session, selector);
+  const latest = await load(sourceStore, session, target);
   if (latest.stamp !== first.stamp) {
     throw new Error("Tenant intake evidence changed during review; refresh required");
   }
@@ -105,14 +147,16 @@ export async function previewTenantIntakeSelection(
   session: unknown,
   input: SourceSelector & { request: InternalPreviewRequest },
 ): Promise<ReviewedEconomicsPreview> {
-  const first = await load(sourceStore, session, input);
+  const target = snapshotSelector(input);
+  const boundRequest = snapshotPreviewRequest(input.request);
+  const first = await load(sourceStore, session, target);
   const result = await previewAuthorizedWorkbenchSelection(policyStore, session, {
-    organizationId: input.organizationId,
+    organizationId: target.organizationId,
     original: first.record.original,
     review: first.record.review,
-    request: input.request,
+    request: boundRequest,
   });
-  const latest = await load(sourceStore, session, input);
+  const latest = await load(sourceStore, session, target);
   if (latest.stamp !== first.stamp) {
     throw new Error("Tenant intake evidence changed during preview; refresh required");
   }
