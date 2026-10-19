@@ -1303,3 +1303,26 @@ read-only downstream handoff after CAS, asserting **one** SQL scope mutation.
 Cross-tenant protection, real Auth, live consent, untrusted AI, signed AV and
 privacy/security/legal acceptance remain separate mandatory prerequisites.
 No live API, customer quote approval or outbound send is introduced.
+
+## Canonical selection integrity across staged and legacy flows
+
+The shared `prepareReviewPreviewRequest` domain boundary now requires up to
+50 **strictly increasing nonnegative safe-integer** service indices and up to
+50 **lexically increasing** lowercase service-code acknowledgements (unique
+and bounded), as well as the existing workbench eligibility and explicit
+optional-service acceptance. `changeReviewSelection` already emits this
+canonical order. Formerly the private typed-note adapter required sorted
+indices, while the generic authorized workbench, service-review CAS and
+legacy proposal-draft paths accepted a different order for identical choices.
+Those representations could produce diverging immutable review payloads.
+
+The private typed-note scope adapter now delegates its persisted selection
+checks to this same pure domain helper instead of maintaining duplicate
+validators. Early request-shape checks still reject forged fields before
+Auth or private SQL. `tests-web/authorized-intake-workflow.test.mjs`
+covers unsorted, fractional, oversized and duplicate indices, and invalid
+or unsorted add-on acknowledgements; `tests-web/tenant-service-review.test.mjs`
+verifies malformed human choices cannot commit a scope, while canonical
+choices still commit. This narrows scope representation variance; it does
+**not** approve any quote, actor, send or document and does not replace
+the staged SQL/real Supabase tenant and approval checks.
