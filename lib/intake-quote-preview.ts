@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalCompanyPolicyText } from "./company-policy-fingerprint.ts";
 import { previewCompanyEconomics, type VersionedEconomicsPolicy,
   type EconomicsPreview } from "./company-economics.ts";
 import { selectReviewedServices, type ExtractionReview,
@@ -27,20 +28,39 @@ export function previewReviewedEconomics(
   acceptedAddonCodes: readonly string[] = [],
 ): ReviewedEconomicsPreview {
   const services = selectReviewedServices(original, review, selection);
+  // Both add-on acknowledgements and the ratecard are caller-provided data
+  // in the standalone helper. Inspect descriptors before reading any element
+  // or optional service flag; never invoke a forged getter as human consent.
   if (!Array.isArray(acceptedAddonCodes)
+    || Object.getPrototypeOf(acceptedAddonCodes) !== Array.prototype
     || acceptedAddonCodes.length > 50
-    || acceptedAddonCodes.some((code, i) => typeof code !== "string"
-      || !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
-      || (i > 0 && code <= acceptedAddonCodes[i - 1])
-      || !services.some(s => s.serviceCode === code)
-      || policy?.pricing?.services?.[code]?.optionalAddon !== true)) {
+    || Reflect.ownKeys(acceptedAddonCodes).length !== acceptedAddonCodes.length + 1) {
     throw new Error("Invalid or unselected optional add-on acceptance");
   }
-  const accepted = new Set(acceptedAddonCodes);
+  const addons: string[] = [];
+  for (let i = 0; i < acceptedAddonCodes.length; i++) {
+    const descriptor = Object.getOwnPropertyDescriptor(
+      acceptedAddonCodes, String(i));
+    if (descriptor?.enumerable !== true
+      || !Object.hasOwn(descriptor, "value")
+      || typeof descriptor.value !== "string") {
+      throw new Error("Invalid or unselected optional add-on acceptance");
+    }
+    addons.push(descriptor.value);
+  }
+  const policySnapshot = JSON.parse(canonicalCompanyPolicyText(policy))
+    as VersionedEconomicsPolicy;
+  if (addons.some((code, i) => !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
+      || (i > 0 && code <= addons[i - 1])
+      || !services.some(s => s.serviceCode === code)
+      || policySnapshot.pricing?.services?.[code]?.optionalAddon !== true)) {
+    throw new Error("Invalid or unselected optional add-on acceptance");
+  }
+  const accepted = new Set(addons);
   const reviewedInputs = services.map(s => ({
     ...s, ...(accepted.has(s.serviceCode) ? { addonAccepted: true as const } : {}),
   }));
-  const economics = previewCompanyEconomics(policy, reviewedInputs);
+  const economics = previewCompanyEconomics(policySnapshot, reviewedInputs);
   const selectedServices = selection.map((index, i) => ({
     serviceCode: services[i].serviceCode,
     units: services[i].units,
