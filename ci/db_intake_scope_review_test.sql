@@ -68,6 +68,8 @@ begin
    'revision',1,
    'pricing',jsonb_build_object('policyId','synthetic-painting-v1',
      'currency','USD',
+     'minimum',jsonb_build_object('rule','none','cents',0),
+     'calculationOrder','surcharge-then-discount',
      'services',jsonb_build_object(
        'painting',jsonb_build_object('label','Painting','unit','room',
          'billing','charged','rateCents',25000,'optionalAddon',false),
