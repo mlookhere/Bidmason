@@ -112,3 +112,19 @@ test("company add-on charges enter tax and direct-cost preview only after explic
   assert.equal(preview.totalWithTaxCents,18233);
   assert.equal(preview.estimatedDirectCostsCents,9200);
 });
+
+test("internal economics preview rejects caller-provided quote authority and amounts",()=>{
+ const input={serviceCode:"office",units:1};
+ const base=previewCompanyEconomics(clean,[input]);
+ assert.equal(base.state,"preview-only");
+ for(const directive of [
+  {priceCents:1},{rateCents:1},{taxCents:0},{quoteTotalCents:0},
+  {approved:true},{send:true},{recipient:"example@invalid.test"},
+  {policyRevision:999},
+ ]) {
+  assert.throws(()=>previewCompanyEconomics(clean,[{...input,...directive}]),
+    /unsupported fields/);
+ }
+ assert.equal(previewCompanyEconomics(clean,[input]).totalWithTaxCents,
+   base.totalWithTaxCents);
+});
