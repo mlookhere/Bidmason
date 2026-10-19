@@ -155,8 +155,12 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_lookup.sql
       - name: Prove authorized recovery, actor isolation and revocation
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_lookup_test.sql
+      - name: Install private canonical candidate digest
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_candidates_digest.sql
       - name: Install staged creator-locked extraction CAS
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_commit.sql
+      - name: Prove cross-language candidate SHA-256 and digest tamper denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_digest_test.sql
       - name: Test extraction transitions, forged evidence and revocation
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_test.sql
       - name: Prove independent UTF-16 excerpts including emoji and wrong offsets
