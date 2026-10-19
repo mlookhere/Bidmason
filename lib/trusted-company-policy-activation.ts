@@ -85,14 +85,16 @@ export function createTrustedCompanyPolicyActivation(
       || last.revision>1000000) {
       throw new Error("Current approval must be by the authenticated distinct reviewer");
     }
-    // Private activation has contiguous approved revision numbers. Rejected
-    // revisions/drafts require a separate persistent approval workflow.
-    const previous=persisted.revisions.at(-2);
-    if ((last.revision===1 && previous!==undefined)
-      || (last.revision>1
-        && (!previous || previous.status!=="approved"
-          || previous.revision!==last.revision-1))) {
-      throw new Error("Noncontiguous approved history cannot be activated");
+    // A rejected submission retains its immutable revision number.
+    // Prior active means the last APPROVED revision, not the immediately
+    // preceding submitted revision. Every intervening submission must have
+    // been explicitly rejected; SQL independently verifies these events.
+    const previous=persisted.revisions.slice(0,-1).findLast(
+      revision=>revision.status==="approved");
+    const gapStart=(previous?.revision??0)+1;
+    if (persisted.revisions.slice(gapStart-1,-1).some(
+      revision=>revision.status!=="rejected")) {
+      throw new Error("Unreviewed or approved intermediate policy revisions");
     }
     const canonical=canonicalCompanyPolicyText(policy);
     const sha=companyPolicySha256(policy);
