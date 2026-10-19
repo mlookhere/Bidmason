@@ -1,3 +1,6 @@
+// Intentional opt-in for isolated legacy SQL test fixtures only.
+process.env.BIDMASON_CI_DISPOSABLE_POSTGRES="1";
+
 /** Disposable PostgreSQL bridge: SQL projection -> canonical TypeScript
  * economics. This tests the live SQL interface but NOT production Supabase. */
 import test from "node:test";
