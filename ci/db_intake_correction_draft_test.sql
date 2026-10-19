@@ -48,6 +48,49 @@ begin
  actions:=jsonb_build_array(jsonb_build_object(
   'action','replace','index',0,'candidate',proposed->0,
   'reason','Correct model quantity'));
+ -- Verify ALL supported edit forms against the stored original, without
+ -- writing a second draft or weakening its one-write uniqueness bound.
+ if not bm_intake_private.replay_correction_actions(
+    current_review->'candidates',
+    jsonb_build_array(jsonb_build_object('action','remove','index',0,
+      'reason','Original model quantity was wrong'),
+      jsonb_build_object('action','add','candidate',proposed->0,
+      'reason','Corrected supported service')),
+    proposed) then
+   raise exception 'Remove-and-add source replay failed';
+ end if;
+ if not bm_intake_private.replay_correction_actions(
+    current_review->'candidates',
+    jsonb_build_array(jsonb_build_object('action','add',
+      'candidate',jsonb_build_object(
+        'serviceCode','cleaning','units',1,'start',0,
+        'end',length(note_text)+1,'excerpt',note_text),
+      'reason','Missed additional cleaning scope')),
+    jsonb_build_array(current_review->'candidates'->0,
+      jsonb_build_object('serviceCode','cleaning','units',1,
+        'start',0,'end',length(note_text)+1,'excerpt',note_text))) then
+   raise exception 'Add-only source replay failed';
+ end if;
+ -- JS and SQL must sort added rows by start, end, then service code
+ -- regardless of the order in which the human submitted actions.
+ if not bm_intake_private.replay_correction_actions(
+    current_review->'candidates',
+    jsonb_build_array(
+      jsonb_build_object('action','add','candidate',
+        jsonb_build_object('serviceCode','sealing','units',1,
+          'start',0,'end',length(note_text)+1,'excerpt',note_text),
+        'reason','Missed sealing scope'),
+      jsonb_build_object('action','add','candidate',
+        jsonb_build_object('serviceCode','cleaning','units',1,
+          'start',0,'end',length(note_text)+1,'excerpt',note_text),
+        'reason','Missed cleaning scope')),
+    jsonb_build_array(current_review->'candidates'->0,
+      jsonb_build_object('serviceCode','cleaning','units',1,
+        'start',0,'end',length(note_text)+1,'excerpt',note_text),
+      jsonb_build_object('serviceCode','sealing','units',1,
+        'start',0,'end',length(note_text)+1,'excerpt',note_text))) then
+   raise exception 'Human addition ordering is not deterministic';
+ end if;
  if bm_intake_private.canonical_candidate_sha256(proposed)=candidate_sha then
   raise exception 'Fixture did not change candidates';
  end if;
