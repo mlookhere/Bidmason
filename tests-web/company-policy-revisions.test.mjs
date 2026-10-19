@@ -198,3 +198,31 @@ test("canonical policy serializer rejects non-JSON and unsafe policy values",()=
     {value:{label:"Injected"},enumerable:true});
   assert.throws(()=>canonicalCompanyPolicyText(injected),/forbidden object keys/);
 });
+
+
+test("historical approvals cannot impersonate the submitter or invent reviewer identity",()=>{
+  const valid=accept(begin());
+  const validHash=valid.revisions[0].policySha256;
+  const changes=[
+    {submittedBy:"not-a-uuid"},
+    {reviewedBy:"not-a-uuid"},
+    {reviewedBy:creator},
+    {reviewedBy:null},
+    {submittedBy:reviewer},
+  ];
+  for (const change of changes) {
+    const forged=structuredClone(valid);
+    Object.assign(forged.revisions[0],change);
+    // The economics digest remains perfectly valid, but the historical
+    // authorization evidence is invalid and cannot authorize a read.
+    assert.equal(forged.revisions[0].policySha256,validHash);
+    assert.throws(()=>readActivePolicy(forged,orgA),/Malformed immutable policy history/);
+  }
+  const pending=begin();
+  pending.revisions[0].submittedBy="not-a-uuid";
+  assert.throws(()=>submitPolicyDraft(pending,{
+    organizationId:orgA,submittedBy:creator,policy:policy(2),
+    expectedRevision:1,expectedSha256:pending.revisions[0].policySha256,
+  }),/Malformed immutable policy history/);
+  assert.equal(readActivePolicy(valid,orgA).revision,1);
+});
