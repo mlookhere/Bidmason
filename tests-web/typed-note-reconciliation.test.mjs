@@ -242,3 +242,58 @@ test("ledger reconciliation rejects extra top-level persisted approval fields",a
  assert.equal((await reconcileAuthorizedTypedNote(trustedLedger(f),"operator",note)).state,
   "conflict");
 });
+
+
+test("caller mutations during the first ledger read cannot retarget confirmation",async()=>{
+ const f=fixture(),created=await commitAuthorizedTypedNote(f.store,"operator",note);
+ const request={...note};
+ const ledger=trustedLedger(f,{afterRead(n){
+  if(n===1){
+   request.organizationId=OTHER;
+   request.requestId=randomUUID();
+   request.text="forged during a pending ledger lookup";
+  }
+ }});
+ const result=await reconcileAuthorizedTypedNote(ledger,"operator",request);
+ assert.deepEqual(result,{state:"confirmed-unprocessed",organizationId:ORG,
+  sourceId:created.sourceId,revision:1,textSha256:created.textSha256});
+ assert.equal(ledger.count(),2);
+ assert.equal(f.calls().count,1);
+});
+
+test("mutable absent-ledger requests keep the original authorized selector",async()=>{
+ const f=fixture(),request={...note};
+ const ledger=trustedLedger(f,{afterRead(n){
+  if(n===1){request.organizationId=OTHER;request.requestId=randomUUID();}
+ }});
+ assert.deepEqual(await reconcileAuthorizedTypedNote(ledger,"operator",request),
+  {state:"not-found-at-read",organizationId:ORG,requestId:REQUEST});
+ assert.equal(ledger.count(),2);
+ assert.equal(f.calls().count,0);
+});
+
+test("malformed ledger receipt descriptors never execute untrusted getters",async()=>{
+ const f=fixture();await commitAuthorizedTypedNote(f.store,"operator",note);
+ let getterCalls=0;
+ const forged=[
+  receipt=>Object.defineProperty(receipt,"send",{value:true}),
+  receipt=>{receipt[Symbol("approved")]=true;},
+  receipt=>Object.setPrototypeOf(receipt,{approved:true}),
+  receipt=>Object.defineProperty(receipt,"authenticatedActorId",{
+   configurable:true,enumerable:true,get(){
+    getterCalls++;throw Error("untrusted receipt getter executed");
+   }}),
+ ];
+ for(const mutate of forged){
+  const adapter=trustedLedger(f);
+  const wrapped={async lookupAuthorized(input){
+   const receipt=await adapter.lookupAuthorized(input);
+   mutate(receipt);
+   return receipt;
+  }};
+  assert.equal((await reconcileAuthorizedTypedNote(wrapped,"operator",note)).state,
+   "conflict");
+  assert.equal(adapter.count(),2);
+ }
+ assert.equal(getterCalls,0);
+});
