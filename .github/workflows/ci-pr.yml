@@ -215,3 +215,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_draft.sql
       - name: Prove source-bound corrected candidates and denial of quote/replay
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_draft_test.sql
+      - name: Install independent private correction evidence review receipt
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_evidence_review.sql
+      - name: Verify two-actor correction evidence and prevent approval or scope bypass
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_evidence_review_test.sql
