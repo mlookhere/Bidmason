@@ -187,3 +187,31 @@ test("economic preview refuses hidden rate directives and custom serializers",()
  assert.equal(previewCompanyEconomics(clean,[{serviceCode:"office",units:1}]).policySha256,
   baseline.policySha256);
 });
+
+
+test("economics exclusion preflight cannot evaluate malicious getters",()=>{
+ let getterCalls=0;
+ const valid=()=>[{serviceCode:"office",units:1}];
+ const corrupt=[
+  rows=>Object.defineProperty(rows,"0",{enumerable:true,configurable:true,
+    get(){getterCalls++;throw Error("unsafe array index getter");}}),
+  rows=>{delete rows[0];},
+  rows=>{rows[Symbol("send")]=true;},
+  rows=>Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  rows=>Object.defineProperty(rows[0],"serviceCode",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe excluded service getter");}}),
+  rows=>Object.defineProperty(rows[0],"units",{enumerable:true,
+    get(){getterCalls++;throw Error("unsafe units getter");}}),
+  rows=>Object.defineProperty(rows[0],"send",{value:true}),
+ ];
+ for(const alter of corrupt){
+  const rows=valid();alter(rows);
+  assert.throws(()=>previewCompanyEconomics(clean,rows),
+    /One to 50 canonical services|Quote line contains unsupported fields/);
+ }
+ assert.equal(getterCalls,0);
+ assert.equal(previewCompanyEconomics(clean,[valid()[0]]).state,"preview-only");
+ // An excluded line still reports the intended denial after input validation.
+ assert.throws(()=>previewCompanyEconomics(paint,[
+  {serviceCode:"quarterly",units:1}]),/Company-excluded service/);
+});
