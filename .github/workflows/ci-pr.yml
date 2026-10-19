@@ -175,6 +175,8 @@ jobs:
         run: node --test ci/intake_extraction_concurrency.test.mjs
       - name: Install staged two-actor approved company policy heads
         run: psql -X -v ON_ERROR_STOP=1 -f db/staged_policy_activation.sql
+      - name: Install private review selection fingerprint validators
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_review_fingerprint.sql
       - name: Install narrow private human scope-draft CAS
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_scope_review_commit.sql
       - name: Verify human draft CAS, denied tenants, tampering and replay
