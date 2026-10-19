@@ -90,6 +90,13 @@ begin
   'acceptedAddonCodes','[]'::jsonb,
   'policyRevision',1,'policySha256',v_activation.activated_sha256,
   'reviewedSelectionSha256',repeat('3',64));
+ v_scope:=jsonb_set(v_scope,'{reviewKey}',to_jsonb(
+   bm_intake_private.review_workbench_sha256(
+     v_source_sha,v_candidates_sha,v_activation.activated_sha256)));
+ v_scope:=jsonb_set(v_scope,'{reviewedSelectionSha256}',to_jsonb(
+   bm_intake_private.reviewed_selection_sha256(v_review,
+     v_scope->'selectedIndices',v_scope->'acceptedAddonCodes',
+     v_activation.activated_sha256)));
 
  -- Absent source and different-tenant/creator denial before data disclosure.
  begin
@@ -137,7 +144,9 @@ begin
   jsonb_set(v_scope,'{reviewKey}','null'::jsonb),
   jsonb_set(v_scope,'{policySha256}','null'::jsonb),
   jsonb_set(v_scope,'{reviewedSelectionSha256}','null'::jsonb),
-  jsonb_set(v_scope,'{policyRevision}','null'::jsonb)
+  jsonb_set(v_scope,'{policyRevision}','null'::jsonb),
+  jsonb_set(v_scope,'{reviewKey}',to_jsonb(repeat('f',64))),
+  jsonb_set(v_scope,'{reviewedSelectionSha256}',to_jsonb(repeat('f',64)))
  ] loop
   begin
    perform 1 from bm_intake_private.commit_typed_note_scope_review(
