@@ -70,7 +70,7 @@ export function prepareReviewPreviewRequest(
     || selection.acceptedAddonCodes.some((code, i) => typeof code !== "string"
       || !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
       || (i > 0 && code <= selection.acceptedAddonCodes[i - 1]))) {
-    throw new Error("Review selection is stale, incomplete or noncanonical");
+    throw new Error("Review selection is stale or incomplete (noncanonical selection)");
   }
   const selectedCodes = new Set<string>();
   for (const index of selection.selectedIndices) {
