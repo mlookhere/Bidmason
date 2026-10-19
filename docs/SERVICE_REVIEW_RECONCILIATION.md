@@ -41,3 +41,30 @@ All underlying store adapters are hypothetical until Item 3's genuine
 multi-user Supabase Auth/PostgREST/RLS/private Storage bytes and security
 verification succeed. No live customer route or Storage/network operation
 was added.
+
+## Canonical persisted evidence before recovery classification
+
+A read-only reconciliation runs after a write outcome is uncertain; it
+must never turn malformed server read-back into a verified scope. The
+recovery adapter now verifies all returned root fields are own
+enumerable data, checks the complete original/extraction candidate
+source digests, and requires exactly one plain-data extraction audit
+row **before** computing the original CAS fingerprint. When a scope
+receipt exists, it must have exact plain fields, a dense non-decorated
+selection and add-on array, and primitive revision/actor/digest values.
+
+Malformed source or scope evidence is classified **conflict**, not
+`confirmed-current-at-read` or `unchanged-at-read`, and cannot trigger
+a pricing-policy lookup. The same checks run on the second authorized
+primary read, so a malicious or stale later response cannot confirm an
+earlier decision. Accessor-backed fields, custom serializers, holes,
+symbols and hidden directives are rejected without executing getters.
+The index-zero candidate validation probe is only evidence checking,
+not approval. Additional regression cases cover malicious original,
+audit, candidate and stored-scope records, including the second read.
+
+A clean reconciliation is still *read-only*. Even an exact record and
+policy fingerprint do not independently prove historic actor
+authorization or permit quote publication. Live authenticated tenant
+membership, source-owned PostgreSQL CAS and RLS/Storage, maintained
+antivirus and separate human proposal approvals remain mandatory.
