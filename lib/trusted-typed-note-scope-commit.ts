@@ -190,19 +190,8 @@ export function createTrustedTypedNoteScopeCommit(
     requested: Pick<Request,"reviewKey"|"selectedIndices"|"acceptedAddonCodes">,
   ) {
     if (!record.review) throw new Error("Missing stored extraction review");
-    // Stored scope is an input at readReviewedDraft, not only an output of
-    // commit. Enforce the same canonical index/optional selection bounds
-    // independently of how a persisted record reached this reader.
-    if (!Array.isArray(requested.selectedIndices)
-      || requested.selectedIndices.length<1 || requested.selectedIndices.length>50
-      || requested.selectedIndices.some((v,i) => !Number.isSafeInteger(v)
-        || v<0 || v>100000 || (i>0 && v<=requested.selectedIndices[i-1]))
-      || !Array.isArray(requested.acceptedAddonCodes)
-      || requested.acceptedAddonCodes.length>50
-      || requested.acceptedAddonCodes.some(v=>typeof v!=="string"
-        || !/^[a-z][a-z0-9_-]{0,63}$/.test(v))) {
-      throw new Error("Noncanonical stored or requested scope selection");
-    }
+    // The shared selection helper validates canonical ordering and bounds
+    // for both persisted decisions and new preview/commit requests.
     const model=buildReviewWorkbench(record.original,record.review,active.policy);
     if (model.key!==requested.reviewKey) {
       throw new Error("Scope or approved company policy changed; refresh");
