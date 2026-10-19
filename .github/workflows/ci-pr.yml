@@ -247,3 +247,5 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/staged_corrected_preview_session_lock.sql
       - name: Prove session-scoped private preview and post-signout denial
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_corrected_preview_session_lock_test.sql
+      - name: Prove trusted session-locked corrected pricing against real PostgreSQL
+        run: node --test ci/intake_corrected_session_lock_bridge.test.mjs

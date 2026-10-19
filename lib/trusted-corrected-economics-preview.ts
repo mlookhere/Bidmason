@@ -4,12 +4,17 @@ import { previewCompanyEconomics, type VersionedEconomicsPolicy,
   type EconomicsPreview } from "./company-economics.ts";
 import type { ActiveSessionVerifier, PrivateIntakeDatabase }
   from "./trusted-typed-note-ledger.ts";
+import type { SessionBoundActiveSessionVerifier }
+  from "./supabase-session-bound-verifier.ts";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SHA=/^[0-9a-f]{64}$/;
 const SERVICE=/^[a-z][a-z0-9_-]{0,63}$/;
 const READ="select bm_intake_private.read_corrected_internal_preview_inputs("+
   "$1::uuid,$2::uuid,$3::uuid,$4::text) as projection";
+const READ_SESSION_LOCKED=
+  "select bm_intake_private.read_corrected_internal_preview_session_locked("+
+  "$1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::text) as projection";
 
 type Evidence = {
   organizationId:string;sourceId:string;revision:number;
@@ -41,15 +46,41 @@ function sha(value:unknown):value is string {
 
 /** Read-only internal preview. Never expose this adapter from a public route.
  * Auth must verify live non-revoked user, DB must be primary/server only. */
+/**
+ * Requires a fresh Auth-validated user + session UUID, then performs a
+ * server-only SQL read that locks auth.sessions for the entire projection.
+ * The public caller may never supply actorId or sessionId separately.
+ */
+export function createTrustedSessionLockedCorrectedEconomicsPreview(
+  auth:SessionBoundActiveSessionVerifier,db:PrivateIntakeDatabase,
+):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
+  if(typeof auth?.verifySessionBinding!=="function"){
+    throw new TypeError("Session-bound Auth verifier required");
+  }
+  return createInternalCorrectedEconomicsPreview(auth,db,true);
+}
+
+/** Legacy staging adapter retained only for earlier read-only tests. */
 export function createTrustedCorrectedEconomicsPreview(
   auth:ActiveSessionVerifier,db:PrivateIntakeDatabase,
 ):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
-  async function verified(session:unknown):Promise<string>{
-    const current=await auth.verifyActiveSession(session);
-    if(!exact(current,["userId"])||!uuid(current.userId)){
+  return createInternalCorrectedEconomicsPreview(auth,db,false);
+}
+function createInternalCorrectedEconomicsPreview(
+  auth:ActiveSessionVerifier,db:PrivateIntakeDatabase,locked:boolean,
+):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
+  async function verified(session:unknown):Promise<{userId:string;sessionId?:string}>{
+    const current=locked
+      ? await (auth as SessionBoundActiveSessionVerifier).verifySessionBinding(session)
+      : await auth.verifyActiveSession(session);
+    if(!exact(current,locked?["userId","sessionId"]:["userId"])
+      || !uuid(current.userId)
+      || (locked&&!uuid(current.sessionId))){
       throw new Error("Current commercial reviewer Auth required");
     }
-    return current.userId;
+    return locked
+      ? {userId:current.userId,sessionId:current.sessionId as string}
+      : {userId:current.userId};
   }
   return {
     async preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>{
@@ -62,8 +93,11 @@ export function createTrustedCorrectedEconomicsPreview(
       // Capture selectors BEFORE auth await: do not trust mutable browser data.
       const org=input.organizationId,source=input.sourceId;
       const expected=input.expectedDecisionSha256,session=input.session;
-      const actor=await verified(session);
-      const result=await db.query(READ,[org,actor,source,expected]);
+      const current=await verified(session);
+      const result=locked
+        ? await db.query(READ_SESSION_LOCKED,[
+          org,current.userId,current.sessionId as string,source,expected])
+        : await db.query(READ,[org,current.userId,source,expected]);
       if(!result||!Array.isArray(result.rows)||result.rows.length!==1
         || !exact(result.rows[0],["projection"])){
         throw new Error("Approved internal corrected pricing evidence unavailable");
@@ -124,7 +158,9 @@ export function createTrustedCorrectedEconomicsPreview(
         policyRevision:projection.evidence.policyRevision as number,
       };
       // Reverify after DB read and before calculating private economics.
-      if(await verified(session)!==actor){
+      const renewed=await verified(session);
+      if(renewed.userId!==current.userId
+        || (locked&&renewed.sessionId!==current.sessionId)){
         throw new Error("Commercial reviewer session changed during preview");
       }
       const economics=previewCompanyEconomics(policy,requested);

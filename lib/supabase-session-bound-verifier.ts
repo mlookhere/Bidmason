@@ -8,6 +8,15 @@ const SQL="select bm_intake_private.auth_session_is_active("+
   "$1::uuid,$2::uuid) as active";
 const DENIED="Current verified Supabase Auth session required";
 
+/** Auth-validated session identity. Never assemble from browser-supplied IDs. */
+export interface VerifiedSessionBinding {
+  userId:string;
+  sessionId:string;
+}
+export interface SessionBoundActiveSessionVerifier extends ActiveSessionVerifier {
+  verifySessionBinding(session:unknown):Promise<VerifiedSessionBinding>;
+}
+
 function sessionIdOfVerifiedJwt(token:string,userId:string):string {
   // The Auth server must validate this VERY token first. Decoding JWT
   // payload bytes alone is NEVER proof of signature or authorization.
@@ -43,9 +52,8 @@ function sessionIdOfVerifiedJwt(token:string,userId:string):string {
  */
 export function createSessionBoundSupabaseVerifier(
  auth:ActiveSessionVerifier,primary:PrivateIntakeDatabase,
-):ActiveSessionVerifier {
-  return {
-    async verifyActiveSession(session:unknown):Promise<{userId:string}> {
+):SessionBoundActiveSessionVerifier {
+  async function verifySessionBinding(session:unknown):Promise<VerifiedSessionBinding> {
       if(typeof session!=="string"||session.length>16384
         || !TOKEN.test(session))throw Error(DENIED);
       // Independently verify token via trusted Auth server first.
@@ -64,6 +72,12 @@ export function createSessionBoundSupabaseVerifier(
         || Object.getOwnPropertyDescriptor(rows[0],"active")?.value!==true){
         throw Error(DENIED);
       }
+      return {userId:identity.userId,sessionId};
+  }
+  return {
+    verifySessionBinding,
+    async verifyActiveSession(session:unknown):Promise<{userId:string}> {
+      const identity=await verifySessionBinding(session);
       return {userId:identity.userId};
     },
   };
