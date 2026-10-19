@@ -539,3 +539,64 @@ the new TypeScript adapter over the real private SQL and checks
 matching/different/stale results, denied noncreator identity and
 membership revocation. These are synthetic primary-database tests, not
 live end-to-end security acceptance.
+
+
+## Trusted server-only scope commit adapter (staged, no public route)
+
+`lib/trusted-typed-note-scope-commit.ts` now connects the existing
+human-review workbench and deterministic economics preview to the
+**real private PostgreSQL 2→3 scope CAS** through two explicitly
+injected, trusted ports: `ActiveSessionVerifier` and
+`PrivateIntakeDatabase`. It accepts only an opaque session, tenant,
+source, review key, sorted selected indices and acknowledged optional
+service codes. Clients cannot provide the actor ID, company policy,
+service prices, approval state, or send directives.
+
+Before attempting the **single SQL write**, the adapter verifies a
+fresh authenticated identity, reloads the original creator-owned source
+from primary PostgreSQL, validates the full immutable extraction and
+creation audit, and reads the current approved policy head and immutable
+approved version using the privileged private port. It confirms the
+policy JSON has the **same canonical SHA-256** as the stored active head
+and that the two synthetic approval actors are distinct. The existing
+workbench and preview independently revalidate source-exact candidates,
+the current review key, selected service eligibility and add-on consent.
+Another fresh authenticated identity check immediately precedes the
+single `commit_typed_note_scope_review` private CAS, whose PostgreSQL
+implementation independently verifies current membership, creator
+ownership, stored source evidence, locked approved policy revision,
+selected optional services and both review fingerprints.
+
+A successful database response is **not sufficient**. The adapter
+performs a separate freshly authorized primary source read-back,
+requires revision 3 with the exact full expected review snapshot and
+unchanged original/extraction audit, then checks current approval
+policy revision/SHA again under fresh authorization. If Auth changes,
+the policy advances or the read-back diverges, the operation fails
+closed. A database exception or lost response after invoking CAS is
+**indeterminate, not rollback**: the adapter does not retry the
+write and cannot return an approved or sendable quote. Callers can use
+the already-staged, independently authorized read-only scope recovery
+adapter to inspect point-in-time evidence, but not to authorize retries.
+
+`tests-web/trusted-typed-note-scope-commit.test.mjs` covers the
+expected private query sequence, fresh Auth checkpoints, hostile and
+unsorted selections, ineligible and unacknowledged optional services,
+changed/revoked identity, forged/stale policy and review key, lost
+acknowledgements and post-write stale policy/readback tampering.
+`ci/intake_scope_commit_bridge.test.mjs` runs the real TypeScript
+adapter through **actual disposable PostgreSQL**: synthetic members,
+two-person staged policy activation, immutable typed-note extraction,
+a correct scope CAS, duplicate refusal, forged key, noncreator denial,
+membership revocation and simulated lost-acknowledgement persistence.
+The existing mandatory eight-job CI matrix and all prior gates stay
+enabled.
+
+**Unresolved release boundary:** This is **not** a connected production
+Supabase Auth/provider, an authenticated real two-person commercial
+approval, or real PostgREST/RLS/Storage acceptance. The PostgreSQL
+integration uses synthetic actors and a nonproduction service role.
+Connecting and exposing the workflow requires all outstanding Item 3
+security tests and privacy/security/legal approvals, and a separately
+verified live company policy. No customer route, quote approval, billing
+or external send is present.
