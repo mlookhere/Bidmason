@@ -52,7 +52,8 @@ test("provider exception and malformed reply fail closed without leaking details
 test("provider receives exact bytes and source digest with a deadline signal",async()=>{
   let called=false;
   const out=await transcribeOriginalAudio(audio,"audio/wav",provider(async({audio:input,format,sha256,signal})=>{
-    called=true;assert.equal(input,audio);assert.equal(format,"audio/wav");
+    called=true;assert.notStrictEqual(input,audio);
+    assert.deepEqual(Buffer.from(input),audio);assert.equal(format,"audio/wav");
     assert.equal(signal.aborted,false);assert.match(sha256,/^[a-f0-9]{64}$/);return reply();
   }),1000);
   assert.equal(called,true);assert.equal(out.state,"needs-human-review");
@@ -140,4 +141,63 @@ test("validated provider timestamps and clarifications are detached from mutable
  assert.equal(out.segments[0].excerpt,"Paint fifteen rooms");
  assert.equal(out.uncertainties[0].reason,"ambiguous-number");
  assert.equal(out.uncertainties.length,1);
+});
+
+test("provider must timestamp every substantive character, not merely one valid excerpt",async()=>{
+ const text="Paint two rooms; charge $5.";
+ const valid=[
+  {start:0,end:5,excerpt:"Paint",startMs:0,endMs:300},
+  {start:6,end:9,excerpt:"two",startMs:350,endMs:500},
+  {start:10,end:15,excerpt:"rooms",startMs:550,endMs:800},
+  {start:17,end:23,excerpt:"charge",startMs:850,endMs:1100},
+  {start:24,end:26,excerpt:"$5",startMs:1150,endMs:1400},
+ ];
+ const success=await transcribeOriginalAudio(audio,"audio/wav",provider(async()=>({
+  ...reply(text),segments:valid,
+ })));
+ assert.equal(success.state,"needs-human-review");
+ for(const segments of [
+  [valid[0]],
+  [valid[0],valid[2],valid[3],valid[4]],
+  [valid[0],valid[1],valid[2],valid[3]],
+ ]) {
+  const out=await transcribeOriginalAudio(audio,"audio/wav",provider(async()=>({
+   ...reply(text),segments,
+  })));
+  assert.equal(out.state,"failed");
+  assert.equal(out.reason,"invalid-response");
+ }
+});
+
+test("caller-owned audio cannot be mutated by or switched beneath provider handoff",async()=>{
+ const original=Buffer.from(audio),baseline=Buffer.from(original);
+ const transcriber=provider(async({audio:received,sha256})=>{
+  assert.notStrictEqual(received,original);
+  assert.deepEqual(Buffer.from(received),baseline);
+  original[0]=0;
+  assert.deepEqual(Buffer.from(received),baseline);
+  assert.match(sha256,/^[0-9a-f]{64}$/);
+  return reply();
+ });
+ const out=await transcribeOriginalAudio(original,"audio/wav",transcriber);
+ assert.equal(out.state,"needs-human-review");
+ assert.equal(out.segments[0].excerpt,"Paint fifteen rooms");
+ assert.notEqual(original[0],baseline[0]);
+});
+
+test("provider audio mutation and identity drift cannot silently change returned evidence",async()=>{
+ const original=Buffer.from(audio),before=Buffer.from(original);
+ const mutator=provider(async({audio:received})=>{
+  received[0]=0;
+  return reply();
+ });
+ const result=await transcribeOriginalAudio(original,"audio/wav",mutator);
+ assert.equal(result.state,"failed");
+ assert.equal(result.reason,"invalid-response");
+ assert.deepEqual(original,before);
+ const changing=provider(async()=>{changing.name="forged-name";changing.version="v999";return reply();});
+ const stable=await transcribeOriginalAudio(Buffer.from(audio),"audio/wav",changing);
+ assert.equal(stable.state,"needs-human-review");
+ assert.equal(stable.providerName,"isolated-test-transcriber");
+ assert.equal(stable.providerVersion,"v1");
 });

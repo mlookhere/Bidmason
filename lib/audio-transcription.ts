@@ -7,6 +7,10 @@ const MAX_DURATION_MS = 10 * 60 * 1000;
 const MAX_SEGMENTS = 200;
 const MAX_UNCERTAINTIES = 50;
 
+// Every substantive transcript character must belong to a timestamped segment.
+// Only whitespace and punctuation may sit between segment excerpts.
+const NON_SPEECH_GAP = /^[\p{White_Space}\p{P}]*$/u;
+
 export type AudioFormat = "audio/wav" | "audio/mpeg" | "audio/mp4";
 export type Uncertainty = {
   start: number; end: number; excerpt: string;
@@ -93,8 +97,14 @@ function parseProviderReply(reply: unknown) {
       || s.startMs < previousTimeEnd || s.start < previousTextEnd
       || s.endMs <= s.startMs || s.endMs > durationMs
       || Object.keys(s).length !== 5) throw new TypeError("Invalid transcript time segment");
+    if (!NON_SPEECH_GAP.test(text.slice(previousTextEnd, s.start))) {
+      throw new TypeError("Unanchored substantive transcript text");
+    }
     previousTextEnd = s.end;
     previousTimeEnd = s.endMs;
+  }
+  if (!NON_SPEECH_GAP.test(text.slice(previousTextEnd))) {
+    throw new TypeError("Unanchored substantive transcript text");
   }
   // Return detached, whitelisted evidence: a provider may reuse its own
   // response buffers after this promise settles. Gaps for spaces/punctuation
@@ -123,7 +133,13 @@ export async function transcribeOriginalAudio(
     || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new TypeError("Valid configured transcription provider and deadline required");
   }
-  const audioSha256 = createHash("sha256").update(bytes).digest("hex");
+  // Never hand a mutable caller-owned buffer to an external provider. Hash
+  // exactly the private copy handed off for recognition.
+  const audioSnapshot = Uint8Array.from(bytes);
+  validateAudio(audioSnapshot, format);
+  const audioSha256 = createHash("sha256").update(audioSnapshot).digest("hex");
+  const providerName = provider.name;
+  const providerVersion = provider.version;
   const signal = AbortSignal.timeout(timeoutMs);
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<never>((_, reject) => {
@@ -133,11 +149,18 @@ export async function transcribeOriginalAudio(
   let outcome: unknown;
   try {
     // The configured adapter must also cancel upstream requests on abort.
-    outcome = await Promise.race([provider.recognize({audio:bytes,format,sha256:audioSha256,signal}), aborted]);
+    outcome = await Promise.race([provider.recognize({
+      audio:audioSnapshot,format,sha256:audioSha256,signal,
+    }), aborted]);
   } catch {
     return {state:"failed",audioSha256,reason:signal.aborted?"timeout":"provider-error"};
   } finally {
     if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+  // A provider that mutates the handed-off bytes cannot return success under
+  // the original audio fingerprint. Keep the original digest for reconciliation.
+  if (createHash("sha256").update(audioSnapshot).digest("hex") !== audioSha256) {
+    return {state:"failed",audioSha256,reason:"invalid-response"};
   }
   let parsed: ReturnType<typeof parseProviderReply>;
   try { parsed = parseProviderReply(outcome); }
@@ -147,7 +170,7 @@ export async function transcribeOriginalAudio(
   const needsInformation = parsed.uncertainties.length > 0;
   return {
     state: needsInformation ? "needs-information" : "needs-human-review",
-    audioSha256, providerName:provider.name, providerVersion:provider.version,
+    audioSha256, providerName, providerVersion,
     original:{kind:"transcript",text:parsed.text,transcriptionSucceeded:!needsInformation},
     durationMs:parsed.durationMs, uncertainties:parsed.uncertainties,segments:parsed.segments,
   };
