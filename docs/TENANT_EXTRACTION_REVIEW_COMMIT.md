@@ -833,3 +833,57 @@ checking successful version 1 and 2, replay denial, authenticated
 reviewer mismatch, DB membership revocation and a durable version 3
 when the provider's acknowledgement is deliberately lost. Nothing is
 merged or enabled for customers by these tests.
+
+
+## Append-only durable policy submission and review ledger (staged)
+
+`db/staged_policy_review_history.sql` introduces a **durable,
+tenant-scoped PostgreSQL policy-review history** for Item 4, rather than
+relying only on an injected/in-memory `TrustedPolicyStore` mock. This
+remains a non-deployed private staging contract. Separate private event
+tables store immutable submitted canonical policy snapshots and **independent
+review decisions** (approval or rejection); a monotonic submission head
+holds the latest submitted revision and checksum. Draft and decision
+events cannot be rewritten; the private functions are unavailable to
+browser `anon`/`authenticated` roles. PostgreSQL enforces the
+current submitter's tenant membership and a distinct current authorized
+owner/operator reviewer, including revocation. A rejected version still
+occupies a revision, and a new submission requires the previous version
+to be reviewed.
+
+The private functions
+`submit_policy_history_draft(org,actor,expectedRevision,expectedSha,canonicalPolicy)`,
+`review_policy_history_draft(org,actor,revision,expectedSha,decision)`, and
+`read_policy_history(org,actor)` provide one-revision compare-and-swap,
+separate human decision recording and a membership-checked, coherent
+`PolicyHistory` snapshot. Transaction-scoped per-organization advisory
+locking serializes **first-ever concurrent submissions** as well as
+subsequent drafts and decisions. Both event tables are append-only
+and the head can only progress by one. The immutable reviewed record
+contains the actual reviewer ID, not an assertion embedded in a
+client-supplied policy object. The read shape is checked against the
+existing TypeScript `PolicyHistory` domain, which retains exact
+versioned policy SHA and active-approved semantics.
+
+Mandatory isolated `intake-db` now installs this ledger and runs
+`ci/intake_policy_durable_history.test.mjs`, exercising a real initial
+draft, distinct approver, prohibition on self-review and duplicate
+decisions, rejected policy followed by later draft, retained latest
+approved version, denied nonmember/revoked access, immutable events,
+no browser EXECUTE grants and **six separate PostgreSQL processes
+racing the same initial draft**, requiring exactly one success. Direct
+event deletion is denied at the privilege layer (and changes granted
+by service role remain subject to append-only triggers).
+
+**Remaining nonwaivable integration:** The earlier
+`createTrustedCompanyPolicyActivation` still accepts a
+`TrustedPolicyStore` interface. The persisted ledger is staged as
+a primary-database foundation; it is **not yet a deployed adapter
+for that interface**. The SQL functions take actor UUIDs that must
+ultimately be derived from fresh real Supabase Auth by a server,
+not supplied by a browser. Nor does the event ledger alone establish
+human consent or validate a real company's service rates. Until
+that verified provider integration and all Item 3 tenant security,
+private Storage, antivirus, privacy/legal and recovery acceptance,
+the activation remains unavailable to customers and cannot authorize
+a sendable quote.
