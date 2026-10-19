@@ -297,6 +297,12 @@ jobs:
       - name: Reject silent Item 3 dependency drift
         run: |
           test "$(git -C item3-dependency rev-parse HEAD)" = "d17844b6387ffe9b5970dda1350a871276b38f7a"
+      - name: Pin Node runtime for migration parity regression tests
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Detect cross-PR SQL migration manifest drift before database mutations
+        run: node --test ci/item3_item4_migration_parity.test.mjs
       - name: Install isolated PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Install real Item 3 Auth roles and tenant schema
