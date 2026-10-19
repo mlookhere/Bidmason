@@ -303,7 +303,9 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql
       - name: Prove Item 3 membership policies and Item 4 private grants coexist
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_real_tenant_compat_test.sql
+      - name: Prove original Item 3 RLS and independent human approvals with Item 4 schema installed
+        run: psql -X -v ON_ERROR_STOP=1 -f item3-dependency/ci/db_rls_test.sql
       - name: Run Item 4 two-tenant CAS and immutability tests against real Item 3
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
-      - name: Prove Item 3 two-tenant RLS and human approvals after Item 4 installation
-        run: psql -X -v ON_ERROR_STOP=1 -f item3-dependency/ci/db_rls_test.sql
+      - name: Prove post-intake tenant isolation with overlapping legitimate memberships
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_post_intake_rls_audit.sql
