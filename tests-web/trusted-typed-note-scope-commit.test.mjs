@@ -72,7 +72,9 @@ function fixture(options={}) {
     options.afterWrite?.({revoke:()=>{active=false;},
       switchActor:()=>{who=OTHER;},
       changePolicy:()=>{activePolicy={...policy,revision:2};},
-      tamper:()=>{current.scopeReview.reviewedSelectionSha256="0".repeat(64);}});
+      tamper:()=>{current.scopeReview.reviewedSelectionSha256="0".repeat(64);},
+      tamperCreation:()=>{current.creationAudit.requestId=
+        "33333333-3333-4333-8333-333333333333";}});
     if(options.lostAck)throw Error("Provider acknowledgement lost");
     return {rows:[{source_revision:3,
       reviewed_selection_sha256:scope.reviewedSelectionSha256}]};
@@ -161,6 +163,7 @@ test("revocation or policy change after the only write never claims success",asy
   [({revoke})=>revoke(),/Session revoked/],
   [({changePolicy})=>changePolicy(),/Approved policy changed/],
   [({tamper})=>tamper(),/read-back indeterminate/],
+  [({tamperCreation})=>tamperCreation(),/read-back indeterminate/],
  ]) {
   const f=fixture({afterWrite});
   await assert.rejects(f.api.commit(request),pattern);
