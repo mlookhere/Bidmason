@@ -39,3 +39,42 @@ to not-found or confirmed. No live Supabase adapter or API endpoint is added.
 Only mock-backed tests currently validate this interface. The Item 3 genuine
 two-user Auth/RLS/PostgREST/private Storage bytes, AV, abuse/recovery and
 security acceptance gates remain mandatory before a customer feature exists.
+
+
+## Server-only verified-session to primary-SQL adapter (staged)
+
+`lib/trusted-typed-note-ledger.ts` now implements the read-only
+`TrustedTypedNoteLedger` interface against two explicit ports:
+
+1. `ActiveSessionVerifier.verifyActiveSession(opaqueSession)` must validate a
+   real **current, non-revoked** server Auth session on *each* invocation and
+   return only a trustworthy canonical user UUID. It must not use a caller's
+   `actorId`, `userId`, role, tenant ID or an unverified decoded token.
+2. `PrivateIntakeDatabase.query` must use a server-held service-role
+   **primary PostgreSQL** connection, never a browser connection, read replica
+   or public PostgREST RPC. It executes only the parameterized
+   `bm_intake_private.lookup_typed_note($1,$2,$3)` call. The private SQL
+   routine rechecks and locks current membership before revealing a receipt
+   **or the absence of a receipt**.
+
+The adapter verifies selector/permission shape before Auth, requires the
+verified actor UUID before any SQL, and rejects malformed or more-than-one-row
+results, incorrect returned actor, invalid ledger digest or missing JSON.
+The existing `reconcileAuthorizedTypedNote` then verifies the complete
+original text/audit and revision-bound extraction evidence across two
+independent fresh reads. Neither component writes, retries, creates an
+idempotency key, or interprets absence as proof of rollback.
+
+Regression tests in `tests-web/trusted-typed-note-ledger.test.mjs` cover
+fresh Auth checks, revocation between reads, forged caller identity,
+cross-tenant backend denial, replay absence, malformed ledger responses,
+tampering, and provider errors. They use an in-memory mocked verifier and
+database. This is a staged adapter contract, **not** evidence that a live
+Supabase provider, genuine session, production database connection or
+original source migration has been configured or tested. There is no
+browser-accessible route and no permission to enable customer intake.
+
+Do not advance Item 4 until Item 3's genuine two-user Auth, PostgREST/RLS,
+Storage bytes, antivirus, retention, throttling and privacy/security gates
+are independently accepted. A success on mocked tests alone does not
+authorize merging draft PR #13 or deploying this workflow.
