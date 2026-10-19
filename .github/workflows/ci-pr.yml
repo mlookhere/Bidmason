@@ -114,3 +114,37 @@ jobs:
         run: python3 -m playwright install --with-deps chromium
       - name: Chromium mobile, keyboard and disabled-intake E2E
         run: python3 ci/browser_qa.py
+
+  intake-db:
+    name: intake-db
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: isolated-intake-db-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-intake-db-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Provision isolated minimum tenant and auth roles
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_stub.sql
+      - name: Install staged locked-down intake tables and ledger
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql
+      - name: Test tenant membership, duplicates, payload conflicts, RLS and FK
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
