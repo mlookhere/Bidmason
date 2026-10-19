@@ -55,6 +55,19 @@ function exactData(value: unknown, keys: readonly string[]): boolean {
   });
 }
 
+/** Audit collections are sourced from persistence; do not execute accessor
+ * indices or permit sparse/decorated evidence before evaluating the audit. */
+function canonicalAuditArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value) || value.length > 1
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i++) {
+    const d = Object.getOwnPropertyDescriptor(value, String(i));
+    if (d?.enumerable !== true || !Object.hasOwn(d, "value")) return false;
+  }
+  return true;
+}
+
 function selector(input: Selector, keys: readonly string[] =
   ["organizationId", "sourceId"]): void {
   if (!exactData(input, keys)
@@ -70,8 +83,7 @@ function checkRecord(record: TenantExtractionRecord | null, input: Selector):
     || record.sourceId !== input.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 1
     || !Object.hasOwn(record, "review")
-    || !Array.isArray(record.extractionAudit)
-    || record.extractionAudit.length > 1) {
+    || !canonicalAuditArray(record.extractionAudit)) {
     throw new Error("Tenant-owned extraction source missing or invalid");
   }
   try {
@@ -86,11 +98,15 @@ function checkRecord(record: TenantExtractionRecord | null, input: Selector):
       return;
     }
     const review = record.review;
+    // Validating index zero verifies the entire candidate list, source SHA,
+    // candidate SHA and all offsets. It does NOT approve or select a service.
+    // Crucially, it precedes any enumeration of review.candidates.
+    selectReviewedServices(record.original, review, [0]);
     const audit = record.extractionAudit[0];
-    if (!audit || record.extractionAudit.length !== 1
-      || Object.keys(audit).length !== 4
-      || !["sourceRevision", "actorId", "sourceSha256", "candidatesSha256"]
-        .every(key => Object.hasOwn(audit, key))
+    if (record.extractionAudit.length !== 1
+      || !exactData(audit, [
+        "sourceRevision", "actorId", "sourceSha256", "candidatesSha256",
+      ])
       || !Number.isSafeInteger(audit.sourceRevision)
       || audit.sourceRevision < 2 || audit.sourceRevision > record.revision
       || typeof audit.actorId !== "string" || !UUID.test(audit.actorId)
@@ -98,9 +114,6 @@ function checkRecord(record: TenantExtractionRecord | null, input: Selector):
       || audit.candidatesSha256 !== review.candidatesSha256) {
       throw new Error("Inconsistent extraction audit");
     }
-    // Verify ALL suggested evidence, not just the selected candidates.
-    selectReviewedServices(record.original, review,
-      review.candidates.map((_, index) => index));
   } catch {
     throw new Error("Tenant-owned extraction source missing or invalid");
   }
