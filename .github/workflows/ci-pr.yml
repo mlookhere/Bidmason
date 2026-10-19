@@ -207,3 +207,7 @@ jobs:
         run: node --test ci/intake_scope_commit_bridge.test.mjs
       - name: Prove concurrent review CAS and approved-policy activation lock order
         run: node --test ci/intake_scope_concurrency.test.mjs
+      - name: Install staged correction quarantine and immutable ledger
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_quarantine.sql
+      - name: Prove correction quarantine CAS, foreign-actor denial and legacy scope invalidation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_quarantine_test.sql

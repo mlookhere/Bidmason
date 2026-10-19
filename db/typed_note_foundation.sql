@@ -16,7 +16,7 @@ create table public.bm_intake_sources (
  text_sha256 text not null check (
    text_sha256 ~ '^[0-9a-f]{64}$'
    and text_sha256 = encode(sha256(convert_to(original_text,'UTF8')),'hex')),
- revision integer not null default 1 check (revision between 1 and 3),
+ revision integer not null default 1 constraint bm_source_revision_range check (revision between 1 and 3),
  review jsonb,
  extraction_audit jsonb not null default '[]'::jsonb,
  scope_review jsonb,
@@ -24,7 +24,7 @@ create table public.bm_intake_sources (
  primary key (organization_id,id),
  unique (organization_id,created_by,request_id),
  unique (organization_id,id,created_by,request_id,text_sha256),
- check (
+ constraint bm_source_lifecycle check (
    (revision = 1 and review is null and extraction_audit = '[]'::jsonb
      and scope_review is null)
    or (revision = 2 and review is not null and jsonb_typeof(review) = 'object'
