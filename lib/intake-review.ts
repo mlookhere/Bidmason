@@ -141,13 +141,12 @@ export function selectReviewedServices(
     || selectedIndices.length > review.candidates.length) {
     throw new TypeError("Explicit reviewed candidate selections are required");
   }
-  const seen = new Set<number>();
-  const requested = selectedIndices.map(index => {
+  const requested = selectedIndices.map((index, position) => {
     if (!Number.isSafeInteger(index) || index < 0
-      || index >= review.candidates.length || seen.has(index)) {
-      throw new TypeError("Invalid or duplicated review selection");
+      || index >= review.candidates.length
+      || (position > 0 && index <= selectedIndices[position - 1])) {
+      throw new TypeError("Invalid or duplicated noncanonical review selection");
     }
-    seen.add(index);
     const selected = review.candidates[index];
     return { serviceCode: selected.serviceCode, units: selected.units };
   });
