@@ -38,3 +38,6 @@ malformed/oversized replies, timestamps, provider exceptions, timeout and
 no implicit approval. Item 3 live Auth, private Storage, maintained AV,
 retention and rate-limits remain release gates. No public form, quote
 sending, provider credentials or deployment has been enabled.
+## Transcription evidence consistency
+
+A successful provider response must now contain at least one source-exact audio/text segment. Segments must be ordered, non-overlapping in both UTF-16 text offsets and audio milliseconds, and within the declared clip duration; gaps for spaces/punctuation/silence remain allowed. Uncertainty excerpts may arrive in any order but must never overlap. Transcript text is passed through the shared immutable-source Unicode/NUL validation before any state can claim `needs-human-review`. Accepted segment and uncertainty records are returned as detached, whitelisted snapshots, not references to mutable provider-owned arrays. Malformed evidence produces `failed: invalid-response` rather than a misleading ready-for-review transcript. These checks improve internal input integrity only: no real media decoder, storage approval, or human verification is implied.

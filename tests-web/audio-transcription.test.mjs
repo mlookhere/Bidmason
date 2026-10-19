@@ -69,3 +69,75 @@ test("untrusted provider metadata and malformed timestamps never assert success"
     assert.equal(out.state,"failed");
   }
 });
+
+test("successful transcript requires coherent ordered audio and text segment evidence",async()=>{
+ const text="Paint two rooms";
+ const spans=[
+  {start:0,end:5,excerpt:"Paint",startMs:0,endMs:650},
+  {start:6,end:9,excerpt:"two",startMs:700,endMs:1150},
+  {start:10,end:15,excerpt:"rooms",startMs:1200,endMs:2400},
+ ];
+ const valid=await transcribeOriginalAudio(audio,"audio/wav",
+   provider(async()=>({...reply(text),segments:spans})));
+ assert.equal(valid.state,"needs-human-review");
+ assert.deepEqual(valid.segments,spans);
+ const invalid=[
+  [],
+  [spans[0],{...spans[1],start:4,end:9,excerpt:text.slice(4,9)}],
+  [spans[1],spans[0]],
+  [spans[0],{...spans[1],startMs:600}],
+  [{...spans[0],endMs:2500}],
+ ];
+ for (const segments of invalid){
+  const out=await transcribeOriginalAudio(audio,"audio/wav",
+    provider(async()=>({...reply(text),segments})));
+  assert.equal(out.state,"failed");
+  assert.equal(out.reason,"invalid-response");
+ }
+});
+
+test("overlapping provider uncertainties cannot create uncorrectable transcript",async()=>{
+ const text="Paint fifteen rooms";
+ const ambiguities=[
+  {start:6,end:13,excerpt:"fifteen",reason:"ambiguous-number"},
+  {start:7,end:14,excerpt:"ifteen ",reason:"unclear-speech"},
+ ];
+ const out=await transcribeOriginalAudio(audio,"audio/wav",
+   provider(async()=>({...reply(text),uncertainties:ambiguities})));
+ assert.equal(out.state,"failed");
+ assert.equal(out.reason,"invalid-response");
+ const independent=[
+  {start:6,end:13,excerpt:"fifteen",reason:"ambiguous-number"},
+  {start:14,end:19,excerpt:"rooms",reason:"other"},
+ ];
+ const needs=await transcribeOriginalAudio(audio,"audio/wav",
+   provider(async()=>({...reply(text),uncertainties:[...independent].reverse()})));
+ assert.equal(needs.state,"needs-information");
+ assert.equal(needs.original.transcriptionSucceeded,false);
+});
+
+test("provider malformed Unicode and NUL cannot be labeled a completed transcript",async()=>{
+ for (const text of ["Paint\u0000rooms","Paint\uD800rooms","Rooms\uDC00"]){
+  const out=await transcribeOriginalAudio(audio,"audio/wav",
+    provider(async()=>reply(text)));
+  assert.equal(out.state,"failed");
+  assert.equal(out.reason,"invalid-response");
+ }
+});
+
+test("validated provider timestamps and clarifications are detached from mutable reply",async()=>{
+ const original=reply();
+ original.uncertainties=[{start:6,end:13,excerpt:"fifteen",reason:"ambiguous-number"}];
+ const out=await transcribeOriginalAudio(audio,"audio/wav",provider(async()=>original));
+ assert.equal(out.state,"needs-information");
+ assert.equal(out.segments[0].start,0);
+ assert.equal(out.uncertainties[0].reason,"ambiguous-number");
+ original.segments[0].start=4;
+ original.segments[0].excerpt="fake";
+ original.uncertainties[0].reason="other";
+ original.uncertainties.push({start:0,end:5,excerpt:"Paint",reason:"other"});
+ assert.equal(out.segments[0].start,0);
+ assert.equal(out.segments[0].excerpt,"Paint fifteen rooms");
+ assert.equal(out.uncertainties[0].reason,"ambiguous-number");
+ assert.equal(out.uncertainties.length,1);
+});

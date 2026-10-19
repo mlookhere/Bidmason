@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { IntakeSource } from "./intake-review.ts";
+import { validateIntakeSource, type IntakeSource } from "./intake-review.ts";
 
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 const MAX_TEXT_BYTES = 64 * 1024;
@@ -66,23 +66,49 @@ function parseProviderReply(reply: unknown) {
     || !Number.isSafeInteger(obj.durationMs) || (obj.durationMs as number) <= 0
     || (obj.durationMs as number) > MAX_DURATION_MS
     || !Array.isArray(obj.uncertainties) || obj.uncertainties.length > MAX_UNCERTAINTIES
-    || !Array.isArray(obj.segments) || obj.segments.length > MAX_SEGMENTS) {
+    || !Array.isArray(obj.segments) || obj.segments.length < 1
+    || obj.segments.length > MAX_SEGMENTS) {
     throw new TypeError("Unverified transcription provider response");
   }
   const text = obj.text;
+  // A provider cannot mark malformed text extraction-ready: reuse the
+  // existing immutable source validation, including Unicode and NUL bounds.
+  validateIntakeSource({kind: "transcript", text, transcriptionSucceeded: true});
   const durationMs = obj.durationMs as number;
-  const uncertainties = obj.uncertainties;
-  const segments = obj.segments;
+  const uncertainties = obj.uncertainties as Uncertainty[];
+  const segments = obj.segments as TranscriptSegment[];
   for (const u of uncertainties) {
     if (!validSpan(text, u) || !["unclear-speech", "ambiguous-number", "other"].includes(u.reason)
       || Object.keys(u).length !== 4) throw new TypeError("Invalid transcription uncertainty");
   }
+  const sortedUncertainties = [...uncertainties].sort((a, b) => a.start - b.start);
+  for (let index = 1; index < sortedUncertainties.length; index++) {
+    if (sortedUncertainties[index].start < sortedUncertainties[index - 1].end) {
+      throw new TypeError("Overlapping transcription uncertainties");
+    }
+  }
+  let previousTextEnd = 0, previousTimeEnd = 0;
   for (const s of segments) {
     if (!validSpan(text, s) || !Number.isSafeInteger(s.startMs) || !Number.isSafeInteger(s.endMs)
-      || s.startMs < 0 || s.endMs <= s.startMs || s.endMs > durationMs
+      || s.startMs < previousTimeEnd || s.start < previousTextEnd
+      || s.endMs <= s.startMs || s.endMs > durationMs
       || Object.keys(s).length !== 5) throw new TypeError("Invalid transcript time segment");
+    previousTextEnd = s.end;
+    previousTimeEnd = s.endMs;
   }
-  return { text, durationMs, uncertainties: uncertainties as Uncertainty[], segments: segments as TranscriptSegment[] };
+  // Return detached, whitelisted evidence: a provider may reuse its own
+  // response buffers after this promise settles. Gaps for spaces/punctuation
+  // remain permitted between nonoverlapping transcript and time segments.
+  return {
+    text, durationMs,
+    uncertainties: uncertainties.map(u => ({
+      start: u.start, end: u.end, excerpt: u.excerpt, reason: u.reason,
+    })),
+    segments: segments.map(s => ({
+      start: s.start, end: s.end, excerpt: s.excerpt,
+      startMs: s.startMs, endMs: s.endMs,
+    })),
+  };
 }
 
 /** Provider is a server-owned implementation. This function never stores bytes
