@@ -13,6 +13,8 @@ import {createTrustedCompanyPolicyActivation}
   from "../lib/trusted-company-policy-activation.ts";
 import {createTrustedCompanyPolicyRecovery}
   from "../lib/trusted-company-policy-recovery.ts";
+import {createTrustedCompanyPolicyEventRecovery}
+  from "../lib/trusted-company-policy-event-recovery.ts";
 
 function sql(source,values={}) {
   const args=["-X","-q","-A","-t","-v","ON_ERROR_STOP=1"];
@@ -34,6 +36,7 @@ function databaseQuery(statement,params) {
     "select h.revision,h.policy_sha256,v.policy,",
     "select v.revision,v.policy_sha256,v.policy,",
     "select activated_revision, activated_sha256",
+    "select 1 as allowed from public.bm_memberships",
   ];
   if(!allowed.some(prefix=>statement.startsWith(prefix)))throw Error("Unexpected policy SQL");
   const vals=Object.fromEntries(params.map((p,i)=>["p"+(i+1),p]));
@@ -306,4 +309,71 @@ test("lost-acknowledgement activation can only be INSPECTED without writing agai
   assert.equal(observation.observedHeadSha256,sha);
   assert.equal(f.writes,prior);
   assert.equal(attempts,1);
+});
+
+
+test("real PostgreSQL reconciles lost draft and review acknowledgements without retries",async()=>{
+  const f=fixture(),org=f.org,sub="submitter-session",rev="reviewer-session";
+  const digest=companyPolicySha256(policy(1));
+  const recovery=createTrustedCompanyPolicyEventRecovery(f.auth,f.store,f.db);
+  const submitted={organizationId:org,session:sub,kind:"submission",
+    revision:1,policySha256:digest};
+  const reviewed={organizationId:org,session:rev,kind:"review",
+    decision:"approve",revision:1,policySha256:digest};
+  const absent=await recovery.reconcile(submitted);
+  assert.equal(absent.state,"not-recorded-at-read");
+  assert.equal(absent.observedStatus,null);
+  const before=f.writes;
+  f.setAfterWrite(()=>{throw Error("Simulated lost policy submission ACK");});
+  await assert.rejects(submitCompanyPolicyDraft(f.store,sub,{
+    organizationId:org,policy:policy(1),expectedRevision:0,
+    expectedSha256:null}),/Simulated lost policy submission ACK/);
+  f.setAfterWrite(null);
+  assert.equal(f.writes,before+1);
+  const draftReceipt=await recovery.reconcile(submitted);
+  assert.equal(draftReceipt.state,"matching-record-at-read");
+  assert.equal(draftReceipt.observedStatus,"draft");
+  const pendingReview=await recovery.reconcile(reviewed);
+  assert.equal(pendingReview.state,"not-recorded-at-read");
+  assert.equal(pendingReview.observedStatus,"draft");
+  const afterDraft=f.writes;
+  f.setAfterWrite(()=>{throw Error("Simulated lost independent reviewer ACK");});
+  await assert.rejects(reviewCompanyPolicyDraft(f.store,rev,{
+    organizationId:org,decision:"approve",expectedRevision:1,
+    expectedSha256:digest}),/Simulated lost independent reviewer ACK/);
+  f.setAfterWrite(null);
+  assert.equal(f.writes,afterDraft+1);
+  const approvalReceipt=await recovery.reconcile(reviewed);
+  assert.equal(approvalReceipt.state,"matching-record-at-read");
+  assert.equal(approvalReceipt.observedStatus,"approved");
+  const submittedAfterReview=await recovery.reconcile(submitted);
+  assert.equal(submittedAfterReview.observedStatus,"approved");
+  assert.equal(f.writes,afterDraft+1); // Recovery performed NO writes.
+  // A contractor remains able to read their own submission, but MUST NOT
+  // be allowed to pose as an independent reviewer or inspect decisions
+  // while holding only the contractor role.
+  f.revokeMembership(f.reviewer);
+  await assert.rejects(recovery.reconcile(reviewed),
+    /Current independent policy reviewer permission|Current tenant membership/);
+  assert.equal(f.writes,afterDraft+1);
+});
+
+test("actual database role downgrade denies independent review inspection",async()=>{
+  const f=fixture(),org=f.org,sub="submitter-session",rev="reviewer-session";
+  const digest=companyPolicySha256(policy(1));
+  await submitCompanyPolicyDraft(f.store,sub,{organizationId:org,
+    policy:policy(1),expectedRevision:0,expectedSha256:null});
+  sql(`update public.bm_memberships set member_role='contractor'
+    where organization_id=:'p1'::uuid and user_id=:'p2'::uuid;`,
+    {p1:org,p2:f.reviewer});
+  const recovery=createTrustedCompanyPolicyEventRecovery(f.auth,f.store,f.db);
+  const previous=f.writes;
+  // The reviewer is still a current tenant member allowed to read the
+  // durable ledger, but has lost the owner/operator review privilege.
+  assert.equal((await f.store.readAuthorized({organizationId:org,
+    session:rev})).revisions.length,1);
+  await assert.rejects(recovery.reconcile({organizationId:org,
+    session:rev,kind:"review",decision:"approve",revision:1,
+    policySha256:digest}),/Current independent policy reviewer permission/);
+  assert.equal(f.writes,previous);
 });
