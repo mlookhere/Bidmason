@@ -315,3 +315,49 @@ test("malicious extraction selectors and hidden requests fail before authorized 
  assert.equal(getters,0);
  assert.deepEqual(f.counts(),before);
 });
+
+
+test("stored extraction evidence rejects accessor indexes and audit fields before evaluation",async()=>{
+ const f=fixture();
+ await commitAuthorizedExtraction(f.store,"operator",await request(f));
+ const committed=f.read();
+ let getters=0,reads=0;
+ const invalid=[
+  row=>Object.defineProperty(row.review.candidates,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe candidate index getter");}}),
+  row=>Object.defineProperty(row.review.candidates[0],"units",{enumerable:true,
+    get(){getters++;throw Error("unsafe candidate units getter");}}),
+  row=>{delete row.review.candidates[0];},
+  row=>{row.review.candidates[Symbol("approved")]=true;},
+  row=>Object.defineProperty(row.extractionAudit,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe audit index getter");}}),
+  row=>{delete row.extractionAudit[0];},
+  row=>{row.extractionAudit[Symbol("send")]=true;},
+  row=>Object.defineProperty(row.extractionAudit[0],"actorId",{enumerable:true,
+    get(){getters++;throw Error("unsafe audit actor getter");}}),
+  row=>Object.defineProperty(row.extractionAudit[0],"approved",{value:true}),
+  row=>{row.extractionAudit[0][Symbol("send")]=true;},
+  row=>Object.setPrototypeOf(row.extractionAudit[0],{actorId:ACTOR}),
+ ];
+ for(const mutate of invalid){
+  const record=structuredClone(committed);mutate(record);
+  const store={readAuthorized:async()=>{
+    reads++;return record;
+  }};
+  await assert.rejects(readExtractionPreparation(store,"operator",selector),
+   /Tenant-owned extraction source missing or invalid/);
+ }
+ assert.equal(reads,invalid.length);
+ assert.equal(getters,0);
+});
+
+test("a canonical persisted extraction audit remains recognized but not re-extractable",async()=>{
+ const f=fixture();
+ await commitAuthorizedExtraction(f.store,"operator",await request(f));
+ const canonical=f.read();
+ const store={readAuthorized:async()=>structuredClone(canonical)};
+ await assert.rejects(readExtractionPreparation(store,"operator",selector),
+  /already been committed/);
+ assert.equal(canonical.extractionAudit[0].actorId,ACTOR);
+ assert.equal(canonical.review.candidates[0].units,2);
+});
