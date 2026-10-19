@@ -600,3 +600,38 @@ Connecting and exposing the workflow requires all outstanding Item 3
 security tests and privacy/security/legal approvals, and a separately
 verified live company policy. No customer route, quote approval, billing
 or external send is present.
+
+
+## Revocation-safe privileged active-policy reads
+
+The server-only `createTrustedTypedNoteScopeCommit` adapter now reads
+the active approved company policy through a **membership-bound SQL SELECT**
+instead of an unrestricted privileged service-role lookup. The read joins
+`public.bm_memberships` on the freshly authenticated actor, organization
+and permitted current role, and locks the membership, active policy head
+and immutable policy version with `FOR SHARE` for that statement. This
+applies to **both** the initial active-policy read and the final read
+after the single 2→3 CAS and authorized source read-back.
+
+Previously, the source read and the CAS checked current membership, but
+revocation *after* the source read-back could be missed by the final
+privileged policy check. Now the final policy lookup returns no record
+when membership has been revoked, so the adapter **fails closed** rather
+than reporting an authorized completed draft. The earlier CAS may
+already have committed; that result is indeterminate and does **not**
+authorize a second write, automatic rollback, approval, or send.
+
+`tests-web/trusted-typed-note-scope-commit.test.mjs` simulates a
+revocation precisely between authorized source read-back and final
+privileged policy lookup, and confirms exactly one write and a rejected
+success response. `ci/intake_scope_commit_bridge.test.mjs` verifies
+the same timing against real disposable PostgreSQL, tests direct
+nonmember and revoked-user policy lookups, and asserts both policy
+reads use the authorized actor and membership-locked query. Existing
+mandatory CI gates remain unchanged.
+
+This is a staged service-role contract, **not** real two-user Supabase
+Auth or live tenant policy approval. Membership must still be
+authoritatively maintained, production service keys must remain
+server-held, and Item 3 live RLS, private Storage, antivirus, recovery,
+privacy/legal and security acceptance remain outstanding.
