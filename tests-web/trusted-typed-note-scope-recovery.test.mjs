@@ -143,3 +143,71 @@ test("malformed, contradictory or ambiguous database replies fail closed",async(
   assert.equal(f.calls.length,1);
  }
 });
+
+
+test("scope recovery snapshots selector and session before asynchronous Auth verification",async()=>{
+ const f=fixture(),mutable={...input};
+ let first=true;
+ const auth={async verifyActiveSession(session){
+  const verified=await f.auth.verifyActiveSession(session);
+  if(first){
+   first=false;
+   mutable.session="revoked";
+   mutable.organizationId=OTHER;
+   mutable.sourceId=OTHER;
+   mutable.sourceSha256="f".repeat(64);
+   mutable.candidatesSha256="e".repeat(64);
+   mutable.reviewedSelectionSha256=different;
+  }
+  return verified;
+ }};
+ const recovered=await createTrustedTypedNoteScopeRecovery(auth,f.db).reconcile(mutable);
+ assert.deepEqual(recovered,{state:"matching-scope-at-read",
+  organizationId:ORG,sourceId:SOURCE,persistedRevision:3,
+  observedSelectionSha256:expected});
+ assert.equal(f.calls.length,2);
+ for(const call of f.calls){
+  assert.deepEqual(call.params,[
+   ORG,ACTOR,SOURCE,input.sourceSha256,input.candidatesSha256,expected
+  ]);
+ }
+});
+
+test("private scope selectors reject hidden, symbol and accessor directives before Auth",async()=>{
+ let getters=0;
+ const hidden={...input};
+ Object.defineProperty(hidden,"send",{value:true});
+ const symbol={...input};
+ symbol[Symbol("approved")]=true;
+ const inherited=Object.assign(Object.create({send:true}),input);
+ const getter={...input};
+ Object.defineProperty(getter,"organizationId",{enumerable:true,
+  get(){getters++;throw Error("untrusted organization getter");}});
+ for(const selector of [hidden,symbol,inherited,getter]){
+  const f=fixture();
+  await assert.rejects(f.api.reconcile(selector),/Invalid private scope reconciliation selector/);
+  assert.equal(f.authCalls,0);
+  assert.equal(f.reads,0);
+ }
+ assert.equal(getters,0);
+});
+
+test("private SQL scope evidence rejects accessor-backed and hidden reply fields",async()=>{
+ let called=0;
+ for(const corrupt of [
+  reply=>Object.defineProperty(reply,"observation",{enumerable:true,
+   get(){called++;throw Error("untrusted scope result getter");}}),
+  reply=>Object.defineProperty(reply,"send",{value:true}),
+  reply=>{reply[Symbol("approved")]=true;},
+  reply=>Object.setPrototypeOf(reply,{approved:true}),
+ ]){
+  const f=fixture();
+  const poisoned=row();
+  corrupt(poisoned);
+  const database={async query(){return {rows:[poisoned]};}};
+  const api=createTrustedTypedNoteScopeRecovery(f.auth,database);
+  await assert.rejects(api.reconcile(input),/invalid result/);
+  assert.equal(f.authCalls,1);
+ }
+ assert.equal(called,0);
+});
