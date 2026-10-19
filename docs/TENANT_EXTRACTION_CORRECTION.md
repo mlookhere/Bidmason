@@ -92,3 +92,26 @@ pricing preview can be used.
 
 This is a pure server-side contract tested with synthetic adapter behavior,
 not a deployed PostgREST transaction or independently verified permission.
+
+## Canonical persisted audit and previous-scope evidence
+
+The correction read/commit boundary now inspects persisted authority-bearing
+record fields, extraction audit array/indexes, and all four stored audit fields
+as **own enumerable plain data** before accessing actor identities or revision
+digests. It runs the existing complete source and extraction-candidate
+provenance validator before evaluating or serializing correction context.
+Hidden, inherited, symbol-decorated, sparse and getter-backed audit evidence
+is denied without executing the getter.
+
+When an earlier human-reviewed scope is present, that scope must likewise
+be canonical: exact plain fields, dense approved-selection and acknowledgement
+arrays, and primitive digest/identity fields. A malformed scope may not be
+silently invalidated into a supposedly valid correction lineage. Synthetic
+regression tests cover malicious persisted record, candidate, audit and
+prior-scope getters while retaining the separate authenticated correction
+and activation steps.
+
+This is an *internal adapter trust boundary*. The checksum is not a
+signature; trusted current-tenant Auth, atomic CAS, immutable source/audit
+storage, reviewer grants, real RLS and independent human approvals remain
+mandatory for any staging or production use.
