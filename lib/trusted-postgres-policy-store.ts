@@ -17,10 +17,25 @@ const REVIEW=`select reviewed_revision,reviewed_sha256,reviewed_status
   from bm_intake_private.review_policy_history_draft(
     $1::uuid,$2::uuid,$3::integer,$4::text,$5::text)`;
 
+/** Only canonical own data descriptors can authorize privileged SQL. */
 function exact(value:unknown,fields:readonly string[]):value is Record<string,unknown> {
-  return value!==null && typeof value==="object" && !Array.isArray(value)
-    && Object.keys(value).length===fields.length
-    && fields.every(field=>Object.hasOwn(value,field));
+  if(value===null || typeof value!=="object" || Array.isArray(value)
+    || ![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length!==fields.length)return false;
+  return fields.every(field=>{
+    const d=Object.getOwnPropertyDescriptor(value,field);
+    return d?.enumerable===true && Object.hasOwn(d,"value");
+  });
+}
+function canonicalArray(value:unknown,min:number,max:number):value is unknown[] {
+  if(!Array.isArray(value)||value.length<min||value.length>max
+    || Object.getPrototypeOf(value)!==Array.prototype
+    || Reflect.ownKeys(value).length!==value.length+1)return false;
+  for(let i=0;i<value.length;i++){
+    const d=Object.getOwnPropertyDescriptor(value,String(i));
+    if(d?.enumerable!==true||!Object.hasOwn(d,"value"))return false;
+  }
+  return true;
 }
 function validateSelector(organizationId:string,session:unknown):void {
   if(typeof organizationId!=="string"||!UUID.test(organizationId)
@@ -49,7 +64,7 @@ export function createTrustedPostgresPolicyStore(
       throw new Error("Company policy actor changed during operation");
     }
     const result=await database.query(READ,[organizationId,actor]);
-    if(!result || !Array.isArray(result.rows) || result.rows.length!==1
+    if(!result || !canonicalArray(result.rows,1,1)
       || !exact(result.rows[0],["history"])) {
       throw new Error("Ambiguous privileged company policy history");
     }
@@ -59,7 +74,7 @@ export function createTrustedPostgresPolicyStore(
       throw new Error("Invalid private policy history structure");
     }
     const history=value as PolicyHistory;
-    if(!Array.isArray(history.revisions)
+    if(!canonicalArray(history.revisions,1,100000)
       || history.revisions.some(revision=>!exact(revision,[
         "organizationId","revision","status","submittedBy","reviewedBy",
         "policySha256","policy"]))) {
@@ -74,7 +89,8 @@ export function createTrustedPostgresPolicyStore(
         throw new TypeError("Invalid authorized policy read");
       }
       validateSelector(input.organizationId,input.session);
-      return (await read(input.organizationId,input.session)).history;
+      const target={organizationId:input.organizationId,session:input.session};
+      return (await read(target.organizationId,target.session)).history;
     },
     async mutateAuthorized(input) {
       if(!exact(input,["organizationId","session","permission","transform"])
@@ -83,32 +99,36 @@ export function createTrustedPostgresPolicyStore(
         throw new TypeError("Invalid authorized policy mutation");
       }
       validateSelector(input.organizationId,input.session);
-      const {actor,history:current}=await read(input.organizationId,input.session);
+      // The exact validated operation and callback identity are bound before
+      // any external Auth/history or user transformation can suspend.
+      const target={organizationId:input.organizationId,session:input.session,
+        permission:input.permission,transform:input.transform};
+      const {actor,history:current}=await read(target.organizationId,target.session);
       // A callback is not an authority: constrain its output to the exact
       // legal domain transition created by this same authenticated actor.
       // Isolate callback mutations from our pre-commit history snapshot.
-      const next=await input.transform(
+      const next=await target.transform(
         current===null?null:structuredClone(current),actor);
       if(!next || !Array.isArray(next.revisions)) {
         throw new Error("Policy transform did not produce a history");
       }
-      assertValidCompanyPolicyHistory(next,input.organizationId);
+      assertValidCompanyPolicyHistory(next,target.organizationId);
       const latest=next.revisions.at(-1)!;
       const previous=current?.revisions.at(-1);
       const expectedRevision=previous?.revision??0;
       const expectedSha256=previous?.policySha256??null;
       let legal:PolicyHistory;
       let statement:string, params:string[];
-      if(input.permission==="draft") {
+      if(target.permission==="draft") {
         if(latest.status!=="draft") {
           throw new Error("Only a new policy draft can be submitted");
         }
         legal=submitPolicyDraft(current,{
-          organizationId:input.organizationId,submittedBy:actor,
+          organizationId:target.organizationId,submittedBy:actor,
           policy:latest.policy,expectedRevision,expectedSha256,
         });
         statement=SUBMIT;
-        params=[input.organizationId,actor,String(expectedRevision),
+        params=[target.organizationId,actor,String(expectedRevision),
           expectedSha256??"",canonicalCompanyPolicyText(latest.policy)];
       } else {
         if(!current || !previous)throw new Error("No policy draft to review");
@@ -116,27 +136,27 @@ export function createTrustedPostgresPolicyStore(
           latest.status==="rejected"?"reject":null;
         if(decision===null)throw new Error("Explicit policy review required");
         legal=reviewPolicyDraft(current,{
-          organizationId:input.organizationId,reviewedBy:actor,decision,
+          organizationId:target.organizationId,reviewedBy:actor,decision,
           expectedRevision,expectedSha256:expectedSha256!,
         });
         statement=REVIEW;
-        params=[input.organizationId,actor,String(expectedRevision),
+        params=[target.organizationId,actor,String(expectedRevision),
           expectedSha256!,decision];
       }
       if(!isDeepStrictEqual(next,legal)) {
         throw new Error("Policy transform attempted an unauthorized history mutation");
       }
-      if(await verifiedActor(input.session)!==actor) {
+      if(await verifiedActor(target.session)!==actor) {
         throw new Error("Company policy actor changed before commit");
       }
       // SQL independently locks current membership and the authoritative
       // submission head; an exception is not proof of rollback.
       const result=await database.query(statement,params);
-      if(!result || !Array.isArray(result.rows) || result.rows.length!==1) {
+      if(!result || !canonicalArray(result.rows,1,1)) {
         throw new Error("Company policy CAS result indeterminate; never retry");
       }
       const row=result.rows[0];
-      if(input.permission==="draft") {
+      if(target.permission==="draft") {
         if(!exact(row,["submitted_revision","submitted_sha256"])
           || row.submitted_revision!==latest.revision
           || row.submitted_sha256!==latest.policySha256) {
@@ -148,7 +168,7 @@ export function createTrustedPostgresPolicyStore(
         || row.reviewed_status!==latest.status) {
         throw new Error("Policy review result indeterminate; never retry");
       }
-      const after=await read(input.organizationId,input.session,actor);
+      const after=await read(target.organizationId,target.session,actor);
       if(!after.history || !isDeepStrictEqual(after.history,legal)) {
         throw new Error("Policy event read-back indeterminate; never retry");
       }
