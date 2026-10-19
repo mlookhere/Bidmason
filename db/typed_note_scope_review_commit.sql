@@ -22,6 +22,10 @@ declare
  v_code text;
  v_codes text[]:=array[]::text[];
  v_accepted text[]:=array[]::text[];
+ v_active_revision integer;
+ v_active_sha text;
+ v_active_policy jsonb;
+ v_rule jsonb;
 begin
  if p_organization_id is null or p_actor_id is null or p_source_id is null
    or p_expected_source_sha256 is null
@@ -79,13 +83,13 @@ begin
    or jsonb_typeof(p_scope->'sourceRevision') is distinct from 'number'
    or p_scope->>'sourceRevision' is distinct from '3'
    or p_scope->>'reviewedBy' is distinct from p_actor_id::text
-   or (p_scope->>'reviewKey') !~ '^[0-9a-f]{64}$'
+   or coalesce(p_scope->>'reviewKey','') !~ '^[0-9a-f]{64}$'
    or p_scope->>'sourceSha256' is distinct from v_source_sha
    or p_scope->>'candidatesSha256' is distinct from p_expected_candidates_sha256
-   or (p_scope->>'policySha256') !~ '^[0-9a-f]{64}$'
-   or (p_scope->>'reviewedSelectionSha256') !~ '^[0-9a-f]{64}$'
+   or coalesce(p_scope->>'policySha256','') !~ '^[0-9a-f]{64}$'
+   or coalesce(p_scope->>'reviewedSelectionSha256','') !~ '^[0-9a-f]{64}$'
    or jsonb_typeof(p_scope->'policyRevision') is distinct from 'number'
-   or (p_scope->>'policyRevision') !~ '^[1-9][0-9]{0,5}$'
+   or coalesce(p_scope->>'policyRevision','') !~ '^[1-9][0-9]{0,5}$'
    or jsonb_typeof(p_scope->'selectedIndices') is distinct from 'array'
    or jsonb_typeof(p_scope->'acceptedAddonCodes') is distinct from 'array' then
    raise exception 'Scope review has invalid evidence or decision fields'
@@ -129,8 +133,47 @@ begin
    end if;
    v_accepted:=array_append(v_accepted,v_code);
  end loop;
- -- This does NOT verify the policy is active or that a selected code is
- -- optional: the trusted policy authorization adapter is still REQUIRED.
+ -- A current, separate two-member-approved, immutable company ratecard
+ -- MUST be present. Lock the current policy head and its immutable version
+ -- through the source CAS so activation cannot race between review and write.
+ select h.revision,h.policy_sha256,v.policy
+   into v_active_revision,v_active_sha,v_active_policy
+ from bm_intake_private.active_policy_heads h
+ join bm_intake_private.approved_policy_versions v
+   on v.organization_id=h.organization_id and v.revision=h.revision
+      and v.policy_sha256=h.policy_sha256
+ where h.organization_id=p_organization_id
+ for share of h,v;
+ if not found then
+   raise exception 'Current approved company pricing required'
+     using errcode='42501';
+ end if;
+ if p_scope->>'policyRevision' is distinct from v_active_revision::text
+   or p_scope->>'policySha256' is distinct from v_active_sha then
+   raise exception 'Approved company policy changed; refresh review'
+     using errcode='40001';
+ end if;
+ -- Verify the actual active ratecard, not just the browser's selected codes.
+ -- A pending, excluded or missing service cannot become reviewed scope.
+ foreach v_code in array v_codes loop
+   v_rule:=v_active_policy->'pricing'->'services'->v_code;
+   if jsonb_typeof(v_rule) is distinct from 'object'
+     or v_rule->>'billing' not in ('charged','included')
+     or (coalesce(v_active_policy->'excludedServiceCodes','[]'::jsonb)
+         ? v_code) then
+      raise exception 'Unapproved, excluded or unlisted company service'
+        using errcode='22023';
+   end if;
+   if (v_rule->>'optionalAddon')='true' then
+     if not (v_code=any(v_accepted)) then
+       raise exception 'Optional service needs separate human acknowledgement'
+         using errcode='22023';
+     end if;
+   elsif v_code=any(v_accepted) then
+     raise exception 'Nonoptional service cannot receive addon acknowledgement'
+       using errcode='22023';
+   end if;
+ end loop;
  update public.bm_intake_sources set revision=3,scope_review=p_scope
  where organization_id=p_organization_id and id=p_source_id and revision=2;
  if not found then
