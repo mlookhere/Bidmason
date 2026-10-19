@@ -1,0 +1,214 @@
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import type { VersionedEconomicsPolicy } from "./company-economics.ts";
+import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
+import { buildReviewWorkbench } from "./intake-review-workbench.ts";
+import { prepareReviewPreviewRequest } from "./intake-review-selection.ts";
+import { previewReviewedEconomics } from "./intake-quote-preview.ts";
+import { verifyTypedNoteSourceRecord,
+  type TypedNoteSourceRecord } from "./tenant-typed-note-source.ts";
+import type { ActiveSessionVerifier, PrivateIntakeDatabase }
+  from "./trusted-typed-note-ledger.ts";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const SHA = /^[0-9a-f]{64}$/;
+const SOURCE = `select record from bm_intake_private.read_typed_note_for_extraction(
+  $1::uuid,$2::uuid,$3::uuid)`;
+const POLICY = `select h.revision,h.policy_sha256,v.policy,
+  v.submitted_by::text as submitted_by,v.reviewed_by::text as reviewed_by
+  from bm_intake_private.active_policy_heads h
+  join bm_intake_private.approved_policy_versions v
+    on v.organization_id=h.organization_id and v.revision=h.revision
+    and v.policy_sha256=h.policy_sha256
+  where h.organization_id=$1::uuid`;
+const COMMIT = `select source_revision, reviewed_selection_sha256
+  from bm_intake_private.commit_typed_note_scope_review(
+    $1::uuid,$2::uuid,$3::uuid,$4::text,$5::text,$6::jsonb)`;
+
+type Request = {
+  session: unknown;
+  organizationId: string;
+  sourceId: string;
+  reviewKey: string;
+  selectedIndices: number[];
+  acceptedAddonCodes: string[];
+};
+
+function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value,key));
+}
+function digest(text: string): string {
+  return createHash("sha256").update(text,"utf8").digest("hex");
+}
+function validate(input: Request): void {
+  if (!exact(input,["session","organizationId","sourceId","reviewKey",
+    "selectedIndices","acceptedAddonCodes"])
+    || typeof input.organizationId !== "string" || !UUID.test(input.organizationId)
+    || typeof input.sourceId !== "string" || !UUID.test(input.sourceId)
+    || typeof input.reviewKey !== "string" || !SHA.test(input.reviewKey)
+    || !Array.isArray(input.selectedIndices) || input.selectedIndices.length<1
+    || input.selectedIndices.length>50
+    || input.selectedIndices.some((v,i) => !Number.isSafeInteger(v)
+      || v<0 || v>100000 || (i>0 && v<=input.selectedIndices[i-1]))
+    || !Array.isArray(input.acceptedAddonCodes)
+    || input.acceptedAddonCodes.length>50
+    || input.acceptedAddonCodes.some(v=>typeof v!=="string"
+      || !/^[a-z][a-z0-9_-]{0,63}$/.test(v))
+    || new Set(input.acceptedAddonCodes).size!==input.acceptedAddonCodes.length) {
+    throw new TypeError("Invalid internal typed-note scope selection");
+  }
+}
+
+/**
+ * STAGED INTERNAL PORT. Inputs never contain actor IDs, prices or policy JSON.
+ * Auth must verify a real non-revoked session on every call; the driver must
+ * be a privileged primary PostgreSQL connection, NOT browser/PostgREST.
+ * No deployment, production provider or public route is provided.
+ */
+export function createTrustedTypedNoteScopeCommit(
+  auth: ActiveSessionVerifier, db: PrivateIntakeDatabase,
+) {
+  async function actor(session: unknown): Promise<string> {
+    const identity=await auth.verifyActiveSession(session);
+    if (!exact(identity,["userId"]) || typeof identity.userId!=="string"
+      || !UUID.test(identity.userId)) {
+      throw new Error("Fresh authenticated scope reviewer required");
+    }
+    return identity.userId;
+  }
+  async function source(input: Request, creator: string): Promise<TypedNoteSourceRecord> {
+    if (await actor(input.session)!==creator) {
+      throw new Error("Scope reviewer identity changed");
+    }
+    const response=await db.query(SOURCE,[
+      input.organizationId,creator,input.sourceId,
+    ]);
+    if (!response || !Array.isArray(response.rows)
+      || response.rows.length!==1 || !exact(response.rows[0],["record"])) {
+      throw new Error("Creator-owned scope source unavailable");
+    }
+    const record=response.rows[0].record as TypedNoteSourceRecord;
+    if (!record || !record.original || typeof record.original.text!=="string"
+      || !record.creationAudit || typeof record.creationAudit.requestId!=="string") {
+      throw new Error("Invalid private original source record");
+    }
+    verifyTypedNoteSourceRecord(record,{
+      organizationId:input.organizationId,
+      requestId:record.creationAudit.requestId,text:record.original.text,
+    },digest(record.original.text),creator);
+    if (record.sourceId!==input.sourceId || record.organizationId!==input.organizationId) {
+      throw new Error("Private source identifier mismatch");
+    }
+    return record;
+  }
+  async function activePolicy(
+    input: Request, creator: string,
+  ): Promise<{revision:number; sha:string; policy:VersionedEconomicsPolicy}> {
+    if (await actor(input.session)!==creator) {
+      throw new Error("Scope reviewer identity changed");
+    }
+    const response=await db.query(POLICY,[input.organizationId]);
+    if (!response || !Array.isArray(response.rows)
+      || response.rows.length!==1
+      || !exact(response.rows[0],[
+        "revision","policy_sha256","policy","submitted_by","reviewed_by"])) {
+      throw new Error("No unambiguous approved current policy");
+    }
+    const row=response.rows[0];
+    if (!Number.isSafeInteger(row.revision) || (row.revision as number)<1
+      || (row.revision as number)>1000000
+      || typeof row.policy_sha256!=="string" || !SHA.test(row.policy_sha256)
+      || typeof row.submitted_by!=="string" || !UUID.test(row.submitted_by)
+      || typeof row.reviewed_by!=="string" || !UUID.test(row.reviewed_by)
+      || row.submitted_by===row.reviewed_by
+      || !row.policy || typeof row.policy!=="object" || Array.isArray(row.policy)) {
+      throw new Error("Invalid private approved policy record");
+    }
+    const policy=row.policy as VersionedEconomicsPolicy;
+    if (policy.revision!==row.revision
+      || companyPolicySha256(policy)!==row.policy_sha256) {
+      throw new Error("Approved policy content and canonical SHA mismatch");
+    }
+    return {revision:row.revision as number,sha:row.policy_sha256 as string,policy};
+  }
+
+  return {
+    /**
+     * One and only one private 2->3 SQL CAS. An exception after attempting
+     * COMMIT is INDETERMINATE, never proof of rollback or retry permission.
+     * The operation returns only non-sendable 'reviewed-for-proposal-draft'.
+     */
+    async commit(input: Request): Promise<{
+      state:"reviewed-for-proposal-draft"; sourceId:string;
+      revision:3; reviewedSelectionSha256:string; reviewedBy:string;
+    }> {
+      validate(input);
+      const creator=await actor(input.session);
+      const record=await source(input,creator);
+      if (record.revision!==2 || !record.review || record.scopeReview!==null) {
+        throw new Error("Scope source is not awaiting human review");
+      }
+      const active=await activePolicy(input,creator);
+      const model=buildReviewWorkbench(record.original,record.review,active.policy);
+      if (model.key!==input.reviewKey) {
+        throw new Error("Scope or approved company policy changed; refresh");
+      }
+      const selection=prepareReviewPreviewRequest(model,{
+        key:model.key,
+        selectedIndices:input.selectedIndices,
+        acceptedAddonCodes:input.acceptedAddonCodes,
+      });
+      const preview=previewReviewedEconomics(record.original,record.review,
+        selection.selectedIndices,active.policy,selection.acceptedAddonCodes);
+      if (preview.economics.policySha256!==active.sha
+        || preview.economics.policyRevision!==active.revision) {
+        throw new Error("Approved policy fingerprint differs from scope preview");
+      }
+      // Auth and private SQL independently check current membership before
+      // source existence, lock the source and ACTIVE approved policy row.
+      if (await actor(input.session)!==creator) {
+        throw new Error("Scope reviewer identity changed before commit");
+      }
+      const scope={
+        state:"reviewed-for-proposal-draft" as const,
+        sourceRevision:3,reviewedBy:creator,reviewKey:model.key,
+        sourceSha256:record.review.sourceSha256,
+        candidatesSha256:record.review.candidatesSha256,
+        selectedIndices:selection.selectedIndices,
+        acceptedAddonCodes:selection.acceptedAddonCodes,
+        policyRevision:active.revision,policySha256:active.sha,
+        reviewedSelectionSha256:preview.reviewedSelectionSha256,
+      };
+      const result=await db.query(COMMIT,[
+        input.organizationId,creator,input.sourceId,
+        scope.sourceSha256,scope.candidatesSha256,JSON.stringify(scope),
+      ]);
+      if (!result || !Array.isArray(result.rows) || result.rows.length!==1
+        || !exact(result.rows[0],[
+          "source_revision","reviewed_selection_sha256"])
+        || result.rows[0].source_revision!==3
+        || result.rows[0].reviewed_selection_sha256!==scope.reviewedSelectionSha256) {
+        throw new Error("Human scope CAS result indeterminate; inspect, never retry");
+      }
+      // Freshly authorized primary read-back confirms the complete record.
+      const after=await source(input,creator);
+      if (after.revision!==3 || !isDeepStrictEqual(after.scopeReview,scope)
+        || !isDeepStrictEqual(after.original,record.original)
+        || !isDeepStrictEqual(after.review,record.review)
+        || !isDeepStrictEqual(after.extractionAudit,record.extractionAudit)) {
+        throw new Error("Scope read-back indeterminate; inspect, never retry");
+      }
+      const latest=await activePolicy(input,creator);
+      if (latest.revision!==active.revision || latest.sha!==active.sha) {
+        throw new Error("Approved policy changed after scope commit; inspect");
+      }
+      return {
+        state:"reviewed-for-proposal-draft",sourceId:input.sourceId,
+        revision:3,reviewedSelectionSha256:scope.reviewedSelectionSha256,
+        reviewedBy:creator,
+      };
+    },
+  };
+}
