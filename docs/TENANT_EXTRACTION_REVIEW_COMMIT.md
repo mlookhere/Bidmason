@@ -1246,3 +1246,40 @@ against disposable actual PostgreSQL, including post-commit membership
 revocation and no repeated write. Live Supabase/two-human signoff, maintained
 AV, upload controls and legal/security/privacy acceptance remain Item 3
 blockers; only passing exact-head Actions may establish CI evidence.
+
+## Read-only persisted reviewed-scope handoff (staging only)
+
+`createTrustedTypedNoteScopeCommit(...).readReviewedDraft({session,
+organizationId,sourceId})` provides an **internal, non-sendable proposal-draft
+input** from an already committed human scope selection. The caller cannot
+provide service indices, original note text, actor, ratecard, money, review
+decision, or approval flags. These are read from the original creator's
+authenticated private PostgreSQL source and the currently active, independently
+reviewed company policy.
+
+The operation requires stored source revision **3**, the creator-authored
+`scopeReview`, and exact current approved policy revision/SHA. It rebuilds
+the stored service selection, optional-service acknowledgements, canonical
+review key, economic preview and complete expected scope record using the
+same deterministic validators as scope CAS reconciliation. Byte-for-byte
+persisted scope equivalence and a second independently authorized primary
+source+policy read are mandatory. A superseded policy, changed Auth/tenant
+membership, missing stored review, altered digest, invalid add-on or source
+drift denies the handoff. The operation issues **zero** SQL mutations or
+idempotent retries.
+
+The result is `internal-reviewed-scope-only`, containing a `preview-only`
+economic snapshot, source revision/ID and saved reviewed selection digest.
+It is not a signed quote, artifact revision, operator approval, contractor
+approval, send permission or authorization to publish. Downstream proposal
+construction must independently revalidate current membership/policy and
+record immutable approval and QA results under Item 5; this handoff itself
+must not be exposed as a public API before Item 3 live Auth/RLS/storage,
+scanner, abuse-control, privacy and human acceptance is complete.
+
+Mocked positive/adversarial tests are in
+`tests-web/trusted-typed-note-scope-commit.test.mjs`; required disposable
+PostgreSQL proof of persisted input, read-only operation, lost CAS
+acknowledgement and revoked membership is in
+`ci/intake_scope_commit_bridge.test.mjs`. Passing synthetic CI alone does not
+verify a real deployed Supabase account or authorize external communication.
