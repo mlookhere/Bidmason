@@ -22,3 +22,29 @@ arriving between authorized reads, and legitimate NULL-column records.
 The separate corrected-scope draft preview remains internal-only, and
 these protections neither install real tenant Storage/RLS nor approve or
 deliver a customer quote.
+
+## Canonical persisted source and extraction review (October 2026)
+
+The authorized source-ID workbench must not assume a test/staging
+`TrustedIntakeStore` returned safe objects merely because its read
+was authorized. `checkedRecord` now verifies that all authority-bearing
+root fields are **own enumerable data**, rejects active correction
+lifecycle fields, then calls the shared source/candidate provenance
+validator **before** accessing original text or enumerating/serializing
+extraction candidates. This validation covers source shape and limits,
+all candidate descriptors and offsets, verbatim source excerpts and
+both immutable SHA-256 consistency markers.
+
+The validator's index-zero candidate is an integrity probe, **not a
+human selection or approval**. Rejected persisted evidence fails before
+the company policy store is contacted; adversarial regression coverage
+includes getter-backed top-level fields, source text, candidate arrays
+and indices, hidden/symbol directives, forged hashes and serializers.
+Valid plain or null-prototype persisted snapshots still yield only
+internal, source-bound review and preview, subject to the second
+authorized source read and approved company policy.
+
+This protects against malformed adapter output and stale evidence. The
+checksum is not a signature. Live membership, RLS, Storage, session
+revocation, signed approvals and immutable proposal delivery must still
+be verified separately prior to production release.
