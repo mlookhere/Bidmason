@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { selectReviewedServices } from "./intake-review.ts";
 import type { TenantExtractionRecord } from "./tenant-extraction-service.ts";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readActivePolicy } from "./company-policy-revisions.ts";
@@ -89,22 +90,48 @@ function checkSelector(selector: Selector): void {
   }
 }
 
+/** DB reads are authorized, not intrinsically inert. Check every identity
+ * descriptor before reading values or stringifying the source for CAS. */
+function storedDataFields(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  return fields.every(key => {
+    const d = Object.getOwnPropertyDescriptor(value, key);
+    return d?.enumerable === true && Object.hasOwn(d, "value");
+  });
+}
+
 function checkRecord(record: TenantServiceReviewRecord | null, selector: Selector):
   asserts record is TenantServiceReviewRecord {
-  if (!record || record.organizationId !== selector.organizationId
+  const invalid = "Stored extraction is absent, malformed or already reviewed";
+  if (!storedDataFields(record, [
+    "organizationId", "sourceId", "revision", "original",
+    "review", "extractionAudit", "scopeReview",
+  ]) || record.organizationId !== selector.organizationId
     || record.sourceId !== selector.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 1
-    || !record.original || !record.review || record.review.state !== "needs-human-review"
     || hasCorrectionLifecycle(record)
-    || !Array.isArray(record.extractionAudit) || record.extractionAudit.length !== 1
-    || !record.extractionAudit[0]
-    || record.extractionAudit[0].sourceRevision !== record.revision
-    || typeof record.extractionAudit[0].actorId !== "string"
-    || !UUID.test(record.extractionAudit[0].actorId)
-    || record.extractionAudit[0].sourceSha256 !== record.review.sourceSha256
-    || record.extractionAudit[0].candidatesSha256 !== record.review.candidatesSha256
+    || !exactReviewArray(record.extractionAudit)
+    || record.extractionAudit.length !== 1
+    || !exactReviewObject(record.extractionAudit[0], [
+      "sourceRevision", "actorId", "sourceSha256", "candidatesSha256",
+    ])
     || (record.scopeReview !== null && record.scopeReview !== undefined)) {
-    throw new Error("Stored extraction is absent, malformed or already reviewed");
+    throw new Error(invalid);
+  }
+  // Index zero probes every candidate's exact own fields, source offsets
+  // and both SHA digests. This DOES NOT approve/select the first service.
+  try {
+    selectReviewedServices(record.original, record.review, [0]);
+  } catch {
+    throw new Error(invalid);
+  }
+  const audit = record.extractionAudit[0];
+  if (audit.sourceRevision !== record.revision
+    || typeof audit.actorId !== "string" || !UUID.test(audit.actorId)
+    || audit.sourceSha256 !== record.review.sourceSha256
+    || audit.candidatesSha256 !== record.review.candidatesSha256) {
+    throw new Error(invalid);
   }
 }
 
