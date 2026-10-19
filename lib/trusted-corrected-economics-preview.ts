@@ -70,7 +70,7 @@ function createInternalCorrectedEconomicsPreview(
   auth:ActiveSessionVerifier,db:PrivateIntakeDatabase,locked:boolean,
 ):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
   async function verified(session:unknown):Promise<{userId:string;sessionId?:string}>{
-    const current=locked
+    const current:{userId:string;sessionId?:string}=locked
       ? await (auth as SessionBoundActiveSessionVerifier).verifySessionBinding(session)
       : await auth.verifyActiveSession(session);
     if(!exact(current,locked?["userId","sessionId"]:["userId"])
