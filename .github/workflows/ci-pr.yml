@@ -183,5 +183,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_scope_review_test.sql
       - name: Verify active two-actor company ratecard and stale-policy denial
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_active_policy_test.sql
+      - name: Install creator-owned read-only reviewed scope reconciliation
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_scope_inspect.sql
       - name: Prove actual TypeScript policy fingerprints agree with PostgreSQL CAS
         run: node --test ci/intake_policy_fingerprint_bridge.test.mjs
