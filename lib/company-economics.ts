@@ -1,5 +1,6 @@
 import { canonicalCompanyPolicyText, companyPolicySha256 } from "./company-policy-fingerprint.ts";
-import { quoteFromPolicy, type CompanyPricePolicy, type QuoteLineInput,
+import { quoteFromPolicy, snapshotQuoteInputs,
+  type CompanyPricePolicy, type QuoteLineInput,
   type QuoteResult } from "./company-pricing.ts";
 
 /** A pure calculation input, NOT proof of tenant authorization or approval. */
@@ -72,10 +73,13 @@ export function previewCompanyEconomics(
     || new Set(excluded).size !== excluded.length) {
     throw new TypeError("Invalid company service exclusions");
   }
-  if (!Array.isArray(requested) || requested.some(input => excluded.includes(input.serviceCode))) {
+  // Validate and detach requested rows BEFORE examining excluded codes. An
+  // untrusted line/index getter must never run in the exclusion preflight.
+  const safeRequested = snapshotQuoteInputs(requested);
+  if (safeRequested.some(input => excluded.includes(input.serviceCode))) {
     throw new Error("Company-excluded service cannot be quoted");
   }
-  const quote = quoteFromPolicy(snapshot.pricing, requested);
+  const quote = quoteFromPolicy(snapshot.pricing, safeRequested);
   // Only whole-quote tax is supported in this early version. Never guess
   // taxable allocation across mixed-exempt items or minimum adjustments.
   const taxCents = snapshot.tax.method === "exclusive-all-charged"
