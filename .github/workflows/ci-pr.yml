@@ -187,6 +187,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/staged_policy_review_history.sql
       - name: Prove immutable policy review decisions and concurrent durable CAS
         run: node --test ci/intake_policy_durable_history.test.mjs
+      - name: Prove trusted policy store and real PostgreSQL approval activation bridge
+        run: node --test ci/intake_policy_store_bridge.test.mjs
       - name: Verify commercial policy economics fail closed in PostgreSQL
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_policy_economics_test.sql
       - name: Prove durable reviewed-policy activation adapter against real PostgreSQL
