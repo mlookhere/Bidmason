@@ -276,3 +276,21 @@ test("actual PostgreSQL read-only scope reconciliation after lost acknowledgemen
  await assert.rejects(f.api.reconcile(f.input));
  assert.equal(f.writes,1);
 });
+
+test("real PostgreSQL unreviewed recovery rejects invalid optional add-on selections",async()=>{
+ const f=fixture();
+ const valid=await f.api.reconcile(f.input);
+ assert.equal(valid.state,"unreviewed-at-read");
+ for(const change of [
+   {selectedIndices:[1]},
+   {acceptedAddonCodes:[]},
+   {acceptedAddonCodes:["unlisted-addon"]},
+ ]) {
+   const rejected=await f.api.reconcile({...f.input,...change});
+   assert.equal(rejected.state,"different-scope-at-read");
+   assert.equal(f.stored.revision,2);
+   assert.equal(f.writes,0);
+ }
+ assert.equal(f.calls.filter(c=>
+   c.statement.includes("commit_typed_note_scope_review")).length,0);
+});
