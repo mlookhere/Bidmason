@@ -262,3 +262,30 @@ bridge remains in CI for cross-language confirmation.
 integrity, but the server must still verify current Supabase Auth, current
 tenant membership and private source access, and must validate model inputs.
 No real customer-facing route or provider migration is enabled.
+
+
+## Real concurrent extraction CAS and audit isolation
+
+The disposable PostgreSQL `intake-db` job now runs
+`ci/intake_extraction_concurrency.test.mjs` using **independent
+`psql` processes** that concurrently invoke the real private
+`commit_typed_note_extraction` function against the *same* newly created
+tenant-owned source. This covers database races that sequential mock tests
+cannot reproduce. It verifies:
+
+- Eight concurrent identical authorized extraction attempts result in exactly
+  **one** successful revision 1→2 commit and seven explicit stale/replay
+  failures, never an apparently successful duplicate.
+- Four writers racing to submit two **different** valid, source-exact
+  extraction snapshots likewise produce one winner and preserve the
+  **whole** winning review, single database-authored actor audit and
+  matching canonical candidate SHA-256. No interleaved partial reviews,
+  duplicate audit records, or changes to immutable original text are allowed.
+
+All actors, notes and memberships are synthetic; each case receives a fresh
+request/source. These tests require the real database function's row locks,
+revision guard and append-only audit and run in addition to the preexisting
+source, digest, UTF-16, membership/revocation, and JS-to-SQL integration
+suites. They are **not** a substitute for production concurrent-load
+testing or genuine two-user Supabase Auth/PostgREST/RLS/Storage evidence.
+There is still no customer-facing intake, proposal approval or send route.
