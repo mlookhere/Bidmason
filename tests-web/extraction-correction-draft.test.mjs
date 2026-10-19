@@ -114,3 +114,25 @@ test("hidden fields, symbol directives, getter actions and sparse requests fail 
     /canonical extraction corrections/);
  }
 });
+
+test("correction action and stored candidate getter traps are never invoked",()=>{
+ let calls=0;
+ const action={...fix};
+ Object.defineProperty(action,"action",{enumerable:true,
+  get(){calls++;return "replace";}});
+ assert.throws(()=>prepareExtractionCorrectionDraft(source,review(),[action]),
+  /Invalid extraction correction action/);
+ assert.equal(calls,0);
+ const extraction=review();
+ Object.defineProperty(extraction.candidates,"0",{enumerable:true,
+  get(){calls++;return painting;}});
+ assert.throws(()=>prepareExtractionCorrectionDraft(source,extraction,[fix]),
+  /canonical extraction candidates/);
+ assert.equal(calls,0);
+ const malformed=review();
+ Object.defineProperty(malformed,"candidates",{enumerable:true,
+  get(){calls++;return [painting,mistaken];}});
+ assert.throws(()=>prepareExtractionCorrectionDraft(source,malformed,[fix]),
+  /Invalid original extraction candidates/);
+ assert.equal(calls,0);
+});

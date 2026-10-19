@@ -81,9 +81,18 @@ export function prepareExtractionCorrectionDraft(
   review: ExtractionReview,
   changes: ExtractionCorrectionChange[],
 ): ExtractionCorrectionDraft {
-  // Verify the complete original extraction, not just changed candidates.
+  // Do not invoke getters or array-element accessors before the existing
+  // shared review validator has authenticated all canonical data descriptors.
+  const candidatesDescriptor = review && typeof review === "object"
+    ? Object.getOwnPropertyDescriptor(review, "candidates") : undefined;
+  const candidateList = candidatesDescriptor && Object.hasOwn(candidatesDescriptor, "value")
+    ? candidatesDescriptor.value : null;
+  const count = Array.isArray(candidateList) ? candidateList.length : 0;
+  if (count < 1 || count > 50) {
+    throw new TypeError("Invalid original extraction candidates");
+  }
   selectReviewedServices(original, review,
-    review.candidates.map((_, index) => index));
+    Array.from({length: count}, (_, index) => index));
   if (!exactList(changes)) {
     throw new TypeError("One to 100 canonical extraction corrections are required");
   }
@@ -93,7 +102,11 @@ export function prepareExtractionCorrectionDraft(
     if (!change || typeof change !== "object" || Array.isArray(change)) {
       throw new TypeError("Invalid extraction correction action");
     }
-    const action = change.action;
+    const actionDescriptor = Object.getOwnPropertyDescriptor(change, "action");
+    if (!actionDescriptor?.enumerable || !Object.hasOwn(actionDescriptor, "value")) {
+      throw new TypeError("Invalid extraction correction action");
+    }
+    const action: unknown = actionDescriptor.value;
     const schema = action === "replace"
       ? ["action", "index", "candidate", "reason"]
       : action === "remove"
@@ -104,8 +117,8 @@ export function prepareExtractionCorrectionDraft(
       throw new TypeError("Invalid extraction correction action");
     }
     const reason = explanation(change.reason);
-    if (action === "add") {
-      additions.push({ action, after: verifiedCandidate(original, change.candidate), reason });
+    if (change.action === "add") {
+      additions.push({ action: "add", after: verifiedCandidate(original, change.candidate), reason });
       continue;
     }
     if (!Number.isSafeInteger(change.index) || change.index < 0
@@ -113,15 +126,15 @@ export function prepareExtractionCorrectionDraft(
       throw new TypeError("Unknown or duplicate extraction correction index");
     }
     const before = { ...review.candidates[change.index] };
-    if (action === "remove") {
-      indexed.set(change.index, { action, originalIndex: change.index, before, reason });
+    if (change.action === "remove") {
+      indexed.set(change.index, { action: "remove", originalIndex: change.index, before, reason });
     } else {
       const after = verifiedCandidate(original, change.candidate);
       if (JSON.stringify(before) === JSON.stringify(after)) {
         throw new Error("A replacement must change the candidate");
       }
       indexed.set(change.index, {
-        action, originalIndex: change.index, before, after, reason,
+        action: "replace", originalIndex: change.index, before, after, reason,
       });
     }
   }
