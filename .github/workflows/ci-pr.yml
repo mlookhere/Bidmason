@@ -309,3 +309,11 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
       - name: Prove post-intake tenant isolation with overlapping legitimate memberships
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_post_intake_rls_audit.sql
+      - name: Install complete staged Item 4 schema on real Item 3 tenant RLS
+        env:
+          BIDMASON_CI_DISPOSABLE_POSTGRES: "1"
+        run: bash ci/install_item4_on_item3_disposable.sh
+      - name: Prove all 24 private-schema and Auth-session grants on combined Item 3 and 4
+        run: node --test ci/corrected_pricing_schema_preflight.test.mjs
+      - name: Reprove Item 3 tenant read isolation after complete Item 4 schema
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_post_intake_rls_audit.sql

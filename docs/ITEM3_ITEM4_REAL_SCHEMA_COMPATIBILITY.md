@@ -11,3 +11,12 @@ Next, the complete Item 4 \`ci/db_intake_test.sql\` runs against the real Item 3
 This job is a strict additional required check. A failure blocks promotion of the Item 4 branch and should be corrected by cause; never substitute the stub, delete tests, treat a missing job as green, or merge either draft PR without approved prerequisites.
 
 **Limits:** This verifies Item 3 table/RLS compatibility in disposable PostgreSQL only, not Supabase Auth's live JWT and session lifecycle, two real users, Storage HTTP policies, signed upload scanning, ratecards, customer approvals, or production deployment. Existing Item 3 PR #12 and Item 4 PR #13 remain independent draft PRs into \`dev\`. Live Supabase Item 4 deployment preflight remains separately blocked until reviewed migrations and real two-tenant security acceptance.
+
+
+## Full correction and pricing migration compatibility
+
+The combined-schema job additionally installs **every remaining staged Item 4 SQL migration** in its dependency order on the authentic pinned Item 3 tables: extraction lookup/commit/read, reviewed policy activation and history, human scope and fingerprints, quarantine/draft/evidence/activation, corrected scope/commercial decisions, session-row verifier and locked pricing. The helper \`ci/install_item4_on_item3_disposable.sh\` rejects execution unless the CI-only disposable-PostgreSQL flag is explicitly set, and the connection points to \`127.0.0.1:5432\` as local \`postgres\` against the \`postgres\` database. It uses a **synthetic** Auth table created by the existing negative Auth session test; it must never be run on a connected live Supabase project.
+
+After complete installation, the **existing required** 24-check \`ci/corrected_pricing_schema_preflight.test.mjs\` executes against that combined schema and must pass all security privileges, hardened functions, and rollback-only drift tests. It then reruns the post-intake Item 3 RLS audit **after all Item 4 SQL objects have been installed**, ensuring the later policy/correction functions did not silently alter tenant visibility. These are **three additional mandatory CI steps**; none of the original Item 3/4 tests or required jobs are dropped.
+
+A success is evidence of staged schema integration against Item 3's real database definitions on disposable PostgreSQL only. It is **not** evidence of production Auth signatures, real users, private Storage HTTP permissions or approval to deploy. The last connected live Supabase readiness preflight must continue to report its own observed status separately.
