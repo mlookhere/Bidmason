@@ -157,11 +157,11 @@ export async function reconcileServiceReview(
   const firstStamp = createHash("sha256").update(JSON.stringify(activePolicy)).digest("hex");
   const lastStamp = createHash("sha256").update(JSON.stringify(lastActive)).digest("hex");
   if (firstStamp !== lastStamp) {
-    return classification.state === "unchanged-at-read"
-      ? {state:"unchanged-at-read",sourceId:request.sourceId}
-      : {state:"recorded-stale-policy", sourceId:request.sourceId,
-          revision:current.revision, reviewedBy:current.scopeReview?.reviewedBy ?? "",
-          reviewedSelectionSha256:current.scopeReview?.reviewedSelectionSha256 ?? ""};
+    if (classification.state === "confirmed-current-at-read") {
+      return {...classification, state:"recorded-stale-policy"};
+    }
+    // A policy race must not convert a conflicting write into a valid review.
+    return classification;
   }
   return classification;
 }
