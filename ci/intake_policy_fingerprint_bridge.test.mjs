@@ -155,6 +155,31 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",()=
   assert.equal(unchanged.revision,2);
   assert.equal(unchanged.scope_review,null);
 
+  const inspect=(expectedSelection=scope.reviewedSelectionSha256,
+      who=author,tenant=org)=>JSON.parse(sql(`set role service_role;
+    select row_to_json(x) from (
+      select observation,persisted_revision,observed_selection_sha256
+      from bm_intake_private.inspect_typed_note_scope_commit(
+        :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text,
+        :'p5'::text,:'p6'::text)
+    ) x;`,{p1:tenant,p2:who,p3:sourceId,
+      p4:review.sourceSha256,p5:review.candidatesSha256,
+      p6:expectedSelection}));
+  // Observe the primary before committing; this is a point-in-time read,
+  // not proof that the earlier write was rolled back.
+  assert.deepEqual(inspect(),{
+    observation:"unreviewed-at-read",persisted_revision:2,
+    observed_selection_sha256:null,
+  });
+  const hasBrowserAccess=sql(`select has_function_privilege(
+      'authenticated',
+      'bm_intake_private.inspect_typed_note_scope_commit(uuid,uuid,uuid,text,text,text)',
+      'EXECUTE');`);
+  assert.equal(hasBrowserAccess,"f");
+  assert.throws(()=>inspect(scope.reviewedSelectionSha256,reviewer));
+  assert.throws(()=>inspect(scope.reviewedSelectionSha256,author,
+    "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"));
+
   const result=JSON.parse(sql(`set role service_role;
     select row_to_json(x) from (
       select source_revision, reviewed_selection_sha256
@@ -178,6 +203,50 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",()=
   assert.equal(persisted.original_text,original.text);
   assert.equal(persisted.extraction_audit.length,1);
   assert.equal(persisted.extraction_audit[0].actorId,author);
+  // Model a lost acknowledgement: two fresh read-only observations agree
+  // on the persisted matching draft. Neither performs another CAS.
+  const proof1=inspect(),proof2=inspect();
+  assert.deepEqual(proof1,proof2);
+  assert.deepEqual(proof1,{
+    observation:"matching-scope-at-read",persisted_revision:3,
+    observed_selection_sha256:scope.reviewedSelectionSha256,
+  });
+  assert.equal(inspect("f".repeat(64)).observation,"different-scope-at-read");
+
+  // A newer approved ratecard makes the historical matching review STALE,
+  // even though the immutable evidence remains valid. No authorization
+  // to send or price against this obsolete policy can be inferred.
+  const successor={...policy,revision:2,pricing:{
+    ...policy.pricing,policyId:"synthetic-bridge-v2",
+    services:{...policy.pricing.services,painting:{
+      ...policy.pricing.services.painting,rateCents:9000}},
+  }};
+  const nextDraft=submitPolicyDraft(approved,{organizationId:org,
+    submittedBy:author,policy:successor,expectedRevision:1,
+    expectedSha256:fingerprint});
+  const nextApproved=reviewPolicyDraft(nextDraft,{organizationId:org,
+    reviewedBy:reviewer,decision:"approve",expectedRevision:2,
+    expectedSha256:nextDraft.revisions[1].policySha256});
+  const nextPolicy=readActivePolicy(nextApproved,org);
+  const activatedNext=JSON.parse(sql(`set role service_role;
+    select row_to_json(x) from (
+      select activated_revision,activated_sha256
+      from bm_intake_private.activate_scope_policy(
+        :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,2,:'p4'::text)
+    ) x;`,{p1:org,p2:author,p3:reviewer,
+       p4:canonicalCompanyPolicyText(nextPolicy)}));
+  assert.equal(activatedNext.activated_revision,2);
+  assert.equal(activatedNext.activated_sha256,
+    companyPolicySha256(nextPolicy));
+  assert.deepEqual(inspect(),{
+    observation:"matching-stale-policy-at-read",persisted_revision:3,
+    observed_selection_sha256:scope.reviewedSelectionSha256,
+  });
+  // Membership revocation must invalidate even read-only reconciliation.
+  sql(`delete from public.bm_memberships
+     where organization_id=:'p1'::uuid and user_id=:'p2'::uuid;`,
+    {p1:org,p2:author});
+  assert.throws(()=>inspect());
   assert.equal(Object.hasOwn(result,"approved"),false);
   assert.equal(Object.hasOwn(result,"quoteTotalCents"),false);
 });
