@@ -1344,3 +1344,21 @@ constraints are not removed or relaxed.
 entrypoint using synthetic independently configured pricing. The previews
 remain internal and non-sendable. These unit tests do not establish real
 Supabase tenancy, human policy approval or authority to publish quotes.
+
+## Direct preview optional-consent canonical order (staging only)
+
+The source-bound `previewReviewedEconomics` entry point now independently
+validates the canonical ordering of optional-service acknowledgments even
+when a caller does **not** enter through the workbench-selection helper.
+The accepted codes must be lowercase bounded service codes (up to 50)
+in strictly increasing Unicode code-unit order, each referring to an
+actually selected, company-approved optional service. Reversed, duplicate,
+unknown, noncanonical and unbounded lists fail closed before calculating
+any preview. This matches `prepareReviewPreviewRequest` and prevents
+alternate consent representations from bypassing the staged review contract.
+
+`tests-web/intake-quote-preview.test.mjs` checks a synthetically approved
+two-add-on policy with canonical positive and reversed/malformed negative
+cases; production company policy activation, approval and price rules were
+not altered. No tenant authorization or customer-send permission is
+conferred by this pure calculation.
