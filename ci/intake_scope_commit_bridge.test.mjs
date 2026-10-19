@@ -206,3 +206,52 @@ test("actual PG rejects active policy read after membership revoked post-commit"
   }
   // This is an indeterminate post-write outcome; no retry occurs.
 });
+
+
+test("actual PG read-only workbench and policy preview bind original typed note to approved ratecard",async()=>{
+ const f=fixture();
+ const selector={session:f.input.session,organizationId:f.org,sourceId:f.sourceId};
+ const workbench=await f.api.readWorkbench(selector);
+ assert.equal(workbench.state,"requires-human-service-review");
+ assert.equal(workbench.sourceRevision,2);
+ assert.equal(workbench.model.key,f.input.reviewKey);
+ assert.equal(workbench.model.rows.length,1);
+ assert.equal(workbench.model.rows[0].status,"optional");
+ assert.equal(workbench.model.rows[0].excerpt,original.text);
+ assert.equal(f.writes,0);
+ const result=await f.api.preview(f.input);
+ assert.equal(result.state,"preview-only");
+ assert.equal(result.reviewKey,f.input.reviewKey);
+ assert.equal(result.economics.policySha256,companyPolicySha256(policy));
+ assert.equal(result.economics.policyRevision,1);
+ assert.equal(result.selectedServices[0].addonAccepted,true);
+ assert.equal(result.sourceId,f.sourceId);
+ assert.equal(f.stored.revision,2);
+ assert.equal(f.writes,0);
+ assert.equal(f.calls.filter(c=>c.statement.includes("active_policy_heads")).length,4);
+ assert.equal(f.calls.filter(c=>c.statement.includes("read_typed_note_for_extraction")).length,4);
+ assert.equal(f.calls.filter(c=>c.statement.includes("commit_typed_note_scope_review")).length,0);
+ assert.equal(Object.hasOwn(result,"send"),false);
+ assert.equal(Object.hasOwn(result,"approved"),false);
+ // Pending a separate human commit, no client amount or forged source can
+ // substitute for the real source-owner and current company ratecard.
+ await assert.rejects(f.api.preview({...f.input,acceptedAddonCodes:[]}));
+ await assert.rejects(f.api.preview({...f.input,policy,approved:true}),TypeError);
+ assert.equal(f.writes,0);
+});
+test("actual PG rechecks source ownership and reviewer permission for read-only workbench",async()=>{
+ const f=fixture();
+ const selector={session:f.input.session,organizationId:f.org,sourceId:f.sourceId};
+ f.changeActor();
+ await assert.rejects(f.api.readWorkbench(selector));
+ assert.equal(f.writes,0);
+ const g=fixture();
+ g.revokeMember();
+ await assert.rejects(g.api.preview(g.input));
+ assert.equal(g.writes,0);
+ const h=fixture();
+ await h.api.commit(h.input);
+ await assert.rejects(h.api.readWorkbench({session:h.input.session,
+   organizationId:h.org,sourceId:h.sourceId}),/not awaiting human review/);
+ assert.equal(h.writes,1);
+});
