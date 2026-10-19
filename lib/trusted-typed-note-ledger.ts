@@ -36,6 +36,32 @@ function exactObject(value: unknown, keys: readonly string[]): value is Record<s
   });
 }
 
+/** PostgreSQL drivers can add metadata to the result envelope, but the
+ * rows property itself must be an ordinary own data field. No getter may
+ * manufacture an absent key or a trusted receipt. */
+function sqlRows(result: unknown): unknown[] {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("Invalid primary intake lookup result");
+  }
+  const property = Object.getOwnPropertyDescriptor(result, "rows");
+  if (!property || !Object.hasOwn(property, "value")) {
+    throw new Error("Invalid primary intake lookup result");
+  }
+  const rows = property.value;
+  if (!Array.isArray(rows) || rows.length > 1
+    || Object.getPrototypeOf(rows) !== Array.prototype
+    || Reflect.ownKeys(rows).length !== rows.length + 1) {
+    throw new Error("Invalid primary intake lookup result");
+  }
+  for (let index = 0; index < rows.length; index++) {
+    const item = Object.getOwnPropertyDescriptor(rows, String(index));
+    if (item?.enumerable !== true || !Object.hasOwn(item, "value")) {
+      throw new Error("Invalid primary intake lookup result");
+    }
+  }
+  return rows;
+}
+
 /**
  * Maps a verified current server Auth identity to the staged read-only SQL
  * receipt primitive. Never reconstruct a note from client data or retry writes.
@@ -74,17 +100,14 @@ export function createTrustedTypedNoteLedger(
       const result = await database.query(LOOKUP, [
         organizationId, actor, requestId,
       ]);
-      if (!result || typeof result !== "object" || !Array.isArray(result.rows)
-        || result.rows.length > 1) {
-        throw new Error("Invalid primary intake lookup result");
-      }
+      const rows = sqlRows(result);
       // A session can expire or be revoked while the primary read is in
       // flight. Reauthenticate before disclosing a receipt OR its absence.
       if (await currentActor(session) !== actor) {
         throw new Error("Authenticated intake actor changed during lookup");
       }
-      if (result.rows.length === 0) return null;
-      const row = result.rows[0];
+      if (rows.length === 0) return null;
+      const row = rows[0];
       if (!exactObject(row, ["authenticated_actor_id", "text_sha256", "record"])
         || row.authenticated_actor_id !== actor
         || typeof row.text_sha256 !== "string" || !SHA.test(row.text_sha256)
