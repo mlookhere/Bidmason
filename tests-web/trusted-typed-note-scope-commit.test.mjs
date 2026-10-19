@@ -41,6 +41,7 @@ function fixture(options={}) {
     authCalls++;
     if(!active || token!=="signed-in")throw Error("Session revoked");
     if(authCalls===1)options.afterFirstAuth?.();
+    options.afterAuth?.(authCalls);
     return {userId:who};
   }};
   const db={async query(sql,params) {
@@ -452,17 +453,19 @@ test("all privileged scope methods keep original tenant and selections after fir
   for(const name of ["readWorkbench","preview","reconcile","commit"]){
     const mutable={...request,selectedIndices:[...request.selectedIndices],
       acceptedAddonCodes:[...request.acceptedAddonCodes]};
-    const f=fixture({afterFirstAuth(){
-      mutable.session="revoked-changed-caller-reference";
-      mutable.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-      mutable.sourceId="33333333-3333-4333-8333-333333333333";
-      mutable.reviewKey="0".repeat(64);
-      mutable.selectedIndices[0]=1;
-      mutable.acceptedAddonCodes[0]="unknown";
-    }});
     const target=name==="readWorkbench"
       ?{session:mutable.session,organizationId:mutable.organizationId,
         sourceId:mutable.sourceId}:mutable;
+    const f=fixture({afterFirstAuth(){
+      target.session="revoked-changed-caller-reference";
+      target.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+      target.sourceId="33333333-3333-4333-8333-333333333333";
+      if(name!=="readWorkbench"){
+        target.reviewKey="0".repeat(64);
+        target.selectedIndices[0]=1;
+        target.acceptedAddonCodes[0]="unknown";
+      }
+    }});
     const outcome=await f.api[name](target);
     if(name==="readWorkbench")assert.equal(outcome.state,"requires-human-service-review");
     if(name==="preview")assert.equal(outcome.state,"preview-only");
@@ -484,18 +487,17 @@ test("all privileged scope methods keep original tenant and selections after fir
 });
 
 test("persisted internal scope handoff retains original tenant across Auth await",async()=>{
-  let mutate=false;
   const target={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
-  const f=fixture({afterFirstAuth(){
-    if(mutate){
+  const f=fixture({afterAuth(count){
+    // The initial commit has six independent Auth checks; mutate only
+    // during the first Auth observation of the subsequent draft handoff.
+    if(count===7){
       target.session="revoked-changed-caller-reference";
       target.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
       target.sourceId="33333333-3333-4333-8333-333333333333";
     }
   }});
   await f.api.commit(request);
-  // This independently invokes a freshly configured adapter with mutable
-  // caller selector; existing committed data remains untouched.
   const actual=await f.api.readReviewedDraft(target);
   assert.equal(actual.state,"internal-reviewed-scope-only");
   assert.equal(actual.organizationId,ORG);
