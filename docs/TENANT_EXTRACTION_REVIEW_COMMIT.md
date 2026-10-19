@@ -81,10 +81,13 @@ each candidate's excerpt against the immutable original using JavaScript's
 through a private `matches_typed_note_utf16_excerpt` function. Half-surrogate
 boundaries, out-of-source spans and fabricated excerpts fail before the
 revision 1→2 CAS. This complements JavaScript's existing source/excerpt
-checks. **Trust limit remains:** PostgreSQL does NOT independently compute
-the *canonical candidates-array SHA-256*; a privileged caller supplying a
-forged review digest is not made safe by SQL alone. Therefore browser or raw
-AI JSON must never be sent directly to this function. The staged server
+checks. **Updated defense in depth:** PostgreSQL now independently recomputes
+the *canonical candidates-array SHA-256* using the exact ordered JavaScript
+candidate tuple representation, including Unicode and JSON escapes, via the
+private `bm_intake_private.canonical_candidate_sha256` function. The 1→2
+commit rejects forged digest values and changed service quantities before
+writing. This is not a substitute for server Auth: **browser or raw AI JSON
+must never be sent directly to the function**. The staged server
 adapter `createTrustedTypedNoteExtraction` must receive fresh verified
 Supabase Auth, read the stored original from primary storage, call
 `parseUntrustedExtraction` to recompute canonical candidate hashes, then
@@ -231,3 +234,31 @@ authenticated browser roles cannot execute the private validator.
 This does not implement provider authentication, approved company policy
 revision checks or the candidate-array digest inside SQL. It does not
 authorize a user to approve a proposal, send a message, or initiate billing.
+
+
+## Canonical candidate checksum independently enforced in PostgreSQL
+
+`db/typed_note_candidates_digest.sql` constructs the same JSON string
+as `lib/intake-review.ts`'s `candidatesDigest`: ordered arrays of
+`[serviceCode,units,start,end,excerpt]` with canonical integral numbers
+and JSON-escaped text. The private service-only function hashes the UTF-8
+bytes using SHA-256. It does not hash JSONB object serialization or rely
+on source object key ordering. It refuses unknown candidate fields, unsafe
+integer counts, missing candidates and malformed shapes.
+
+`db/typed_note_extraction_commit.sql` compares the independently computed
+digest with the submitted review digest **after** checking the immutable
+original and exact source excerpts and **before** the database transition.
+The required ephemeral PostgreSQL `intake-db` job installs the digest
+function before the CAS, then executes
+`ci/db_intake_digest_test.sql` with independently calculated JavaScript
+SHA vectors for simple text, emoji and escaped quotes/newlines/backslashes.
+Existing extraction SQL cases now use canonical fixture digests and assert
+that both a forged digest and a changed service count with a stale digest
+fail without mutating source evidence. The actual JavaScript-to-PostgreSQL
+bridge remains in CI for cross-language confirmation.
+
+**Scope:** This reduces reliance on the trusted adapter for checksum
+integrity, but the server must still verify current Supabase Auth, current
+tenant membership and private source access, and must validate model inputs.
+No real customer-facing route or provider migration is enabled.
