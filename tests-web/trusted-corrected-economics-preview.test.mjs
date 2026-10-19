@@ -357,3 +357,26 @@ test("legacy preview rejects mode revocation during each async authorization bou
   else process.env.NODE_ENV=wasMode;
  }
 });
+
+test("legacy pricing refuses invalid bearer values before Auth and SQL",async()=>{
+ let authCalls=0,sqlCalls=0,getters=0;
+ const auth={async verifyActiveSession(){authCalls++;return {userId:actor};}};
+ const db={async query(){sqlCalls++;return {rows:[{projection:payload()}]};}};
+ const api=createTrustedCorrectedEconomicsPreview(
+  auth,db,"disposable-postgres-test-no-session-lock");
+ const evil=Object.defineProperty({},"toString",{get(){
+  getters++;throw Error("unsafe string coercion");
+ }});
+ for(const session of [
+  null,undefined,42,{},evil,new String("trusted-private-session"),
+  ""," wrong","wrong ","bad\nline","bad\rline","bad\tline",
+  "bad\u007fline","x".repeat(16385),
+ ]){
+  await assert.rejects(api.preview({organizationId:org,sourceId:source,
+   expectedDecisionSha256:decision,session}),
+   /Invalid private corrected economics selector/);
+ }
+ assert.equal(authCalls,0);
+ assert.equal(sqlCalls,0);
+ assert.equal(getters,0);
+});
