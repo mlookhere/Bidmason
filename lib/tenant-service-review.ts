@@ -208,7 +208,7 @@ export async function commitAuthorizedServiceReview(
     organizationId: target.organizationId, sourceId: target.sourceId,
     session, permission: "review-extraction",
     transform(current, actorId) {
-      checkRecord(current, request);
+      checkRecord(current, target);
       if (typeof actorId !== "string" || !UUID.test(actorId)) {
         throw new Error("Authenticated service reviewer identity required");
       }
