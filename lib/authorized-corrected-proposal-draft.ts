@@ -65,6 +65,7 @@ function inertEvidenceGraph(value: unknown): boolean {
         if (entry?.enumerable !== true || !Object.hasOwn(entry, "value")
           || !visit(entry.value, depth + 1)) return false;
       }
+      seen.delete(item);
       return true;
     }
     if (![Object.prototype, null].includes(Object.getPrototypeOf(item))) {
@@ -78,6 +79,7 @@ function inertEvidenceGraph(value: unknown): boolean {
       if (field?.enumerable !== true || !Object.hasOwn(field, "value")
         || !visit(field.value, depth + 1)) return false;
     }
+    seen.delete(item);
     return true;
   }
   return visit(value, 0);
