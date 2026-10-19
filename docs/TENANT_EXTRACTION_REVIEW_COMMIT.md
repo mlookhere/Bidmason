@@ -97,3 +97,48 @@ hidden approval/pricing fields, stale duplicate and post-revocation denial.
 All tests run on a disposable PostgreSQL instance, not live Supabase.
 Item 3's Auth/Storage/ClamAV/retention/security acceptance remains mandatory;
 there is no customer-facing route or approval to deploy.
+
+
+## Verified-original service bridge (staging only)
+
+`db/typed_note_extraction_read.sql` adds a private
+`bm_intake_private.read_typed_note_for_extraction` projection. The
+service-role-only, SECURITY INVOKER SQL checks and locks current membership
+before considering source existence, restricts the result to the original
+creator, and returns all eight current typed-note evidence fields, including
+the immutable original and creation audit. Revoked actors are denied for
+both existing and missing sources; other same-tenant actors receive no
+private original. It is neither a public RPC nor a deployed migration.
+
+`lib/trusted-typed-note-extraction.ts` composes this read, the existing
+private `commit_typed_note_extraction` SQL and independently verified
+server Auth identities. It rejects client actor IDs, obtains the original
+from creator-scoped primary storage, validates its creation audit and
+SHA-256, parses *all* untrusted candidates with
+`parseUntrustedExtraction` (exact JavaScript UTF-16 source excerpts and
+canonical candidate digest), then rechecks fresh Auth and issues one
+parameterized 1→2 CAS. The service must supply its own **genuine**
+non-revoked session verifier and primary service-role PostgreSQL driver.
+No such real connection has been configured.
+
+The adapter requires exact CAS acknowledgement and a new independently
+authenticated private read to confirm revision, immutable original, complete
+review and database-authored actor evidence. Failed post-CAS verification
+means **indeterminate commit**, never permission to retry or to approve a
+quote. It returns only `needs-human-review`, with no route to send,
+publish, price, bill or accept an unsupported service.
+
+Mocked regression cases in
+`tests-web/trusted-typed-note-extraction.test.mjs` cover Unicode UTF-16
+spans, tampered/price-bearing extractor suggestions, duplicate extraction,
+same-tenant and foreign denial, revocation and actor switches between reads,
+untrusted SQL confirmations and provider failures. The real isolated
+PostgreSQL CI job also executes
+`ci/db_intake_extraction_read_test.sql` for private read projection,
+creator ownership, tenant isolation and revoked membership. These are
+staged tests only, not real session provider acceptance.
+
+Before live integration, Item 3 must deliver approved Auth/Storage/RLS
+two-user evidence, maintained ClamAV, abuse limits, recovery/retention,
+privacy/legal/security signoff and configuration of a protected primary
+database connection. There is no customer route or production migration.
