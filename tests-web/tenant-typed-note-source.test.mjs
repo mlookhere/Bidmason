@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { commitAuthorizedTypedNote } from "../lib/tenant-typed-note-source.ts";
 import { readExtractionPreparation } from "../lib/tenant-extraction-service.ts";
+import { prepareExtractionReview } from "../lib/intake-review.ts";
 
 const ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -180,4 +181,103 @@ test("new typed note is directly eligible for existing extraction preparation, n
   assert.equal(prep.expectedRevision,1);
   assert.match(prep.expectedSnapshotSha256,/^[a-f0-9]{64}$/);
   assert.equal(f.records.get(saved.sourceId).review,null);
+});
+
+
+function advanceToExtraction(f, id) {
+  const row = f.records.get(id);
+  const review = prepareExtractionReview(row.original, [{serviceCode:"painting",
+    units:2,start:0,end:13,excerpt:"Paint 2 rooms"}]);
+  row.revision = 2;
+  row.review = review;
+  row.extractionAudit = [{sourceRevision:2,actorId:ACTOR,
+    sourceSha256:review.sourceSha256,candidatesSha256:review.candidatesSha256}];
+  return row;
+}
+function advanceToScope(f,id) {
+  const row = advanceToExtraction(f,id);
+  row.revision = 3;
+  row.scopeReview = {sourceRevision:3,reviewedBy:ACTOR,
+    reviewKey:"a".repeat(64),sourceSha256:row.review.sourceSha256,
+    candidatesSha256:row.review.candidatesSha256,selectedIndices:[0],
+    acceptedAddonCodes:[],policyRevision:1,policySha256:"b".repeat(64),
+    reviewedSelectionSha256:"c".repeat(64),state:"reviewed-for-proposal-draft"};
+  return row;
+}
+test("same idempotency key finds a processed extraction without creating a duplicate",async()=>{
+  const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+  advanceToExtraction(f,created.sourceId);
+  const replay=await commitAuthorizedTypedNote(f.store,"operator",note);
+  assert.deepEqual(replay,{...created,state:"existing-source",revision:2});
+  assert.equal(f.calls().count,1);
+  assert.equal(f.ledger.size,1);
+  assert.equal(f.records.get(created.sourceId).review.state,"needs-human-review");
+});
+test("same idempotency key finds committed reviewed scope but never returns ready status",async()=>{
+  const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+  advanceToScope(f,created.sourceId);
+  const replay=await commitAuthorizedTypedNote(f.store,"operator",note);
+  assert.equal(replay.state,"existing-source");
+  assert.equal(replay.revision,3);
+  assert.equal(replay.sourceId,created.sourceId);
+  assert.equal(Object.hasOwn(replay,"approved"),false);
+  assert.equal(Object.hasOwn(replay,"send"),false);
+  assert.equal(f.calls().count,1);
+});
+test("changed payload cannot reuse key even after the original note was extracted",async()=>{
+  const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+  advanceToExtraction(f,created.sourceId);
+  await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",
+    {...note,text:"Paint 200 rooms"}),/payload conflict/);
+  assert.equal(f.calls().count,1);
+});
+test("an unauthorized operator may not replay a previously committed note",async()=>{
+  const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+  advanceToExtraction(f,created.sourceId);
+  f.members.delete("operator");
+  await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",note),/Unauthorized/);
+  assert.equal(f.calls().count,1);
+});
+test("advanced record tampering fails without reissuing source identity",async()=>{
+  for (const mutation of [
+    row=>{row.original.text="Different text"},
+    row=>{row.creationAudit.actorId=randomUUID()},
+    row=>{row.review.candidates[0].excerpt="Wrong excerpt"},
+    row=>{row.review.candidatesSha256="f".repeat(64)},
+    row=>{row.extractionAudit[0].actorId="forged"},
+    row=>{row.extractionAudit[0].sourceRevision=1},
+    row=>{row.review=null},
+    row=>{row.scopeReview={approved:true}},
+  ]){
+    const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+    const row=advanceToExtraction(f,created.sourceId);mutation(row);
+    await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",note));
+    assert.equal(f.calls().count,1);
+  }
+});
+test("processed reviewed scope rejects forged approval, add-ons and source revision",async()=>{
+  for(const mutation of [
+    row=>{row.scopeReview.send=true},
+    row=>{row.scopeReview.acceptedAddonCodes=["unselected"]},
+    row=>{row.scopeReview.selectedIndices=[99]},
+    row=>{row.scopeReview.reviewedBy="attacker"},
+    row=>{row.scopeReview.sourceSha256="f".repeat(64)},
+    row=>{row.revision=4},
+  ]){
+    const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+    const row=advanceToScope(f,created.sourceId);mutation(row);
+    await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",note));
+    assert.equal(f.calls().count,1);
+  }
+});
+test("progression between authorized create result and read-back is indeterminate",async()=>{
+  const f=fixture();const created=await commitAuthorizedTypedNote(f.store,"operator",note);
+  let mutated=false;
+  const adapter={
+    async createAuthorized(input){return f.store.createAuthorized(input)},
+    async readAuthorized(input){if(!mutated){mutated=true;advanceToExtraction(f,created.sourceId)}
+      return f.store.readAuthorized(input)}
+  };
+  await assert.rejects(commitAuthorizedTypedNote(adapter,"operator",note),/read-back differs/);
+  assert.equal(f.calls().count,1);
 });

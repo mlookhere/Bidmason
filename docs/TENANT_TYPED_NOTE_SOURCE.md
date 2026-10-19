@@ -33,3 +33,20 @@ services, prices, delivery or proposal publication.
 customer-visible path is enabled. Mock-store tests do not prove real Supabase
 Auth/RLS/Storage byte integrity, unique constraints, AV, rate limits or
 retention/security acceptance. Item 3 production gates remain mandatory.
+
+## Replay after downstream processing
+
+The same authorized idempotency request can be replayed after the original
+source has entered extraction (revision 2) or committed human scope review
+(revision 3). A valid replay returns the existing source ID and
+`state: "existing-source"` with the current revision, **not**
+`ready-for-extraction` and never a new source. The helper validates the
+immutable creation audit, original note, extractor provenance and reviewed
+scope metadata before reporting that state. It never treats an advanced
+record as commercial approval or permission to send.
+
+This internal contract currently recognizes revisions 1, 2 and 3 only;
+unknown later lifecycle revisions fail closed until deliberately supported.
+A source that changes between the create-ledger response and fresh primary
+read-back is indeterminate, and needs protected ledger reconciliation before
+any new action. Future database migrations and roles remain unimplemented.
