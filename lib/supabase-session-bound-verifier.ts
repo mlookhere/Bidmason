@@ -17,6 +17,33 @@ export interface SessionBoundActiveSessionVerifier extends ActiveSessionVerifier
   verifySessionBinding(session:unknown):Promise<VerifiedSessionBinding>;
 }
 
+/** Authority-bearing Auth and private SQL receipts must be ordinary own-data
+ * objects. Accessors, symbols, hidden approvals and inherited fields deny. */
+function exactData(value:unknown,keys:readonly string[]):value is Record<string,unknown> {
+  if(!value||typeof value!=="object"||Array.isArray(value)
+    || ![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length!==keys.length)return false;
+  return keys.every(key=>{
+    const d=Object.getOwnPropertyDescriptor(value,key);
+    return d?.enumerable===true && Object.hasOwn(d,"value");
+  });
+}
+function activeReceipt(result:unknown):boolean {
+  // pg may include normal metadata on the envelope, but rows must be an
+  // own-data property containing exactly one dense, plain array element.
+  if(!result||typeof result!=="object"||Array.isArray(result))return false;
+  const property=Object.getOwnPropertyDescriptor(result,"rows");
+  if(!property||!Object.hasOwn(property,"value"))return false;
+  const rows=property.value;
+  if(!Array.isArray(rows)||rows.length!==1
+    || Object.getPrototypeOf(rows)!==Array.prototype
+    || Reflect.ownKeys(rows).length!==2)return false;
+  const item=Object.getOwnPropertyDescriptor(rows,"0");
+  return item?.enumerable===true && Object.hasOwn(item,"value")
+    && exactData(item.value,["active"])
+    && item.value.active===true;
+}
+
 function sessionIdOfVerifiedJwt(token:string,userId:string):string {
   // The Auth server must validate this VERY token first. Decoding JWT
   // payload bytes alone is NEVER proof of signature or authorization.
@@ -58,21 +85,18 @@ export function createSessionBoundSupabaseVerifier(
         || !TOKEN.test(session))throw Error(DENIED);
       // Independently verify token via trusted Auth server first.
       const identity=await auth.verifyActiveSession(session);
-      if(!identity||!UUID.test(identity.userId))throw Error(DENIED);
-      const sessionId=sessionIdOfVerifiedJwt(session,identity.userId);
-      let rows:unknown;
+      if(!exactData(identity,["userId"])
+        || typeof identity.userId!=="string"
+        || !UUID.test(identity.userId))throw Error(DENIED);
+      // The Auth server established this identity for the original JWT.
+      // Never reread a caller/adapter-owned identity after awaiting primary SQL.
+      const userId=identity.userId;
+      const sessionId=sessionIdOfVerifiedJwt(session,userId);
       try {
-        const result=await primary.query(SQL,[identity.userId,sessionId]);
-        rows=result?.rows;
+        const result=await primary.query(SQL,[userId,sessionId]);
+        if(!activeReceipt(result))throw Error(DENIED);
       }catch{throw Error(DENIED);}
-      if(!Array.isArray(rows)||rows.length!==1
-        || !rows[0]||typeof rows[0]!=="object"
-        || Array.isArray(rows[0])
-        || Reflect.ownKeys(rows[0]).length!==1
-        || Object.getOwnPropertyDescriptor(rows[0],"active")?.value!==true){
-        throw Error(DENIED);
-      }
-      return {userId:identity.userId,sessionId};
+      return {userId,sessionId};
   }
   return {
     verifySessionBinding,
