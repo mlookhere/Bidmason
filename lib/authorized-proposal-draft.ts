@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { inertEvidenceGraph } from "./inert-evidence-graph.ts";
 import { isDeepStrictEqual } from "node:util";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readActivePolicy } from "./company-policy-revisions.ts";
@@ -95,6 +96,11 @@ export async function readAuthorizedProposalDraftPreview(
     organizationId: target.organizationId, session,
   });
   const first = await readSource();
+  // Reject accessor-backed/decorated persisted evidence before the review
+  // validator, JSON fingerprint and approved-policy lookup can inspect it.
+  if (!inertEvidenceGraph(first)) {
+    throw new Error("Unsafe original proposal evidence");
+  }
   checkStoredReview(first, target);
   const history = await readPolicy();
   if (!history) throw new Error("Company approved policy is unavailable");
@@ -132,6 +138,9 @@ export async function readAuthorizedProposalDraftPreview(
   }
   const originalSnapshotSha = snapshotSha(first);
   const latest = await readSource();
+  if (!inertEvidenceGraph(latest)) {
+    throw new Error("Unsafe original proposal evidence");
+  }
   checkStoredReview(latest, target);
   if (snapshotSha(latest) !== originalSnapshotSha) {
     throw new Error("Reviewed scope evidence changed during draft preview");
