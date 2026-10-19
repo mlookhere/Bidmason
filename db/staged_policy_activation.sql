@@ -126,7 +126,7 @@ begin
    or jsonb_typeof(v_policy->'pricing'->'minimum'->'cents')
         is distinct from 'number'
    or coalesce(v_policy->'pricing'->'minimum'->>'cents','')
-        !~ '^(0|[1-9][0-9]{0,12})$'
+        !~ '^(0|[1-9][0-9]{0,15})$'
    or jsonb_typeof(v_policy->'tax') is distinct from 'object'
    or coalesce(v_policy->'tax'->>'method','')
         not in ('none','exclusive-all-charged')
@@ -136,6 +136,10 @@ begin
    or (v_policy->'tax'->>'bps')::integer>10000 then
    raise exception 'Policy snapshot is invalid or mismatched'
    using errcode='22023';
+ end if;
+ if (v_policy->'pricing'->'minimum'->>'cents')::numeric>9007199254740991 then
+   raise exception 'Company minimum exceeds JS safe integer'
+     using errcode='22023';
  end if;
  -- These commercial invariants are independently enforced in SQL.
  -- A trusted TypeScript review cannot substitute for database validation.
@@ -160,11 +164,15 @@ begin
        not in ('charged','included','pending')
      or jsonb_typeof(v_service.value->'rateCents') is distinct from 'number'
      or coalesce(v_service.value->>'rateCents','')
-       !~ '^(0|[1-9][0-9]{0,12})$'
+       !~ '^(0|[1-9][0-9]{0,15})$'
      or (v_service.value ? 'optionalAddon'
        and jsonb_typeof(v_service.value->'optionalAddon')
          is distinct from 'boolean') then
      raise exception 'Invalid approved company service configuration'
+       using errcode='22023';
+   end if;
+   if (v_service.value->>'rateCents')::numeric>9007199254740991 then
+     raise exception 'Company rate exceeds JS safe integer'
        using errcode='22023';
    end if;
    -- Validate BOTH optional line adjustments for all services, including
