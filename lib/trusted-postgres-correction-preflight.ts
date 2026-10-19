@@ -18,6 +18,16 @@ function exact(value:unknown,keys:readonly string[]):value is Record<string,unkn
       return d?.enumerable===true && Object.hasOwn(d,"value");
     });
 }
+/** A privileged SQL result must have one ordinary, own-data row.
+ * Reject sparse, accessor-backed, symbol/decorated and prototype-altered
+ * arrays before consulting record or evaluating evidence provenance. */
+function oneRow(value:unknown):value is unknown[]{
+  if(!Array.isArray(value)||value.length!==1
+    || Object.getPrototypeOf(value)!==Array.prototype
+    || Reflect.ownKeys(value).length!==2)return false;
+  const descriptor=Object.getOwnPropertyDescriptor(value,"0");
+  return descriptor?.enumerable===true && Object.hasOwn(descriptor,"value");
+}
 function digest(text:string):string {
   return createHash("sha256").update(text,"utf8").digest("hex");
 }
@@ -59,7 +69,7 @@ export function createTrustedPostgresCorrectionPreflightStore(
       // The private SQL checks and locks CURRENT tenant membership before
       // querying source identity and restricts rows to the original creator.
       const response=await db.query(READ,[organizationId,verified,sourceId]);
-      if(!response||!Array.isArray(response.rows)||response.rows.length!==1
+      if(!response||!oneRow(response.rows)
         || !exact(response.rows[0],["record"])){
         throw new Error("Authorized correction original is unavailable");
       }
