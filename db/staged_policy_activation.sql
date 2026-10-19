@@ -46,6 +46,29 @@ create trigger bm_approved_policy_immutable
 before update or delete on bm_intake_private.approved_policy_versions
 for each row execute function bm_intake_private.deny_approved_policy_rewrite();
 
+-- A trusted operator cannot roll the active pointer backward or skip
+-- a revision through a direct table update. Activation uses +1 steps only.
+create function bm_intake_private.enforce_policy_head_transition()
+returns trigger language plpgsql security invoker
+set search_path=pg_catalog,public
+as $headguard$
+begin
+ if tg_op='DELETE' then
+   raise exception 'Active approved policy cannot be deleted'
+     using errcode='42501';
+ end if;
+ if new.organization_id is distinct from old.organization_id
+    or new.revision is distinct from old.revision+1 then
+   raise exception 'Approved policy head must advance exactly one revision'
+     using errcode='42501';
+ end if;
+ return new;
+end;
+$headguard$;
+create trigger bm_active_policy_head_monotonic
+before update or delete on bm_intake_private.active_policy_heads
+for each row execute function bm_intake_private.enforce_policy_head_transition();
+
 -- Staged two-actor approved activation, not a public RPC. The policy JSON
 -- must have been validated by company-policy-revisions.ts before this call.
 -- JSON text is the canonical, server-generated stable serialized policy;
