@@ -142,3 +142,30 @@ Before live integration, Item 3 must deliver approved Auth/Storage/RLS
 two-user evidence, maintained ClamAV, abuse limits, recovery/retention,
 privacy/legal/security signoff and configuration of a protected primary
 database connection. There is no customer route or production migration.
+
+
+## Executable JavaScript-to-PostgreSQL contract proof
+
+`ci/intake_extraction_bridge.test.mjs` runs the **actual**
+`createTrustedTypedNoteExtraction` JavaScript adapter end-to-end against
+the **actual** staged private Postgres read and CAS functions within the
+disposable `intake-db` GitHub Actions service. Unlike separately mocked
+JS tests and SQL-only cases, it compares the canonical Unicode UTF-16
+candidate digests, recorded server actor, returned review, and primary
+read-back across both languages and through the full adapter.
+
+The CI-only database shim runs narrowly allowlisted private queries using
+`psql`'s literal-quoting fixture variables, with ephemeral credentials
+and synthetic source/actor data. It is **not** a reusable or production
+driver; production must use parameterized SQL over a protected primary
+connection. The independently injected CI Auth verifier is also synthetic
+and **not** evidence that real Supabase sessions are valid.
+
+The bridge tests successful extraction, stale replay refusal, foreign-
+tenant and same-tenant other-user isolation, revocation of underlying
+membership after source read, loss of synthetic Auth between read and CAS,
+and attempts to insert model-origin price or false original offsets. The
+required `intake-db` job provisions Node 24 and executes these assertions
+after all SQL fixture setup. No empty/skipped check substitutes for this.
+No public customer route, live Auth, deployed migration or payment/send
+feature is enabled by the new bridge proof.
