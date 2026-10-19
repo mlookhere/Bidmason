@@ -370,7 +370,7 @@ test("legacy pricing refuses invalid bearer values before Auth and SQL",async()=
  for(const session of [
   null,undefined,42,{},evil,new String("trusted-private-session"),
   ""," wrong","wrong ","bad\nline","bad\rline","bad\tline",
-  "bad\u007fline","x".repeat(16385),
+  "bad\u007fline","bearer/path","bearer+extra","é","x".repeat(16385),
  ]){
   await assert.rejects(api.preview({organizationId:org,sourceId:source,
    expectedDecisionSha256:decision,session}),
