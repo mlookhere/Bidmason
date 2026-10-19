@@ -25,7 +25,6 @@ declare
  v_active_revision integer;
  v_active_sha text;
  v_active_policy jsonb;
- v_rule jsonb;
 begin
  if p_organization_id is null or p_actor_id is null or p_source_id is null
    or p_expected_source_sha256 is null
@@ -163,27 +162,12 @@ begin
  end if;
  -- Verify the actual active ratecard, not just the browser's selected codes.
  -- A pending, excluded or missing service cannot become reviewed scope.
- foreach v_code in array v_codes loop
-   v_rule:=v_active_policy->'pricing'->'services'->v_code;
-   if jsonb_typeof(v_rule) is distinct from 'object'
-     or coalesce(v_rule->>'billing','') not in ('charged','included')
-     or (coalesce(v_active_policy->'excludedServiceCodes','[]'::jsonb)
-         ? v_code)
-     or (v_rule ? 'optionalAddon'
-       and jsonb_typeof(v_rule->'optionalAddon') is distinct from 'boolean') then
-      raise exception 'Unapproved, excluded or unlisted company service'
-        using errcode='22023';
-   end if;
-   if (v_rule->>'optionalAddon')='true' then
-     if not (v_code=any(v_accepted)) then
-       raise exception 'Optional service needs separate human acknowledgement'
-         using errcode='22023';
-     end if;
-   elsif v_code=any(v_accepted) then
-     raise exception 'Nonoptional service cannot receive addon acknowledgement'
-       using errcode='22023';
-   end if;
- end loop;
+ if not bm_intake_private.matches_approved_scope_services(
+     v_active_policy,v_note.review->'candidates',
+     p_scope->'selectedIndices',p_scope->'acceptedAddonCodes') then
+   raise exception 'Selected services not eligible under approved company policy'
+     using errcode='22023';
+ end if;
  if p_scope->>'reviewedSelectionSha256' is distinct from
    bm_intake_private.reviewed_selection_sha256(
      v_note.review,p_scope->'selectedIndices',
