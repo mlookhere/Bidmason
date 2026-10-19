@@ -201,3 +201,59 @@ test("provider audio mutation and identity drift cannot silently change returned
  assert.equal(stable.providerName,"isolated-test-transcriber");
  assert.equal(stable.providerVersion,"v1");
 });
+
+
+test("untrusted provider accessor and decorated evidence fails without invoking getters",async()=>{
+ let getters=0;
+ const text="Paint fifteen rooms";
+ const base=()=>({...reply(text),
+  uncertainties:[{start:6,end:13,excerpt:"fifteen",reason:"ambiguous-number"}]});
+ const bad=[
+  ()=>Object.defineProperty(base(),"status",{enumerable:true,
+    get(){getters++;throw Error("unsafe status getter");}}),
+  ()=>Object.defineProperty(base(),"text",{enumerable:true,
+    get(){getters++;throw Error("unsafe text getter");}}),
+  ()=>Object.defineProperty(base(),"hidden",{value:"approved"}),
+  ()=>{const r=base();r[Symbol("send")]=true;return r;},
+  ()=>Object.setPrototypeOf(base(),{approved:true}),
+  ()=>Object.defineProperty({status:"unintelligible"},"status",{enumerable:true,
+    get(){getters++;throw Error("unsafe unintelligible getter");}}),
+  ()=>Object.defineProperty({status:"unintelligible"},"hidden",{value:1}),
+  ()=>{const r=base();Object.defineProperty(r.segments,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe segment index");}});return r;},
+  ()=>{const r=base();delete r.segments[0];return r;},
+  ()=>{const r=base();r.segments[Symbol("approved")]=true;return r;},
+  ()=>{const r=base();Object.setPrototypeOf(r.segments,
+    Object.create(Array.prototype));return r;},
+  ()=>{const r=base();Object.defineProperty(r.segments[0],"start",{enumerable:true,
+    get(){getters++;throw Error("unsafe timestamp getter");}});return r;},
+  ()=>{const r=base();Object.defineProperty(r.segments[0],"hidden",{value:1});return r;},
+  ()=>{const r=base();Object.defineProperty(r.uncertainties,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe uncertainty index");}});return r;},
+  ()=>{const r=base();delete r.uncertainties[0];return r;},
+  ()=>{const r=base();r.uncertainties[0][Symbol("send")]=true;return r;},
+  ()=>{const r=base();Object.defineProperty(r.uncertainties[0],"reason",{
+    enumerable:true,get(){getters++;throw Error("unsafe uncertainty reason");}
+   });return r;},
+ ];
+ for(const construct of bad){
+  const result=await transcribeOriginalAudio(audio,"audio/wav",
+    provider(async()=>construct()));
+  assert.equal(result.state,"failed");
+  assert.equal(result.reason,"invalid-response");
+  assert.equal(Object.hasOwn(result,"original"),false);
+  assert.equal(Object.hasOwn(result,"segments"),false);
+ }
+ assert.equal(getters,0);
+});
+
+test("canonical provider reply with null-prototype plain data remains review-only",async()=>{
+ const result=Object.assign(Object.create(null),reply());
+ result.segments=result.segments.map(s=>Object.assign(Object.create(null),s));
+ result.uncertainties=[];
+ const out=await transcribeOriginalAudio(audio,"audio/wav",provider(async()=>result));
+ assert.equal(out.state,"needs-human-review");
+ assert.equal(out.original.transcriptionSucceeded,true);
+ assert.equal(out.segments[0].excerpt,"Paint fifteen rooms");
+ assert.equal(Object.getPrototypeOf(out.segments[0]),Object.prototype);
+});
