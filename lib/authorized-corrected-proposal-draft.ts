@@ -10,7 +10,7 @@ import { prepareReviewPreviewRequest } from "./intake-review-selection.ts";
 import { previewReviewedEconomics, type ReviewedEconomicsPreview }
   from "./intake-quote-preview.ts";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 type Selector = { organizationId: string; sourceId: string };
 
 export type CorrectedProposalDraftPreview = {
