@@ -23,9 +23,13 @@ const ACTIVATE=`select activated_revision, activated_sha256
     $1::uuid,$2::uuid,$3::uuid,$4::integer,$5::text)`;
 
 function exact(value: unknown, names: readonly string[]): value is Record<string,unknown> {
-  return !!value && typeof value==="object" && !Array.isArray(value)
-    && Object.keys(value).length===names.length
-    && names.every(name=>Object.hasOwn(value,name));
+  if(!value || typeof value!=="object" || Array.isArray(value)
+    || ![Object.prototype,null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length!==names.length)return false;
+  return names.every(name=>{
+    const d=Object.getOwnPropertyDescriptor(value,name);
+    return d?.enumerable===true && Object.hasOwn(d,"value");
+  });
 }
 function parseHead(value: unknown): {revision:number;sha:string;
   canonical:string;submittedBy:string;reviewedBy:string} {
@@ -123,28 +127,33 @@ export function createTrustedCompanyPolicyActivation(
         revision:number;policySha256:string}> {
       if (!exact(input,["organizationId","reviewerSession"])
         || typeof input.organizationId!=="string"
-        || !UUID.test(input.organizationId)) {
+        || !UUID.test(input.organizationId)
+        || input.reviewerSession===null || input.reviewerSession===undefined) {
         throw new TypeError("Invalid private policy activation selector");
       }
-      const reviewer=await actor(input.reviewerSession);
-      const expected=await history(input.organizationId,input.reviewerSession,reviewer);
-      if (await actor(input.reviewerSession)!==reviewer) {
+      // Preserve the original caller intention throughout Auth, primary
+      // history, SQL activation and the post-write verification. Never retry.
+      const target={organizationId:input.organizationId,
+        reviewerSession:input.reviewerSession};
+      const reviewer=await actor(target.reviewerSession);
+      const expected=await history(target.organizationId,target.reviewerSession,reviewer);
+      if (await actor(target.reviewerSession)!==reviewer) {
         throw new Error("Reviewer identity changed before policy head read");
       }
-      const before=await head(input.organizationId,reviewer);
+      const before=await head(target.organizationId,reviewer);
       if ((expected.previous===null && before!==null)
         || (expected.previous!==null
           && (!before || before.revision!==expected.previous.revision
             || before.sha!==expected.previous.sha))) {
         throw new Error("Stale company policy head; inspect, do not retry");
       }
-      if (await actor(input.reviewerSession)!==reviewer) {
+      if (await actor(target.reviewerSession)!==reviewer) {
         throw new Error("Reviewer identity changed before policy activation");
       }
       // This SQL independently rechecks and locks CURRENT tenant membership
       // for both actors and enforces exact next revision before writing.
       const response=await database.query(ACTIVATE,[
-        input.organizationId,expected.submittedBy,reviewer,
+        target.organizationId,expected.submittedBy,reviewer,
         String(expected.revision),expected.canonical,
       ]);
       if(!response || !Array.isArray(response.rows)
@@ -154,16 +163,16 @@ export function createTrustedCompanyPolicyActivation(
         || response.rows[0].activated_sha256!==expected.sha) {
         throw new Error("Policy activation outcome indeterminate; never retry");
       }
-      const latest=await history(input.organizationId,input.reviewerSession,reviewer);
+      const latest=await history(target.organizationId,target.reviewerSession,reviewer);
       if(latest.revision!==expected.revision || latest.sha!==expected.sha
         || latest.canonical!==expected.canonical
         || latest.submittedBy!==expected.submittedBy) {
         throw new Error("Durable approval changed after activation; inspect");
       }
-      if(await actor(input.reviewerSession)!==reviewer) {
+      if(await actor(target.reviewerSession)!==reviewer) {
         throw new Error("Reviewer identity changed after activation");
       }
-      const after=await head(input.organizationId,reviewer);
+      const after=await head(target.organizationId,reviewer);
       if(!after || after.revision!==expected.revision || after.sha!==expected.sha
         || after.canonical!==expected.canonical
         || after.submittedBy!==expected.submittedBy
@@ -171,7 +180,7 @@ export function createTrustedCompanyPolicyActivation(
         throw new Error("Private policy activation read-back indeterminate; inspect");
       }
       return {state:"activated-for-internal-review",
-        organizationId:input.organizationId,
+        organizationId:target.organizationId,
         revision:expected.revision,policySha256:expected.sha};
     },
   };
