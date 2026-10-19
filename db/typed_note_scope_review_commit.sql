@@ -153,6 +153,14 @@ begin
    raise exception 'Approved company policy changed; refresh review'
      using errcode='40001';
  end if;
+ -- Independently reconstruct exact TypeScript workbench fingerprint using
+ -- the locked active approved policy SHA, never a caller-supplied policy JSON.
+ if p_scope->>'reviewKey' is distinct from
+   bm_intake_private.review_workbench_sha256(
+     v_source_sha,p_expected_candidates_sha256,v_active_sha) then
+   raise exception 'Forged or stale review workbench key'
+     using errcode='22023';
+ end if;
  -- Verify the actual active ratecard, not just the browser's selected codes.
  -- A pending, excluded or missing service cannot become reviewed scope.
  foreach v_code in array v_codes loop
@@ -176,6 +184,13 @@ begin
        using errcode='22023';
    end if;
  end loop;
+ if p_scope->>'reviewedSelectionSha256' is distinct from
+   bm_intake_private.reviewed_selection_sha256(
+     v_note.review,p_scope->'selectedIndices',
+     p_scope->'acceptedAddonCodes',v_active_sha) then
+   raise exception 'Reviewed selection fingerprint differs from stored source'
+     using errcode='22023';
+ end if;
  update public.bm_intake_sources set revision=3,scope_review=p_scope
  where organization_id=p_organization_id and id=p_source_id and revision=2;
  if not found then
