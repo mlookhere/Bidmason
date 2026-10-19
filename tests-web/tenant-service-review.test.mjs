@@ -160,3 +160,19 @@ test('forged or mismatched extraction audit cannot be approved',async()=>{
   await assert.rejects(readServiceReviewContext(f.sourceStore,f.policyStore,'reviewer',selector),/absent, malformed/);
  }
 });
+
+test('legacy store-backed human review forbids noncanonical selected order',async()=>{
+ const f=fixture();
+ const expected=await request(f,{selectedIndices:[1,0],acceptedAddonCodes:['carpet']});
+ await assert.rejects(commitAuthorizedServiceReview(
+   f.sourceStore,f.policyStore,'reviewer',expected,
+ ),/noncanonical/);
+ assert.equal(f.get().revision,2);
+ assert.equal(f.get().scopeReview,null);
+ const valid=await request(f,{selectedIndices:[0,1],acceptedAddonCodes:['carpet']});
+ const result=await commitAuthorizedServiceReview(
+   f.sourceStore,f.policyStore,'reviewer',valid,
+ );
+ assert.equal(result.state,'reviewed-for-proposal-draft');
+ assert.deepEqual(f.get().scopeReview.selectedIndices,[0,1]);
+});
