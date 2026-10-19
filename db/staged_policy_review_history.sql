@@ -147,7 +147,7 @@ begin
  if p_org is null or p_actor is null or p_revision is null
    or p_revision not between 1 and 1000
    or coalesce(p_expected_sha,'') !~ '^[0-9a-f]{64}$'
-   or p_decision not in ('approve','reject') then
+   or p_decision is null or p_decision not in ('approve','reject') then
    raise exception 'Invalid independent policy review' using errcode='22023';
  end if;
  perform 1 from public.bm_memberships where organization_id=p_org
@@ -201,6 +201,9 @@ begin
    raise exception 'Current tenant membership required for policy history'
      using errcode='42501';
  end if;
+ -- Keep active pointer and revisions on one transaction-scoped snapshot.
+ -- No response can mix revisions before and after a concurrent decision.
+ perform pg_advisory_xact_lock(hashtextextended(p_org::text,0));
  select max(d.revision) into v_active
  from bm_intake_private.policy_draft_events d
  join bm_intake_private.policy_decision_events e
