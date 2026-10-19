@@ -96,3 +96,19 @@ test("tax and costs remain safe for zero-charge included services and arithmetic
     }}},unitDirectCostsCents:{big:0}
   },[{serviceCode:"big",units:1}]), /Tax exceeds|safe/);
 });
+
+test("company add-on charges enter tax and direct-cost preview only after explicit opt-in",()=>{
+  const policy={...clean,pricing:{...clean.pricing,services:{...clean.pricing.services,
+    window:{label:"Window treatment",unit:"window",rateCents:3000,
+      billing:"charged",optionalAddon:true}}},
+    unitDirectCostsCents:{...clean.unitDirectCostsCents,window:1200},
+  };
+  assert.throws(()=>previewCompanyEconomics(policy,
+    [{serviceCode:"office",units:2},{serviceCode:"window",units:1}]),/requires explicit/);
+  const preview=previewCompanyEconomics(policy,
+    [{serviceCode:"office",units:2},{serviceCode:"window",units:1,addonAccepted:true}]);
+  assert.equal(preview.quote.totalCents,17000);
+  assert.equal(preview.taxCents,1233);
+  assert.equal(preview.totalWithTaxCents,18233);
+  assert.equal(preview.estimatedDirectCostsCents,9200);
+});

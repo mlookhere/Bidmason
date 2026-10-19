@@ -144,3 +144,14 @@ test("a rejected first draft produces no approvable active policy",()=>{
   assert.equal(rejected.activeRevision,null);
   assert.throws(()=>readActivePolicy(rejected,orgA),/No approved/);
 });
+
+test("company policy draft rejects malformed optional add-on settings",()=>{
+  const invalid={...policy(),pricing:{...policy().pricing,services:{
+    ...policy().pricing.services,
+    office:{...policy().pricing.services.office,optionalAddon:"perhaps"},
+  }}};
+  assert.throws(()=>submitPolicyDraft(null,{
+    organizationId:orgA,submittedBy:creator,policy:invalid,
+    expectedRevision:0,expectedSha256:null,
+  }),/Invalid service configuration/);
+});

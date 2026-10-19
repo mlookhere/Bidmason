@@ -81,3 +81,25 @@ test("failed transcript is rejected even with correct extraction offsets", () =>
     transcriptionSucceeded:false};
   assert.throws(()=>prepareExtractionReview(transcript,[repaint]),/transcription/);
 });
+
+test("optional service needs human add-on acknowledgement separate from extraction",()=>{
+  const review=prepareExtractionReview(original,[repaint,quarterly]);
+  const config={...policy,excludedServiceCodes:[],
+    pricing:{...policy.pricing,services:{...policy.pricing.services,
+      repaint:{...policy.pricing.services.repaint,optionalAddon:true}}},
+  };
+  assert.throws(()=>previewReviewedEconomics(original,review,[0],config),
+    /requires explicit human acceptance/);
+  const accepted=previewReviewedEconomics(original,review,[0],config,["repaint"]);
+  assert.equal(accepted.economics.quote.totalCents,90000);
+  assert.equal(accepted.selectedServices[0].addonAccepted,true);
+  assert.throws(()=>previewReviewedEconomics(original,review,[0],config,["quarterly"]),
+    /Invalid or unselected/);
+  assert.throws(()=>previewReviewedEconomics(original,review,[0],config,
+    ["repaint","repaint"]),/Invalid or unselected/);
+  assert.notEqual(accepted.reviewedSelectionSha256,
+    previewReviewedEconomics(original,review,[0],
+      {...config,pricing:{...config.pricing,services:{
+        ...config.pricing.services,repaint:{...config.pricing.services.repaint,
+          optionalAddon:false}}}}).reviewedSelectionSha256);
+});

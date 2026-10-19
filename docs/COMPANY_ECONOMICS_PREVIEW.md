@@ -28,3 +28,22 @@ No customer-facing intake, quote, payment or sending endpoint is
 enabled. The module is independent of Item 3's deferred Auth/RLS PR.
 
 Regression coverage: `tests-web/company-economics.test.mjs`.
+
+## Optional service add-on acceptance and large-cent arithmetic
+
+A company may mark a catalog entry `optionalAddon: true` (no platform
+default). A line with that marker can appear in a quote **only** with an
+explicit `addonAccepted: true` from the human review workflow.
+`previewReviewedEconomics(..., acceptedAddonCodes)` requires each
+acknowledged add-on to be both selected from the exact original and marked
+optional in the current company policy; duplicates, arbitrary codes and
+model-origin suggestions without the separate acknowledgement fail closed.
+The selected-line fingerprint also includes the add-on acceptance.
+The API remains `preview-only`, with no durable reviewer signature.
+
+Surcharge and discount arithmetic now uses BigInt intermediates with
+safe-cent output bounds. This avoids rejecting legitimate, high-value
+contracts solely because multiplying by basis points exceeds JavaScript
+safe-number range even when the final cent result is representable.
+Regression coverage spans exact reviewed add-ons, direct-cost and tax
+calculation, malformed company policies and large-cent rounding.

@@ -16,6 +16,8 @@ export type ServicePriceRule = {
   billing: Billing;
   surchargeBps?: number;
   discountBps?: number;
+  /** Optional work is never auto-included by extractor suggestions. */
+  optionalAddon?: boolean;
 };
 
 export type CompanyPricePolicy = {
@@ -26,7 +28,11 @@ export type CompanyPricePolicy = {
   services: Record<string, ServicePriceRule>;
 };
 
-export type QuoteLineInput = { serviceCode: string; units: number };
+export type QuoteLineInput = {
+  serviceCode: string; units: number;
+  /** Set only after a human explicitly accepts this optional line. */
+  addonAccepted?: true;
+};
 
 export type QuotedLine = {
   serviceCode: string;
@@ -70,8 +76,13 @@ function safeMultiply(a: number, b: number, label: string): number {
 }
 
 function percent(amount: number, basisPoints: number): number {
-  const scaled = safeMultiply(amount, basisPoints, "percentage intermediate");
-  return cents(Math.floor(safeAdd(scaled, 5000, "rounding intermediate") / 10000), "percentage");
+  // Use exact intermediates: amount * bps can exceed MAX_SAFE_INTEGER
+  // even when the final rounded number of cents is representable.
+  const scaled = (BigInt(amount) * BigInt(basisPoints) + 5000n) / 10000n;
+  if (scaled > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError("percentage exceeds safe integer cents");
+  }
+  return Number(scaled);
 }
 
 function priceOne(rule: ServicePriceRule, order: CalculationOrder): number {
@@ -112,7 +123,7 @@ export function quoteFromPolicy(
   const seen = new Set<string>();
   let subtotal = 0;
   let chargeableLines = 0;
-  const lines = requested.map(({ serviceCode, units }) => {
+  const lines = requested.map(({ serviceCode, units, addonAccepted }) => {
     if (typeof serviceCode !== "string" || !Object.prototype.hasOwnProperty.call(policy.services, serviceCode)
         || seen.has(serviceCode)) {
       throw new TypeError("Unknown or duplicated service code");
@@ -122,6 +133,16 @@ export function quoteFromPolicy(
     const service = policy.services[serviceCode];
     if (!service || !service.label?.trim() || !service.unit?.trim()) {
       throw new TypeError("Service definition is incomplete");
+    }
+    if (service.optionalAddon !== undefined
+      && typeof service.optionalAddon !== "boolean") {
+      throw new TypeError("Invalid optional add-on policy");
+    }
+    if (service.optionalAddon && addonAccepted !== true) {
+      throw new Error("Optional add-on requires explicit human acceptance");
+    }
+    if (!service.optionalAddon && addonAccepted !== undefined) {
+      throw new TypeError("Cannot accept a non-optional service as an add-on");
     }
     // Rates must be valid even for included services. Avoid masking corrupt
     // configurations that might later become billable.

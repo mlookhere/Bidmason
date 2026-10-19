@@ -91,3 +91,30 @@ test("arithmetic overflow never returns an apparently valid quotation", () => {
     huge: { label: "Huge", unit: "unit", rateCents: Number.MAX_SAFE_INTEGER, billing: "charged", surchargeBps: 1000 },
   } }, [{ serviceCode: "huge", units: 10 }]), RangeError);
 });
+
+test("optional add-ons need explicit opt-in; ordinary services reject fabricated add-on flags", () => {
+  const policy = { ...cleaning, minimum: { rule:"none", cents:0 },
+    services: { ...cleaning.services,
+      carpet: { label:"Carpet treatment",unit:"room",rateCents:2500,
+        billing:"charged",optionalAddon:true },
+    },
+  };
+  assert.throws(()=>quoteFromPolicy(policy,[{serviceCode:"carpet",units:1}]),
+    /requires explicit human acceptance/);
+  assert.equal(quoteFromPolicy(policy,[{serviceCode:"carpet",units:2,
+    addonAccepted:true}]).totalCents,5000);
+  assert.throws(()=>quoteFromPolicy(policy,[{serviceCode:"visit",units:1,
+    addonAccepted:true}]),/non-optional/);
+  assert.throws(()=>quoteFromPolicy({...policy,services:{...policy.services,
+    carpet:{...policy.services.carpet,optionalAddon:"yes"}}},
+    [{serviceCode:"carpet",units:1,addonAccepted:true}]),/Invalid optional/);
+});
+
+test("valid high-cent percentage arithmetic does not falsely overflow intermediates", () => {
+  const policy={...cleaning,minimum:{rule:"none",cents:0},services:{
+    big:{label:"Large valid fixed-price contract",unit:"job",
+      rateCents:1000000000000,billing:"charged",surchargeBps:5000},
+  }};
+  assert.equal(quoteFromPolicy(policy,[{serviceCode:"big",units:1}]).totalCents,
+    1500000000000);
+});

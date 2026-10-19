@@ -75,6 +75,7 @@ function validatePolicy(policy: VersionedEconomicsPolicy, revision: number): voi
     if (!SERVICE.test(code) || !rule || typeof rule.label !== "string"
       || !rule.label.trim() || typeof rule.unit !== "string" || !rule.unit.trim()
       || !cents(rule.rateCents)
+      || (rule.optionalAddon !== undefined && typeof rule.optionalAddon !== "boolean")
       || !["charged", "included", "pending"].includes(rule.billing)
       || !bps(rule.surchargeBps ?? 0) || !bps(rule.discountBps ?? 0)) {
       throw new TypeError("Invalid service configuration");

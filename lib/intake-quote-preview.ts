@@ -9,7 +9,8 @@ export type ReviewedEconomicsPreview = {
   sourceSha256: string;
   candidatesSha256: string;
   reviewedSelectionSha256: string;
-  selectedServices: { serviceCode: string; units: number; start: number; end: number }[];
+  selectedServices: { serviceCode: string; units: number; start: number; end: number;
+    addonAccepted?: true }[];
   economics: EconomicsPreview;
 };
 
@@ -23,14 +24,27 @@ export function previewReviewedEconomics(
   review: ExtractionReview,
   selection: number[],
   policy: VersionedEconomicsPolicy,
+  acceptedAddonCodes: readonly string[] = [],
 ): ReviewedEconomicsPreview {
   const services = selectReviewedServices(original, review, selection);
-  const economics = previewCompanyEconomics(policy, services);
+  if (!Array.isArray(acceptedAddonCodes)
+    || new Set(acceptedAddonCodes).size !== acceptedAddonCodes.length
+    || acceptedAddonCodes.some(code => typeof code !== "string"
+      || !services.some(s => s.serviceCode === code)
+      || policy?.pricing?.services?.[code]?.optionalAddon !== true)) {
+    throw new Error("Invalid or unselected optional add-on acceptance");
+  }
+  const accepted = new Set(acceptedAddonCodes);
+  const reviewedInputs = services.map(s => ({
+    ...s, ...(accepted.has(s.serviceCode) ? { addonAccepted: true as const } : {}),
+  }));
+  const economics = previewCompanyEconomics(policy, reviewedInputs);
   const selectedServices = selection.map((index, i) => ({
     serviceCode: services[i].serviceCode,
     units: services[i].units,
     start: review.candidates[index].start,
     end: review.candidates[index].end,
+    ...(accepted.has(services[i].serviceCode) ? { addonAccepted: true as const } : {}),
   }));
   const reviewedSelectionSha256 = createHash("sha256").update(JSON.stringify([
     review.sourceSha256, review.candidatesSha256,
