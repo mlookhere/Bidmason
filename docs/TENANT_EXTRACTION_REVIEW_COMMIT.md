@@ -1098,3 +1098,52 @@ independent human signatures, RLS/private evidence, antivirus,
 retention/recovery, privacy/legal and security acceptance under
 Item 3 remain mandatory. No customer-facing approval, retry,
 send, billing or production route is enabled.
+
+
+## No approval from member UUIDs: all activations require immutable review
+
+The previous staged `activate_scope_policy` validator required an
+immutable, independently reviewed policy event only when **skipping**
+rejected revisions. For first and adjacent revisions it checked two
+current tenant members, but could still accept an unreviewed policy
+constructed by a privileged service-role caller. Two syntactically valid
+member UUIDs are **not** evidence of independent reviewer consent.
+
+All private company policy activations now require a matching immutable
+`policy_draft_events` row and separate approved
+`policy_decision_events` row for the **target** revision, exact
+canonical policy SHA, actual submitter and distinct actual reviewer.
+`approved_policy_gap_is_reviewed` applies to every advancement,
+including 0→1 and adjacent versions; nonadjacent advancements additionally
+require every skipped version to carry an immutable rejection.
+The activation SQL rechecks those records inside the same
+per-organization serialized transaction as the membership, economics,
+head-lock and immutable approved-version write. Direct head UPDATE or
+initial INSERT triggers independently deny pointer mutations without
+the same reviewed target evidence, even if the caller inserts an
+otherwise valid-looking approved version. Older committed versions
+cannot be retroactively rewritten or treated as newly approved.
+
+The existing mandatory `intake-db` test job now installs a **CI-only**
+`ci_stage_approved_policy` helper from
+`ci/db_policy_approved_fixture.sql` in its disposable database. That
+helper calls the actual private submit and review functions with
+synthetic, separate tenant members; it is NOT a production migration
+or alternate activation path. Existing positive database and
+TypeScript bridge tests now stage the corresponding immutable
+submission and reviewed decision before activation, rather than
+fabricating approval merely from two UUIDs. The new
+`ci/db_policy_activation_requires_review_test.sql` tests all
+the following denial cases against real PostgreSQL: first activation
+with no submission, an unreviewed draft, a different current reviewer,
+changed policy bytes, a direct initial head insertion without review,
+and a forged adjacent head update without review. Only a target with
+the correct recorded independent decision may be activated.
+
+This is staged defense in depth: synthetic CI actors and a service
+role do NOT prove genuine commercial approval by separate human users.
+Actual provider-backed Supabase Auth, owner/operator eligibility,
+private evidence, maintained antivirus, retention, privacy/legal and
+security acceptance remain nonwaivable Item 3 gates. No customer
+approval, quote send, billing, live endpoint or production deployment
+is authorized by these synthetic test results.
