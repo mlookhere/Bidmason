@@ -256,3 +256,61 @@ test("two privileged preview reads detect changed source, policy and revoked acc
  await assert.rejects(revoked.api.preview(request),/Session revoked/);
  assert.equal(revoked.writes,0);
 });
+
+test("read-only scope reconciliation distinguishes absent from exact reviewed evidence",async()=>{
+ const f=fixture();
+ const prior=await f.api.reconcile(request);
+ assert.deepEqual(prior,{state:"unreviewed-at-read",organizationId:ORG,sourceId:SOURCE});
+ assert.equal(f.writes,0);
+ await f.api.commit(request);
+ const matched=await f.api.reconcile(request);
+ assert.equal(matched.state,"matching-scope-at-read");
+ assert.equal(matched.revision,3);
+ assert.equal(matched.reviewedSelectionSha256,f.record.scopeReview.reviewedSelectionSha256);
+ assert.equal(f.writes,1);
+ assert.equal(f.calls.filter(c=>c.sql.includes("commit_typed_note_scope_review")).length,1);
+ assert.equal(Object.hasOwn(matched,"approved"),false);
+ assert.equal(Object.hasOwn(matched,"send"),false);
+});
+
+test("lost scope acknowledgement can be inspected without a second SQL write",async()=>{
+ const f=fixture({lostAck:true});
+ await assert.rejects(f.api.commit(request),/Provider acknowledgement lost/);
+ const observation=await f.api.reconcile(request);
+ assert.equal(observation.state,"matching-scope-at-read");
+ assert.equal(f.writes,1);
+});
+
+test("scope recovery never treats another selection or new policy as matching",async()=>{
+ const changed=fixture();
+ await changed.api.commit(request);
+ const other=await changed.api.reconcile({...request,reviewKey:"f".repeat(64)});
+ assert.equal(other.state,"different-scope-at-read");
+ changed.changePolicy();
+ const newer=await changed.api.reconcile(request);
+ assert.equal(newer.state,"policy-changed-at-read");
+ assert.equal(changed.writes,1);
+ const damaged=fixture({afterWrite:({tamper})=>tamper()});
+ await assert.rejects(damaged.api.commit(request),/read-back indeterminate/);
+ const divergent=await damaged.api.reconcile(request);
+ assert.equal(divergent.state,"different-scope-at-read");
+ assert.equal(damaged.writes,1);
+});
+
+test("scope reconciliation fails closed on revocation, source drift and forged request",async()=>{
+ const forged=fixture();
+ await assert.rejects(forged.api.reconcile({...request,actorId:OTHER}),TypeError);
+ assert.equal(forged.calls.length,0);
+ const actor=fixture();actor.switchActor();
+ await assert.rejects(actor.api.reconcile(request),/Creator denied/);
+ assert.equal(actor.writes,0);
+ const revoked=fixture();revoked.revoke();
+ await assert.rejects(revoked.api.reconcile(request),/Session revoked/);
+ assert.equal(revoked.writes,0);
+ const changed=fixture({changeEvidenceAfterFirstSourceRead:true});
+ await assert.rejects(changed.api.reconcile(request));
+ assert.equal(changed.writes,0);
+ const permission=fixture({revokeAfterFirstSourceRead:true});
+ await assert.rejects(permission.api.reconcile(request));
+ assert.equal(permission.writes,0);
+});
