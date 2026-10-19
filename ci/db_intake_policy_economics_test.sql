@@ -12,7 +12,7 @@ declare
  v_reject_count integer:=0;
 begin
  insert into public.bm_organizations(id,slug,name)
- values(v_org,'economics-'+v_org::text,'Synthetic policy economics');
+ values(v_org,'economics-'||v_org::text,'Synthetic policy economics');
  insert into public.bm_memberships(organization_id,user_id,member_role)
  values(v_org,v_submitter,'operator'),(v_org,v_reviewer,'owner');
  v_policy:=jsonb_build_object(
