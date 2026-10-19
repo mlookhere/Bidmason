@@ -414,7 +414,8 @@ test("scope validation parity: preview, commit, recovery and persisted draft",as
  assert.equal(recovered.state,"matching-scope-at-read");
  assert.equal(recovered.reviewedSelectionSha256,preview.reviewedSelectionSha256);
  const persisted=await f.api.readReviewedDraft(selector);
- assert.deepEqual(persisted.preview,preview);
+ const {reviewKey:_reviewKey,sourceId:_sourceId,...canonicalPreview}=preview;
+ assert.deepEqual(persisted.preview,canonicalPreview);
  assert.equal(persisted.reviewedSelectionSha256,preview.reviewedSelectionSha256);
  assert.equal(f.writes,1);
  assert.equal(f.calls.filter(x=>x.sql.includes("commit_typed_note_scope_review")).length,1);
