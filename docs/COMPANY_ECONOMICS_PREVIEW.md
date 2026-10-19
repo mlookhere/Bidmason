@@ -47,3 +47,19 @@ contracts solely because multiplying by basis points exceeds JavaScript
 safe-number range even when the final cent result is representable.
 Regression coverage spans exact reviewed add-ons, direct-cost and tax
 calculation, malformed company policies and large-cent rounding.
+
+## Canonical quote-line request boundary
+
+The shared `snapshotQuoteInputs` preflight is now used by both the direct
+company pricing calculator and the versioned economics preview. It rejects
+sparse, accessor-indexed, decorated or custom-prototype line collections,
+as well as getter-backed, hidden, inherited or extra fields on requested
+line objects, **before** exclusion checks or arithmetic. Only exact,
+enumerable, plain-data lines are copied into detached quote inputs.
+
+The company-specific exclusion decision still runs before attempting to
+price a prohibited service, including a pending/unknown commercial term.
+Positive authorized plain/null-prototype line objects remain supported.
+This is a pure data-integrity guard, not evidence of authenticated tenant
+approval or customer delivery permission. Company policy versions, human
+review, tax law and live Supabase acceptance remain separate requirements.
