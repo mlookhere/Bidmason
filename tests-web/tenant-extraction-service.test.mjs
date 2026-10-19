@@ -245,3 +245,73 @@ test("malformed stored candidates or disjoint audit fingerprints cannot be read 
   f.set(snapshot);
  }
 });
+
+
+test("extraction commit binds full operator decision before asynchronous CAS",async()=>{
+ const f=fixture(),req=await request(f);
+ const expected={...req};
+ f.hook(()=>{
+  req.organizationId=FOREIGN;
+  req.sourceId="22222222-2222-4222-8222-222222222222";
+  req.expectedRevision=999;
+  req.expectedSnapshotSha256="0".repeat(64);
+  req.rawExtractionResponse=JSON.stringify({candidates:[{...candidates[0],units:99}]});
+ });
+ const result=await commitAuthorizedExtraction(f.store,"operator",req);
+ assert.equal(result.state,"needs-human-review");
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.revision,2);
+ assert.equal(f.read().review.candidates[0].units,2);
+ assert.equal(f.read().review.sourceSha256,
+  (await import("../lib/intake-review.ts")).prepareExtractionReview(
+   ORIGINAL,candidates).sourceSha256);
+ assert.equal(f.counts().writes,1);
+ assert.equal(expected.organizationId,ORG);
+});
+
+test("preparation never retargets the authorized tenant after first read",async()=>{
+ const f=fixture(),mutable={...selector};
+ let called=0;
+ const store={readAuthorized:async input=>{
+  const record=await f.store.readAuthorized(input);
+  if(++called===1){
+   mutable.organizationId=FOREIGN;
+   mutable.sourceId="22222222-2222-4222-8222-222222222222";
+  }
+  return record;
+ }};
+ const preview=await readExtractionPreparation(store,"operator",mutable);
+ assert.equal(called,1);
+ assert.equal(preview.organizationId,ORG);
+ assert.equal(preview.sourceId,SOURCE);
+ assert.equal(preview.expectedRevision,1);
+});
+
+test("malicious extraction selectors and hidden requests fail before authorized reads",async()=>{
+ const f=fixture(),req=await request(f),before=f.counts();
+ let getters=0;
+ const extras={...req};
+ Object.defineProperty(extras,"send",{value:true});
+ const symbol={...req};symbol[Symbol("approved")]=true;
+ const inherited=Object.assign(Object.create({send:true}),req);
+ const accessor={...req};Object.defineProperty(accessor,"rawExtractionResponse",{
+  enumerable:true,get(){getters++;throw Error("unsafe extraction getter");}
+ });
+ const getterId={...selector};Object.defineProperty(getterId,"organizationId",{
+  enumerable:true,get(){getters++;throw Error("unsafe tenant getter");}
+ });
+ const hiddenSelector={...selector};
+ Object.defineProperty(hiddenSelector,"customerSend",{value:true});
+ const symbolicSelector={...selector};
+ symbolicSelector[Symbol("send")]=true;
+ for(const invalid of [extras,symbol,inherited,accessor]){
+  await assert.rejects(commitAuthorizedExtraction(f.store,"operator",invalid),
+   /Invalid tenant extraction selector/);
+ }
+ for(const invalid of [getterId,hiddenSelector,symbolicSelector]){
+  await assert.rejects(readExtractionPreparation(f.store,"operator",invalid),
+   /Invalid tenant extraction selector/);
+ }
+ assert.equal(getters,0);
+ assert.deepEqual(f.counts(),before);
+});
