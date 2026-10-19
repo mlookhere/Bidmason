@@ -292,3 +292,68 @@ test("legacy corrected pricing requires a disposable CI marker",()=>{
   else process.env.BIDMASON_CI_DISPOSABLE_POSTGRES=was;
  }
 });
+
+test("legacy preview rechecks disposable mode before invoking Auth or SQL",async()=>{
+ const wasMarker=process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+ const wasMode=process.env.NODE_ENV;
+ let authCalls=0,sqlCalls=0;
+ const auth={async verifyActiveSession(){authCalls++;return {userId:actor};}};
+ const db={async query(){sqlCalls++;return {rows:[{projection:payload()}]};}};
+ const request={organizationId:org,sourceId:source,
+  expectedDecisionSha256:decision,session:"trusted-private-session"};
+ try {
+  process.env.NODE_ENV="test";
+  process.env.BIDMASON_CI_DISPOSABLE_POSTGRES="1";
+  const api=createTrustedCorrectedEconomicsPreview(
+   auth,db,"disposable-postgres-test-no-session-lock");
+  delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+  await assert.rejects(api.preview(request),/Unsafe legacy pricing preview disabled/);
+  process.env.BIDMASON_CI_DISPOSABLE_POSTGRES="1";
+  process.env.NODE_ENV="production";
+  await assert.rejects(api.preview(request),/Unsafe legacy pricing preview disabled/);
+  assert.equal(authCalls,0);
+  assert.equal(sqlCalls,0);
+ }finally{
+  if(wasMarker===undefined)delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+  else process.env.BIDMASON_CI_DISPOSABLE_POSTGRES=wasMarker;
+  if(wasMode===undefined)delete process.env.NODE_ENV;
+  else process.env.NODE_ENV=wasMode;
+ }
+});
+
+test("legacy preview rejects mode revocation during each async authorization boundary",async()=>{
+ const wasMarker=process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+ const wasMode=process.env.NODE_ENV;
+ const request={organizationId:org,sourceId:source,
+  expectedDecisionSha256:decision,session:"trusted-private-session"};
+ try {
+  for(const phase of ["auth","sql","reauth"]){
+   process.env.NODE_ENV="test";
+   process.env.BIDMASON_CI_DISPOSABLE_POSTGRES="1";
+   let authCalls=0,sqlCalls=0;
+   const auth={async verifyActiveSession(){
+    authCalls++;
+    if((phase==="auth"&&authCalls===1)
+      ||(phase==="reauth"&&authCalls===2)){
+     delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+    }
+    return {userId:actor};
+   }};
+   const db={async query(){
+    sqlCalls++;
+    if(phase==="sql")delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+    return {rows:[{projection:payload()}]};
+   }};
+   const api=createTrustedCorrectedEconomicsPreview(
+    auth,db,"disposable-postgres-test-no-session-lock");
+   await assert.rejects(api.preview(request),/Unsafe legacy pricing preview disabled/);
+   assert.equal(sqlCalls,phase==="auth"?0:1);
+   assert.equal(authCalls,phase==="reauth"?2:1);
+  }
+ }finally{
+  if(wasMarker===undefined)delete process.env.BIDMASON_CI_DISPOSABLE_POSTGRES;
+  else process.env.BIDMASON_CI_DISPOSABLE_POSTGRES=wasMarker;
+  if(wasMode===undefined)delete process.env.NODE_ENV;
+  else process.env.NODE_ENV=wasMode;
+ }
+});
