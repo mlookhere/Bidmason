@@ -75,10 +75,16 @@ function inertProjection(value: unknown, keys: readonly string[]): boolean {
 }
 function checkAuthorizedRecord(value: TenantServiceReviewRecord | null,
   request: ServiceReviewCommitRequest): asserts value is TenantServiceReviewRecord {
-  if (!inertProjection(value, [
-    "organizationId", "sourceId", "revision", "original", "review",
-    "extractionAudit", "scopeReview",
-  ]) || value.organizationId !== request.organizationId
+  // Identity and mandatory source descriptors cannot execute getters. Other
+  // malformed stored fields belong to the explicit conflict classification.
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || ["organizationId", "sourceId", "revision", "original", "review"]
+      .some(key => {
+        const field = Object.getOwnPropertyDescriptor(value, key);
+        return field?.enumerable !== true || !Object.hasOwn(field, "value");
+      })
+    || value.organizationId !== request.organizationId
     || value.sourceId !== request.sourceId || !Number.isSafeInteger(value.revision)
     || value.revision < 1 || !value.original || !value.review) {
     throw new Error("Authorized reviewed source missing or malformed");
@@ -88,7 +94,11 @@ function checkAuthorizedRecord(value: TenantServiceReviewRecord | null,
 /** Return conflict for malformed but source-owned persisted evidence. An
  * integrity probe is never an implicit human review/selection. */
 function inertStoredEvidence(record: TenantServiceReviewRecord): boolean {
-  if (!canonicalArray(record.extractionAudit, 1)
+  if (!inertProjection(record, [
+    "organizationId", "sourceId", "revision", "original",
+    "review", "extractionAudit", "scopeReview",
+  ]) || !record.original || !record.review
+    || !canonicalArray(record.extractionAudit, 1)
     || record.extractionAudit.length !== 1
     || !exactFields(record.extractionAudit[0],[
       "sourceRevision", "actorId", "sourceSha256", "candidatesSha256",
@@ -99,8 +109,10 @@ function inertStoredEvidence(record: TenantServiceReviewRecord): boolean {
     return false;
   }
   const audit = record.extractionAudit[0];
-  if (audit.sourceRevision !== record.revision
-    && audit.sourceRevision !== record.revision - 1) return false;
+  if (!Number.isSafeInteger(audit.sourceRevision)
+    || audit.sourceRevision < 1
+    || (audit.sourceRevision !== record.revision
+      && audit.sourceRevision !== record.revision - 1)) return false;
   if (typeof audit.actorId !== "string" || !UUID.test(audit.actorId)
     || audit.sourceSha256 !== record.review.sourceSha256
     || audit.candidatesSha256 !== record.review.candidatesSha256) return false;
