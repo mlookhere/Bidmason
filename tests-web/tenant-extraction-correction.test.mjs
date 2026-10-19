@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { prepareExtractionReview } from "../lib/intake-review.ts";
 import { prepareExtractionCorrectionDraft } from "../lib/extraction-correction-draft.ts";
-import { readExtractionCorrectionContext, commitAuthorizedExtractionCorrection }
-  from "../lib/tenant-extraction-correction.ts";
+import { readExtractionCorrectionContext, commitAuthorizedExtractionCorrection,
+  reconcileExtractionCorrection } from "../lib/tenant-extraction-correction.ts";
 
 const ORG="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -147,4 +147,118 @@ test("repeated prep on pending correction is denied",async()=>{
  await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
  await assert.rejects(readExtractionCorrectionContext(f.store,"reviewer",selector),
   /unavailable/);
+});
+
+test("reconciliation distinguishes a verified unchanged primary record from a pending commit",async()=>{
+ const f=fixture(),req=await request(f);
+ const unchanged=await reconcileExtractionCorrection(f.store,"reviewer",req);
+ assert.deepEqual(unchanged,{state:"unchanged-at-read",sourceId:SOURCE});
+ assert.equal(f.counts().writes,0);
+ await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ const recorded=await reconcileExtractionCorrection(f.store,"reviewer",req);
+ assert.equal(recorded.state,"recorded-pending-at-read");
+ assert.equal(recorded.revision,3);
+ assert.equal(recorded.correctedBy,WRITER);
+ assert.equal(recorded.correctionSha256,req.expectedCorrectionSha256);
+ assert.equal(Object.hasOwn(recorded,"approved"),false);
+ assert.equal(Object.hasOwn(recorded,"activated"),false);
+ assert.equal(f.counts().writes,1);
+});
+
+test("recorded correction reconciles invalidated scope without restoring it",async()=>{
+ const f=fixture(true),before=f.get(),req=await request(f);
+ await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ const found=await reconcileExtractionCorrection(f.store,"reviewer",req);
+ assert.equal(found.state,"recorded-pending-at-read");
+ assert.equal(found.revision,4);
+ assert.equal(f.get().scopeReview,null);
+ assert.deepEqual(f.get().pendingCorrection.invalidatedScopeReview,before.scopeReview);
+});
+
+test("tampered proposed data, history and correction metadata classify as conflict",async()=>{
+ const mutations=[
+  value=>{value.pendingCorrection.proposedCandidates[0].units=99;},
+  value=>{value.pendingCorrection.changes[0].reason="fabricated";},
+  value=>{value.pendingCorrection.correctedBy=OTHER;},
+  value=>{value.pendingCorrection.invalidatedScopeReview={approved:true};},
+  value=>{value.review.candidates[0].units=14;},
+  value=>{value.original.text+=" forged";},
+  value=>{value.pendingCorrection.approved=true;},
+  value=>{value.revision++;},
+  value=>{value.scopeReview={approved:true};},
+ ];
+ for(const changeStored of mutations){
+  const f=fixture(),req=await request(f);
+  await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+  const actual=f.store.readAuthorized;
+  f.store.readAuthorized=async args=>{
+   const value=await actual(args);changeStored(value);return value;
+  };
+  const out=await reconcileExtractionCorrection(f.store,"reviewer",req);
+  assert.equal(out.state,"conflict");
+ }
+});
+
+test("stale request digest and decisions cannot reconcile a different commit",async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ for(const changed of [
+  {...req,expectedSnapshotSha256:"0".repeat(64)},
+  {...req,expectedCorrectionSha256:"a".repeat(64)},
+  {...req,changes:[{...change,candidate:{...first,units:4}}]},
+  {...req,expectedRevision:req.expectedRevision+1},
+ ]) {
+  const out=await reconcileExtractionCorrection(f.store,"reviewer",changed);
+  assert.equal(out.state,"conflict");
+ }
+});
+
+test("read reconciliation never retries and notices between-read changes",async()=>{
+ const f=fixture(),req=await request(f);
+ const rawRead=f.store.readAuthorized;
+ let calls=0;
+ f.store.readAuthorized=async args=>{
+  const current=await rawRead(args);
+  if(++calls===2){
+   return {...current,revision:current.revision+1};
+  }
+  return current;
+ };
+ const out=await reconcileExtractionCorrection(f.store,"reviewer",req);
+ assert.equal(out.state,"conflict");
+ assert.equal(f.counts().writes,0);
+});
+
+test("authorization loss, cross-tenant denial and record disappearance do not imply rollback",async()=>{
+ const f=fixture(),req=await request(f);
+ await assert.rejects(reconcileExtractionCorrection(f.store,"foreign",req),/Unauthorized/);
+ f.permissions.delete("reviewer");
+ await assert.rejects(reconcileExtractionCorrection(f.store,"reviewer",req),/Unauthorized/);
+ const another=fixture(),read=another.store.readAuthorized;
+ let calls=0;
+ another.store.readAuthorized=async args=>{
+  const row=await read(args);
+  return ++calls===2?null:row;
+ };
+ const otherReq=await request(another);
+ // request() runs two reads, reset the count for the recovery case.
+ calls=0;
+ await assert.rejects(reconcileExtractionCorrection(another.store,"reviewer",otherReq),
+  /unavailable/);
+});
+
+test("reconciliation rejects hidden authority and malformed correction request getters",async()=>{
+ const f=fixture(),req=await request(f);
+ let reads=0;
+ const accessor={...req};
+ Object.defineProperty(accessor,"expectedRevision",{enumerable:true,get(){reads++;return 2;}});
+ const hidden={...req};
+ Object.defineProperty(hidden,"send",{value:true});
+ const symbolic={...req,[Symbol("approved")]:true};
+ for(const malformed of [accessor,hidden,symbolic]){
+  await assert.rejects(reconcileExtractionCorrection(f.store,"reviewer",malformed),
+   /Invalid extraction correction request/);
+ }
+ assert.equal(reads,0);
+ assert.equal(f.counts().writes,0);
 });

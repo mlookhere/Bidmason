@@ -39,3 +39,29 @@ that converts the pending candidate proposal to a newly reviewed
 extraction with an immutable lineage record and invalidates any
 old scope. Do not shortcut that transition by treating a pending
 correction as verified model output or an approved price.
+
+## Read-only correction recovery
+
+`reconcileExtractionCorrection(store, session, originalCommitRequest)` is
+available when an authenticated correction transaction has a lost response,
+revoked read-back or other **indeterminate** outcome. It accepts the same
+original expected source revision, snapshot hash and source-exact human
+changes, and performs **two independent, authorized, primary reads**.
+
+Results are deliberately narrow: `unchanged-at-read` means only that both
+observations match the original exact snapshot; it does *not* prove a
+transaction rolled back or cannot commit later. `recorded-pending-at-read`
+requires the committed next revision, preserved original source/extraction
+and audit, exact saved invalidated scope, matching source/correction hashes,
+and a full recomputation of the server-validated before/after candidates.
+It proves only that compatible **pending** evidence was observed, not
+authenticated historical permissions, approval, activated scope or a
+production-ready quote. `conflict` means evidence is changed, malformed,
+incompatible or differs between primary reads; it grants no retry rights.
+An inaccessible, deleted or unauthorized record raises an error instead
+of being represented as a confirmed rollback.
+
+No reconciliation path writes, retries the mutation, changes the active
+review, signs any business decision or authorizes sending. The production
+adapter still needs independently validated, append-only tenant persistence
+and authorization; tests use synthetic in-memory transactions only.
