@@ -48,6 +48,12 @@ function fixture(options={}) {
       if(params[1]!==ACTOR || !currentMember)throw Error("Creator denied");
       const sourceRow={record:structuredClone(current)};
       sourceReads++;
+      if (options.changeEvidenceAfterFirstSourceRead && sourceReads===1) {
+        current.review.candidates[0].excerpt="forged";
+      }
+      if (options.revokeAfterFirstSourceRead && sourceReads===1) {
+        currentMember=false;
+      }
       // Simulate membership revoked just AFTER a successful private source
       // read-back, before the final privileged policy query.
       if (options.revokeAfterReadback && sourceReads===2) currentMember=false;
@@ -58,9 +64,13 @@ function fixture(options={}) {
       assert.match(sql,/for share of h,v,m/);
       assert.deepEqual(params,[ORG,ACTOR]);
       if(!currentMember) return {rows:[]};
-      return {rows:[{revision:activePolicy.revision,
+      const snapshot=structuredClone(activePolicy);
+      if (options.changePolicyAfterFirstRead) {
+        activePolicy={...activePolicy,revision:2};
+      }
+      return {rows:[{revision:snapshot.revision,
         policy_sha256:companyPolicySha256(activePolicy),
-        policy:structuredClone(activePolicy),submitted_by:ACTOR,reviewed_by:OTHER}]};
+        policy:snapshot,submitted_by:ACTOR,reviewed_by:OTHER}]};
     }
     if(!sql.includes("commit_typed_note_scope_review"))throw Error("Unexpected SQL");
     writes++;
@@ -179,4 +189,70 @@ test("revocation after valid source readback cannot pass the final policy lookup
   assert.equal(f.record.revision,3);
   assert.equal(f.calls.filter(x=>x.sql.includes("active_policy_heads")).length,2);
   assert.equal(Object.hasOwn(f.record,"send"),false);
+});
+
+
+test("trusted readWorkbench and preview use private source plus active policy, never write",async()=>{
+ const f=fixture(),selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+ const workbench=await f.api.readWorkbench(selector);
+ assert.equal(workbench.state,"requires-human-service-review");
+ assert.equal(workbench.sourceRevision,2);
+ assert.equal(workbench.model.key,key);
+ assert.equal(workbench.model.rows[0].status,"optional");
+ assert.equal(workbench.model.rows[0].excerpt,original.text);
+ assert.equal(f.writes,0);
+ assert.equal(f.authCalls,5);
+ assert.equal(f.calls.length,4);
+ const preview=await f.api.preview(request);
+ assert.equal(preview.state,"preview-only");
+ assert.equal(preview.reviewKey,key);
+ assert.equal(preview.sourceId,SOURCE);
+ assert.equal(preview.selectedServices[0].addonAccepted,true);
+ assert.equal(preview.economics.policySha256,companyPolicySha256(policy));
+ assert.equal(f.writes,0);
+ assert.equal(f.authCalls,10);
+ assert.equal(f.calls.filter(c=>c.sql.includes("commit_typed_note_scope_review")).length,0);
+ assert.equal(Object.hasOwn(preview,"approved"),false);
+ assert.equal(Object.hasOwn(preview,"send"),false);
+});
+test("read-only workbench/preview rejects user prices, forged actors and malformed selectors",async()=>{
+ const selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+ for(const malicious of [
+  {...selector,rawSource:original},{...selector,rateCents:1},
+  {...selector,actorId:OTHER},{...selector,session:null},
+  {...selector,sourceId:"bad"},
+ ]) {
+  const f=fixture();
+  await assert.rejects(f.api.readWorkbench(malicious),TypeError);
+  assert.equal(f.calls.length,0);
+ }
+ for(const malicious of [
+  {...request,policy},{...request,approved:true},{...request,actorId:OTHER},
+  {...request,selectedIndices:[]},{...request,acceptedAddonCodes:[]},
+  {...request,reviewKey:"0".repeat(64)},
+ ]) {
+  const f=fixture();
+  await assert.rejects(f.api.preview(malicious));
+  assert.equal(f.writes,0);
+ }
+});
+test("two privileged preview reads detect changed source, policy and revoked access",async()=>{
+ const selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+ for(const options of [
+  {changeEvidenceAfterFirstSourceRead:true},
+  {changePolicyAfterFirstRead:true},
+  {revokeAfterFirstSourceRead:true},
+ ]) {
+  for(const operation of ["readWorkbench","preview"]) {
+   const f=fixture(options);
+   await assert.rejects(f.api[operation](operation==="preview"?request:selector));
+   assert.equal(f.writes,0);
+  }
+ }
+ const f=fixture();f.switchActor();
+ await assert.rejects(f.api.readWorkbench(selector),/Creator denied/);
+ assert.equal(f.writes,0);
+ const revoked=fixture();revoked.revoke();
+ await assert.rejects(revoked.api.preview(request),/Session revoked/);
+ assert.equal(revoked.writes,0);
 });
