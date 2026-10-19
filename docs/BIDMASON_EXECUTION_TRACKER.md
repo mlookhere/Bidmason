@@ -8,6 +8,27 @@
 
 > **Tracker truth rule:** An unchecked item means **not yet verified**, NOT necessarily unimplemented. On the first implementation session, inspect the live repository and mark genuinely completed items only with matching code, tests, and deployment evidence. Do not recreate existing work. Do not infer proof from mockups, prompts or prior narratives.
 
+## LIVE GITHUB / SUPABASE CHECKPOINT — 2026-10-19
+
+This dated checkpoint supersedes **unknown** entries in the historical source-inventory baseline below **only for the specific facts verified here**. Do not turn historic unchecked BM-001..BM-055 tasks into complete without each one's own acceptance evidence.
+
+| Durable object or gate | Current verified status |
+| --- | --- |
+| Source repository | [`mlookhere/Bidmason`](https://github.com/mlookhere/Bidmason) |
+| Current delivery slice | **Item 4/8** — [Issue #5](https://github.com/mlookhere/Bidmason/issues/5), `work/5-intake-pricing`, existing [draft PR #13](https://github.com/mlookhere/Bidmason/pull/13) into `dev` |
+| Required upstream dependency | **Item 3/8** — [Issue #4](https://github.com/mlookhere/Bidmason/issues/4), existing unmerged [draft PR #12](https://github.com/mlookhere/Bidmason/pull/12) from `work/4-tenant-rls` into `dev` |
+| GitHub refs inspected | `dev=08e40794829b92e910af1432fd3c2bf7c8cf502e`; `main=a3225039bb5415aad2e6c950e9d11c1a2842bdd2`; Item4 was `24c0b3d8f142a14b2943311d29129cf00b1b81f9` **before this documentation-only checkpoint** |
+| Required Item4 CI | **Nine** exact-head jobs: `fast`, `pr`, `security`, `web-build`, `win-fast`, `pdf-qa`, `browser-e2e`, `intake-db`, `item3-intake-compat`. Check the new HEAD after this file edit. **Queued/missing/skipped is never green**. Historical green runs prove only their matching SHAs |
+| Connected backend | Supabase project **BidMason**: `ACTIVE_HEALTHY` at verification; **nine recorded Item3/evidence migrations**, **zero development DB branches**. No Item4 schema deployment was inferred or performed |
+| Connected backend catalog report | Exact committed read-only `db/corrected_pricing_schema_preflight.sql`: **5/24 passed, 19 missing**, `staged_schema_ready=false`. See [deployment preflight and each missing check](STAGED_CORRECTED_PRICING_DEPLOYMENT_PREFLIGHT.md) |
+| Live upload quota access | `public.bm_upload_quota` has RLS enabled, no policies, and **no direct `anon`/`authenticated` read or DML grants**. Informational security advisor is consistent with intended server-only browser-deny-all usage; do not weaken it just to clear the notice |
+| Quotation authorization | **Blocked**: corrected source revision 5 remains `scope_review=NULL` and nonquotable. Company-specific approval and separate proposal signoffs not proven |
+| Live external readiness | **Blocked**: genuine distinct signed users, cross-tenant RLS/PostgREST and private Storage negative/positive HTTP tests, scanner authenticity, retention/quotas/recovery and privacy/security/legal/ops approvals remain unverified; no live upload, send, charge, or production deployment performed |
+
+**Evidence and next execution:** The [control Issue #1](https://github.com/mlookhere/Bidmason/issues/1) and Item4 Issue #5 track the precise new HEAD and its latest Actions run. Independently validate all nine jobs after each change. Resolve source/tenant dependency, separately review staged SQL deployment order, verify 24/24 catalog gates **and** genuinely signed two-tenant/Auth/Storage/scanner negative tests before requesting human production decisions. Real project queries here were strictly read-only. The historic plan below is retained, not retroactively rewritten.
+
+---
+
 ## 1. Baseline record — fill this out first
 
 | Field | Current value |
