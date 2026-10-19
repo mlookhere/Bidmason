@@ -122,11 +122,23 @@ function createInternalCorrectedEconomicsPreview(
         ? await db.query(READ_SESSION_LOCKED,[
           org,current.userId,current.sessionId as string,source,expected])
         : await db.query(READ,[org,current.userId,source,expected]);
-      if(!result||!canonicalDataArray(result.rows,1,1)
-        || !exact(result.rows[0],["projection"])){
+      // Capture the trusted SQL envelope once. An injected adapter must not
+      // execute a rows getter or contradict its own SELECT/row-count receipt.
+      const descriptor=result && typeof result==="object" && !Array.isArray(result)
+        ? Object.getOwnPropertyDescriptor(result,"rows") : undefined;
+      const rows=descriptor && Object.hasOwn(descriptor,"value")
+        ? descriptor.value : null;
+      const metadataValid=(["rowCount","command"] as const).every((key)=>{
+        if(!result || typeof result!=="object")return false;
+        const field=Object.getOwnPropertyDescriptor(result,key);
+        return !field || (Object.hasOwn(field,"value")
+          && field.value===(key==="rowCount"?1:"SELECT"));
+      });
+      if(!metadataValid || !canonicalDataArray(rows,1,1)
+        || !exact(rows[0],["projection"])){
         throw new Error("Approved internal corrected pricing evidence unavailable");
       }
-      const projection=result.rows[0].projection;
+      const projection=rows[0].projection;
       if(!exact(projection,["state","deliveryAuthorized","policy","requested","evidence"])
         || projection.state!=="preview-only"||projection.deliveryAuthorized!==false
         || !exact(projection.evidence,[
