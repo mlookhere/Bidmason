@@ -54,7 +54,7 @@ function fixture(options={}) {
       return {rows:[sourceRow]};
     }
     if(sql.includes("active_policy_heads")) {
-      assert.match(sql,/join public\\.bm_memberships m/);
+      assert.ok(sql.includes("join public.bm_memberships m"));
       assert.match(sql,/for share of h,v,m/);
       assert.deepEqual(params,[ORG,ACTOR]);
       if(!currentMember) return {rows:[]};
