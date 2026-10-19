@@ -73,6 +73,8 @@ begin
        where organization_id=v_org) then
    raise exception 'Rejected economics left a policy head or approval';
  end if;
+ perform bm_intake_private.ci_stage_approved_policy(
+    v_org,v_submitter,v_reviewer,v_policy::text);
  select * into v_activation from bm_intake_private.activate_scope_policy(
     v_org,v_submitter,v_reviewer,1,v_policy::text);
  if v_activation.activated_revision<>1
