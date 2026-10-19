@@ -305,3 +305,5 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_real_tenant_compat_test.sql
       - name: Run Item 4 two-tenant CAS and immutability tests against real Item 3
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
+      - name: Prove Item 3 two-tenant RLS and human approvals after Item 4 installation
+        run: psql -X -v ON_ERROR_STOP=1 -f item3-dependency/ci/db_rls_test.sql
