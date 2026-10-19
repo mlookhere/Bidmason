@@ -125,8 +125,8 @@ test("missing or forged verified Auth identity rejects before SQL", async () => 
     const f = fixture();
     f.auth.verifyActiveSession = async () => identity;
     await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
-      .lookupAuthorized({...request, session:"real-session",
-        permission:"create-intake"}), /Verified active Auth/);
+      .lookupAuthorized({organizationId:ORG, requestId:REQUEST,
+        session:"real-session", permission:"create-intake"}), /Verified active Auth/);
     assert.equal(f.sqlCalls.length, 0);
   }
 });
