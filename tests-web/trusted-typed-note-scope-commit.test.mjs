@@ -401,3 +401,40 @@ test("readReviewedDraft denies forged selectors, stale policies and corrupted ev
  assert.equal(foreign.writes,1);
  assert.equal(revoked.writes,1);
 });
+
+test("scope validation parity: preview, commit, recovery and persisted draft",async()=>{
+ const f=fixture();
+ const selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+ const preview=await f.api.preview(request);
+ assert.equal(preview.state,"preview-only");
+ assert.equal(f.writes,0);
+ const committed=await f.api.commit(request);
+ assert.equal(committed.reviewedSelectionSha256,preview.reviewedSelectionSha256);
+ const recovered=await f.api.reconcile(request);
+ assert.equal(recovered.state,"matching-scope-at-read");
+ assert.equal(recovered.reviewedSelectionSha256,preview.reviewedSelectionSha256);
+ const persisted=await f.api.readReviewedDraft(selector);
+ assert.deepEqual(persisted.preview,preview);
+ assert.equal(persisted.reviewedSelectionSha256,preview.reviewedSelectionSha256);
+ assert.equal(f.writes,1);
+ assert.equal(f.calls.filter(x=>x.sql.includes("commit_typed_note_scope_review")).length,1);
+});
+test("scope entrypoints all reject noncanonical or unacknowledged selection",async()=>{
+ for(const change of [
+   {selectedIndices:[0,0]},
+   {selectedIndices:[1]},
+   {acceptedAddonCodes:[]},
+   {acceptedAddonCodes:["not-selected"]},
+ ]) {
+   const f=fixture();
+   await assert.rejects(f.api.preview({...request,...change}));
+   await assert.rejects(f.api.commit({...request,...change}));
+   if (change.selectedIndices?.length===2) {
+     await assert.rejects(f.api.reconcile({...request,...change}),TypeError);
+   } else {
+     const recovered=await f.api.reconcile({...request,...change});
+     assert.equal(recovered.state,"different-scope-at-read");
+   }
+   assert.equal(f.writes,0);
+ }
+});
