@@ -85,6 +85,8 @@ begin
       'cleaning',jsonb_build_object('label','Cleaning','unit','visit',
         'billing','charged','rateCents',12000))),
    'tax',jsonb_build_object('method','none','bps',0));
+ perform bm_intake_private.ci_stage_approved_policy(
+   v_org,v_creator,v_reviewer,v_policy::text);
  begin
    perform 1 from bm_intake_private.activate_scope_policy(
       v_org,v_creator,v_creator,2,v_policy::text);
