@@ -176,3 +176,36 @@ test('legacy store-backed human review forbids noncanonical selected order',asyn
  assert.equal(result.state,'reviewed-for-proposal-draft');
  assert.deepEqual(f.get().scopeReview.selectedIndices,[0,1]);
 });
+
+test('original-extraction review rejects all correction lifecycle states before preview',async()=>{
+ for(const key of ['pendingCorrection','activatedCorrection','correctedScopeReview']){
+  const f=fixture();
+  const row=f.get();
+  row[key]={state:'injected-correction'};
+  f.put(row);
+  await assert.rejects(readServiceReviewContext(f.sourceStore,f.policyStore,
+   'reviewer',selector),/Stored extraction is absent/);
+  assert.equal(f.counts().mutations,0);
+ }
+});
+test('legacy review refuses correction appearing after context and before locked commit',async()=>{
+ const f=fixture(),req=await request(f);
+ const row=f.get();row.pendingCorrection={state:'pending-authorized-activation'};
+ f.put(row);
+ await assert.rejects(commitAuthorizedServiceReview(f.sourceStore,f.policyStore,
+  'reviewer',req),/Stored extraction is absent/);
+ assert.equal(f.get().scopeReview,null);
+});
+test('legacy review rejects inherited and getter-backed correction state without executing it',async()=>{
+ const {hasCorrectionLifecycle}=await import('../lib/tenant-service-review.ts');
+ let called=0;
+ const getter={scopeReview:null};
+ Object.defineProperty(getter,'activatedCorrection',{enumerable:true,
+  get(){called++;return {state:'forged'};}});
+ assert.equal(hasCorrectionLifecycle(getter),true);
+ assert.equal(called,0);
+ const inherited=Object.create({pendingCorrection:{state:'pending'}});
+ assert.equal(hasCorrectionLifecycle(inherited),true);
+ assert.equal(hasCorrectionLifecycle({pendingCorrection:null,activatedCorrection:null,
+  correctedScopeReview:null}),false);
+});

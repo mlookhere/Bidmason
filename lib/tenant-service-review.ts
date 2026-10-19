@@ -27,6 +27,25 @@ export type TenantServiceReviewRecord = TenantExtractionRecord & {
   /** Null until explicitly reviewed; no client is allowed to set this directly. */
   scopeReview: ScopeReviewDecision | null;
 };
+
+/** Legacy original-extraction paths must never consume a correction lifecycle.
+ * Inspect descriptors without executing getter-backed authority directives.
+ * Explicit NULL optional DB columns are allowed for older, uncorrected rows. */
+export function hasCorrectionLifecycle(record: unknown): boolean {
+  if (!record || typeof record !== "object") return false;
+  for (const key of ["pendingCorrection", "activatedCorrection", "correctedScopeReview"]) {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (!descriptor) {
+      if (key in record) return true; // Never trust inherited lifecycle state.
+      continue;
+    }
+    if (!Object.hasOwn(descriptor, "value")
+      || (descriptor.value !== null && descriptor.value !== undefined)) {
+      return true;
+    }
+  }
+  return false;
+}
 type Selector = { organizationId: string; sourceId: string };
 
 /** Must enforce CURRENT authenticated source ownership and reviewer permission
@@ -53,6 +72,7 @@ function checkRecord(record: TenantServiceReviewRecord | null, selector: Selecto
     || record.sourceId !== selector.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 1
     || !record.original || !record.review || record.review.state !== "needs-human-review"
+    || hasCorrectionLifecycle(record)
     || !Array.isArray(record.extractionAudit) || record.extractionAudit.length !== 1
     || !record.extractionAudit[0]
     || record.extractionAudit[0].sourceRevision !== record.revision
@@ -69,6 +89,10 @@ function fingerprint(record: TenantServiceReviewRecord): string {
   return createHash("sha256").update(JSON.stringify([
     record.organizationId, record.sourceId, record.revision,
     record.original, record.review, record.extractionAudit, record.scopeReview,
+    // Track optional nullable lifecycle fields across authorized reads.
+    Object.getOwnPropertyDescriptor(record, "pendingCorrection")?.value ?? null,
+    Object.getOwnPropertyDescriptor(record, "activatedCorrection")?.value ?? null,
+    Object.getOwnPropertyDescriptor(record, "correctedScopeReview")?.value ?? null,
   ])).digest("hex");
 }
 

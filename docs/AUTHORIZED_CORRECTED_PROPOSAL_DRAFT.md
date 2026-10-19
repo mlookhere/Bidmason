@@ -39,3 +39,21 @@ activation and reviewed-scope lineage; corrected costs and optional consent;
 rejection of unreviewed, forged, changed or cross-tenant sources; source/policy
 changes between reads; lost membership; no writes; deterministic snapshot
 fingerprints; and explicit denial by the original proposal reader.
+
+## Legacy original-extraction guard
+
+The legacy `readServiceReviewContext` and
+`readAuthorizedProposalDraftPreview` now explicitly refuse an original
+extraction row with a non-null pending correction, activated correction, or
+corrected-scope review, even if an old `scopeReview` was mistakenly restored.
+The original scoped record checksum includes nullable correction lifecycle
+columns so a change between authorized reads cannot be ignored. Property
+descriptors are inspected without invoking getter-backed state or treating
+inherited lifecycle directives as absent. Null optional database columns
+remain valid for genuinely uncorrected records. Staged regression tests
+cover each forbidden field, changes during the two-read boundary, and the
+normal original-extraction preview.
+
+This denial prevents routing corrected evidence through older internal
+preview paths; it does not replace live source ownership checks, grant any
+send rights, or constitute a production RLS validation.

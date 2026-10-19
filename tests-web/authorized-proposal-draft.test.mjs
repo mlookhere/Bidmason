@@ -199,3 +199,35 @@ test('same unchanged evidence and policy produce the same snapshot fingerprint',
  assert.equal(first.draftSnapshotSha256,second.draftSnapshotSha256);
  assert.deepEqual(first.preview,second.preview);
 });
+
+test('original draft refuses restored legacy scope when a correction lifecycle exists',async()=>{
+ for(const field of ['pendingCorrection','activatedCorrection','correctedScopeReview']){
+  const f=fixture();await committed(f);
+  const current=f.get();current[field]={state:'forged-current-correction'};f.put(current);
+  await assert.rejects(readDraft(f),/No valid committed human service review/);
+ }
+});
+test('original draft refuses correction state that appears between authorized source reads',async()=>{
+ const f=fixture();await committed(f);
+ let count=0;
+ const source={readAuthorized:async input=>{
+  const before=await f.sourceStore.readAuthorized(input);
+  if(++count===1){
+   const current=f.get();current.activatedCorrection={state:'awaiting-renewed-human-scope-review'};
+   f.put(current);
+  }
+  return before;
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(
+  source,f.policyStore,'reviewer',selector),/No valid committed human service review/);
+});
+test('original draft permits explicitly null lifecycle columns on uncorrected rows',async()=>{
+ const f=fixture();await committed(f);
+ const current=f.get();
+ current.pendingCorrection=null;current.activatedCorrection=null;
+ current.correctedScopeReview=null;
+ f.put(current);
+ const result=await readDraft(f);
+ assert.equal(result.state,'preview-only');
+ assert.equal(result.preview.selectedServices[0].serviceCode,'office');
+});

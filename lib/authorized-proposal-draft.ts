@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readActivePolicy } from "./company-policy-revisions.ts";
-import type { TenantServiceReviewRecord, TrustedServiceReviewStore }
+import { hasCorrectionLifecycle,
+  type TenantServiceReviewRecord, type TrustedServiceReviewStore }
   from "./tenant-service-review.ts";
 import { buildReviewWorkbench } from "./intake-review-workbench.ts";
 import { prepareReviewPreviewRequest } from "./intake-review-selection.ts";
@@ -28,6 +29,9 @@ function snapshotSha(value: TenantServiceReviewRecord): string {
   return createHash("sha256").update(JSON.stringify([
     value.organizationId, value.sourceId, value.revision,
     value.original, value.review, value.extractionAudit, value.scopeReview,
+    Object.getOwnPropertyDescriptor(value, "pendingCorrection")?.value ?? null,
+    Object.getOwnPropertyDescriptor(value, "activatedCorrection")?.value ?? null,
+    Object.getOwnPropertyDescriptor(value, "correctedScopeReview")?.value ?? null,
   ])).digest("hex");
 }
 
@@ -48,6 +52,7 @@ function checkStoredReview(
     || value.sourceId !== selector.sourceId
     || !Number.isSafeInteger(value.revision) || value.revision < 3
     || !value.original || !value.review || value.review.state !== "needs-human-review"
+    || hasCorrectionLifecycle(value)
     || !Array.isArray(value.extractionAudit) || value.extractionAudit.length !== 1
     || !value.extractionAudit[0]
     || value.extractionAudit[0].sourceRevision !== value.revision - 1
