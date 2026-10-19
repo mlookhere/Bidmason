@@ -118,3 +118,29 @@ test("direct economics preview rejects reordered selection without changing pric
   assert.throws(()=>previewReviewedEconomics(original,review,[0,0],approved),
     /duplicated/);
 });
+
+test("direct economics add-on consent must be canonically sorted", () => {
+  const review=prepareExtractionReview(original,[repaint,quarterly]);
+  const approved={...policy,excludedServiceCodes:[],
+    unitDirectCostsCents:{...policy.unitDirectCostsCents,quarterly:10000},
+    pricing:{...policy.pricing,services:{...policy.pricing.services,
+      repaint:{...policy.pricing.services.repaint,optionalAddon:true},
+      quarterly:{...policy.pricing.services.quarterly,
+        billing:"charged",optionalAddon:true}}}};
+  const valid=previewReviewedEconomics(original,review,[0,1],approved,
+    ["quarterly","repaint"]);
+  assert.equal(valid.state,"preview-only");
+  assert.deepEqual(valid.selectedServices.map(row=>row.addonAccepted),
+    [true,true]);
+  assert.equal(Object.hasOwn(valid,"send"),false);
+  for(const invalid of [
+    ["repaint","quarterly"],
+    ["quarterly","quarterly"],
+    ["Quarterly","repaint"],
+    ["quarterly","unknown"],
+    Array(51).fill("quarterly"),
+  ]) {
+    assert.throws(()=>previewReviewedEconomics(original,review,[0,1],approved,invalid),
+      /Invalid or unselected optional add-on acceptance/);
+  }
+});
