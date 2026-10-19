@@ -189,3 +189,5 @@ jobs:
         run: node --test ci/intake_policy_fingerprint_bridge.test.mjs
       - name: Prove authenticated TypeScript human scope commit against PostgreSQL
         run: node --test ci/intake_scope_commit_bridge.test.mjs
+      - name: Prove concurrent review CAS and approved-policy activation lock order
+        run: node --test ci/intake_scope_concurrency.test.mjs
