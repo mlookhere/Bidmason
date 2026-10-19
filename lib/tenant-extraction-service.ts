@@ -183,7 +183,13 @@ export async function commitAuthorizedExtraction(
       return next;
     },
   });
-  checkRecord(committed, request);
+  // An invalid adapter acknowledgement is a failed confirmation, never
+  // evidence of a rollback or an accepted extraction.
+  try {
+    checkRecord(committed, request);
+  } catch {
+    throw new Error("Extraction write did not confirm authorized transition");
+  }
   if (!prepared.record || fingerprint(committed) !== fingerprint(prepared.record)) {
     throw new Error("Extraction write did not confirm authorized transition");
   }
@@ -192,7 +198,11 @@ export async function commitAuthorizedExtraction(
   const stored = await store.readAuthorized({
     organizationId:request.organizationId, sourceId:request.sourceId, session,
   });
-  checkRecord(stored, request);
+  try {
+    checkRecord(stored, request);
+  } catch {
+    throw new Error("Extraction committed record not confirmed by read-back");
+  }
   if (fingerprint(stored) !== fingerprint(prepared.record)) {
     throw new Error("Extraction committed record not confirmed by read-back");
   }
