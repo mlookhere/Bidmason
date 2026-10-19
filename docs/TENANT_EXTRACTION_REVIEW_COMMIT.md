@@ -1283,3 +1283,23 @@ PostgreSQL proof of persisted input, read-only operation, lost CAS
 acknowledgement and revoked membership is in
 `ci/intake_scope_commit_bridge.test.mjs`. Passing synthetic CI alone does not
 verify a real deployed Supabase account or authorize external communication.
+
+## Canonical preview, commit, recovery and draft parity
+
+The staged `createTrustedTypedNoteScopeCommit` adapter now invokes the
+**same** `checkedScope` business-domain calculation for source-backed
+`preview`, one-shot `commit`, point-in-time ambiguous-write `reconcile`,
+and `readReviewedDraft`. Recalculating candidate eligibility, explicit
+optional add-on consent, current approved policy economics and the exact
+reviewed-selection digest through one path prevents accidental drift across
+operations. Persisted selections are revalidated for canonical strictly
+increasing bounded indices and bounded valid add-on identifiers even if a
+privileged DB read returns malformed data; unexpected data is never
+grandfathered into a draft result.
+
+The unit and actual disposable PostgreSQL bridge tests compare the preview's
+canonical economics and SHA before CAS against the stored result and the
+read-only downstream handoff after CAS, asserting **one** SQL scope mutation.
+Cross-tenant protection, real Auth, live consent, untrusted AI, signed AV and
+privacy/security/legal acceptance remain separate mandatory prerequisites.
+No live API, customer quote approval or outbound send is introduced.
