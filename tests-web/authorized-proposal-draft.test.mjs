@@ -340,3 +340,34 @@ test("malicious evidence on second original proposal read never confirms a draft
  assert.equal(policies,1);
  assert.equal(getters,0);
 });
+
+test("original draft snapshots each source read before its asynchronous policy lookup",async()=>{
+ for(const phase of [1,2]) {
+  const f=fixture();await committed(f);
+  let reads=0,policyReads=0,getters=0,mutable;
+  const source={readAuthorized:async input=>{
+   const current=await f.sourceStore.readAuthorized(input);
+   if(++reads===phase)mutable=current;
+   return current;
+  }};
+  const policies={readAuthorized:async input=>{
+   if(++policyReads===phase){
+    if(phase===1){
+     Object.defineProperty(mutable.scopeReview,"reviewedBy",{
+      enumerable:true,get(){getters++;throw Error("async mutation getter");}
+     });
+    }else{
+     Object.defineProperty(mutable.original,"text",{
+      enumerable:true,get(){getters++;throw Error("late source getter");}
+     });
+    }
+   }
+   return f.policyStore.readAuthorized(input);
+  }};
+  const result=await readAuthorizedProposalDraftPreview(source,policies,'reviewer',selector);
+  assert.equal(result.purpose,"internal-proposal-draft");
+  assert.equal(reads,2);
+  assert.equal(policyReads,2);
+  assert.equal(getters,0);
+ }
+});
