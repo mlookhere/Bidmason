@@ -48,8 +48,8 @@ export function previewReviewedEconomics(
     }
     addons.push(descriptor.value);
   }
-  const policySnapshot = JSON.parse(canonicalCompanyPolicyText(policy))
-    as VersionedEconomicsPolicy;
+  const policySnapshot = JSON.parse(
+    canonicalCompanyPolicyText(policy)) as VersionedEconomicsPolicy;
   if (addons.some((code, i) => !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
       || (i > 0 && code <= addons[i - 1])
       || !services.some(s => s.serviceCode === code)
