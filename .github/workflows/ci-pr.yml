@@ -159,6 +159,8 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_commit.sql
       - name: Test extraction transitions, forged evidence and revocation
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_test.sql
+      - name: Prove independent UTF-16 excerpts including emoji and wrong offsets
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_utf16_provenance_test.sql
       - name: Install private creator-scoped extraction source read
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_read.sql
       - name: Prove original projection and revoked creator isolation
