@@ -34,6 +34,7 @@ function fixture(opts={}) {
   const auth={async verifyActiveSession(token) {
     authCalls++;
     if(!active||token!==session)throw Error("Session revoked");
+    if(authCalls===1)opts.afterFirstAuth?.();
     return {userId:actor};
   }};
   const store={async readAuthorized({organizationId,session:token}) {
@@ -143,4 +144,44 @@ test("lost SQL acknowledgement commits once and never retries",async()=>{
   await assert.rejects(f.api.activate(request),/Lost SQL acknowledgement/);
   assert.equal(f.writes,1);
   assert.equal(f.head.revision,1);
+});
+
+test("activation binds original organization and reviewer session across every await",async()=>{
+  const mutable={...request};
+  const f=fixture({afterFirstAuth(){
+    mutable.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    mutable.reviewerSession="revoked-late-caller-token";
+  }});
+  const result=await f.api.activate(mutable);
+  assert.equal(result.state,"activated-for-internal-review");
+  assert.equal(result.organizationId,org);
+  assert.equal(result.revision,1);
+  assert.equal(f.writes,1);
+  assert.equal(f.storeReads,2);
+  assert.equal(f.calls.length,3);
+  for(const call of f.calls)assert.equal(call.params[0],org);
+});
+
+test("private activation rejects hidden, inherited, symbolic and accessor-backed selectors",async()=>{
+  const hidden={...request};
+  Object.defineProperty(hidden,"send",{value:true});
+  const inherited=Object.assign(Object.create({send:true}),request);
+  const symbolic={...request};
+  symbolic[Symbol("approved")]=true;
+  let getters=0;
+  const badTenant={...request};
+  Object.defineProperty(badTenant,"organizationId",{enumerable:true,
+    get(){getters++;throw Error("unsafe tenant getter");}});
+  const badToken={...request};
+  Object.defineProperty(badToken,"reviewerSession",{enumerable:true,
+    get(){getters++;throw Error("unsafe session getter");}});
+  for(const bad of [hidden,inherited,symbolic,badTenant,badToken]){
+    const f=fixture();
+    await assert.rejects(f.api.activate(bad),
+      /Invalid private policy activation selector/);
+    assert.equal(f.authCalls,0);
+    assert.equal(f.storeReads,0);
+    assert.equal(f.writes,0);
+  }
+  assert.equal(getters,0);
 });
