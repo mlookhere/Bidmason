@@ -27,14 +27,14 @@ create table public.bm_intake_sources (
  check (
    (revision = 1 and review is null and extraction_audit = '[]'::jsonb
      and scope_review is null)
-   or (revision = 2 and jsonb_typeof(review) = 'object'
+   or (revision = 2 and review is not null and jsonb_typeof(review) = 'object'
      and jsonb_typeof(extraction_audit) = 'array'
      and jsonb_array_length(extraction_audit) = 1
      and scope_review is null)
-   or (revision = 3 and jsonb_typeof(review) = 'object'
+   or (revision = 3 and review is not null and jsonb_typeof(review) = 'object'
      and jsonb_typeof(extraction_audit) = 'array'
      and jsonb_array_length(extraction_audit) = 1
-     and jsonb_typeof(scope_review) = 'object')
+     and scope_review is not null and jsonb_typeof(scope_review) = 'object')
  )
 );
 create table public.bm_typed_note_requests (

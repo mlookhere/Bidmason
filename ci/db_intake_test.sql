@@ -113,3 +113,33 @@ end;
 $test$;
 reset role;
 select 'PASS: isolated intake DB tenant identity, original SHA, FK, RLS, idempotency and revoked membership';
+
+-- Ensure SQL CHECK does NOT accidentally accept NULL-valued boolean logic.
+set role service_role;
+do $test$
+declare
+  v_org uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  v_actor uuid:='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  v_sha text:=encode(sha256(convert_to('Separate note','UTF8')),'hex');
+begin
+  begin
+    insert into public.bm_intake_sources(
+      organization_id,created_by,request_id,original_text,text_sha256,
+      revision,review,extraction_audit,scope_review)
+    values(v_org,v_actor,'55555555-5555-4555-8555-555555555555',
+      'Separate note',v_sha,2,null,'[{"sourceRevision":2}]',null);
+    raise exception 'Revision two without review was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.bm_intake_sources(
+      organization_id,created_by,request_id,original_text,text_sha256,
+      revision,review,extraction_audit,scope_review)
+    values(v_org,v_actor,'66666666-6666-4666-8666-666666666666',
+      'Separate note',v_sha,3,'{}','[{"sourceRevision":2}]',null);
+    raise exception 'Revision three without scope review was accepted';
+  exception when check_violation then null;
+  end;
+end;
+$test$;
+reset role;
