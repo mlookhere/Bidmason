@@ -497,3 +497,45 @@ This remains a staged recovery contract, **not** a connected real
 Supabase Auth, authorization, policy approval or provider read adapter.
 Item 3 two-user live isolation and the organization's privacy, security,
 retention and incident-recovery acceptance remain mandatory.
+
+
+## Two-read server-side scope recovery adapter
+
+`lib/trusted-typed-note-scope-recovery.ts` adds the matching
+`createTrustedTypedNoteScopeRecovery(auth, database).reconcile(...)`
+integration *contract* above the private PostgreSQL inspection function.
+The caller supplies the same kinds of externally verified
+`ActiveSessionVerifier` and privileged primary
+`PrivateIntakeDatabase` ports as typed-note extraction. This module
+does **not** implement or bypass real Supabase Auth and never opens
+PostgREST/browser SQL connections.
+
+It validates an exact tenant/source/source-SHA/candidates-SHA/expected
+selection-SHA selector, authenticates the opaque session freshly before
+**each** of two independent private primary reads, and confirms the
+user ID has not changed between observations. The SQL function itself
+then rechecks current tenant membership and source creator ownership
+before source existence, validates original/evidence, and compares
+historical approved policy with current head. If either read fails,
+membership is revoked, the actor changes, a database response is
+malformed/contradictory, or there is any other uncertainty, the adapter
+fails closed. If the independently verified read-time classifications,
+revisions or stored hashes differ, it returns only
+`changed-during-read`; otherwise it returns the matching point-in-time
+SQL observation.
+
+No response can mean the initial lost-acknowledgement attempt was the
+writer, that no future competing transaction can commit, that retries
+are safe, or that an approved/current price exists. This is **never**
+a write transaction, automatic retry, quote approval or customer send.
+
+`tests-web/trusted-typed-note-scope-recovery.test.mjs` verifies
+fresh per-read Auth, true two-read matching/unreviewed/different/stale
+classifications, changes between observations, contradictory and
+malformed driver replies, invalid selectors, actor switching,
+revoked sessions and second-read errors. The actual disposable
+PostgreSQL `ci/intake_policy_fingerprint_bridge.test.mjs` also invokes
+the new TypeScript adapter over the real private SQL and checks
+matching/different/stale results, denied noncreator identity and
+membership revocation. These are synthetic primary-database tests, not
+live end-to-end security acceptance.
