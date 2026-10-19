@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareExtractionReview, previewReviewedQuote } from "../lib/intake-review.ts";
+import { prepareExtractionReview, previewReviewedQuote, selectReviewedServices } from "../lib/intake-review.ts";
 
 const painting = {
   policyId: "painting-v1", currency: "USD",
@@ -139,4 +139,18 @@ test("shared intake source rejects hidden directives and malformed Unicode",()=>
  assert.throws(()=>prepareExtractionReview({...transcript,send:true},[candidate]),
    /unsupported fields/);
  assert.equal(prepareExtractionReview(transcript,[candidate]).state,"needs-human-review");
+});
+
+test("direct source-bound quoting rejects reordered candidate selections", () => {
+  const review=prepareExtractionReview(note,[{...repaint},{...touchup}]);
+  // Both services are authorized in this synthetic fixture so canonical
+  // ordering, not the pending-price gate, determines the outcome.
+  const approved={...painting,services:{...painting.services,
+    touchup:{...painting.services.touchup,billing:"charged"}}};
+  assert.deepEqual(selectReviewedServices(note,review,[0,1]).map(x=>x.serviceCode),
+    ["repaint","touchup"]);
+  assert.throws(()=>selectReviewedServices(note,review,[1,0]),/noncanonical/);
+  assert.throws(()=>previewReviewedQuote(note,review,[1,0],approved),/noncanonical/);
+  assert.deepEqual(previewReviewedQuote(note,review,[0,1],approved)
+    .quote.lines.map(x=>x.serviceCode),["repaint","touchup"]);
 });
