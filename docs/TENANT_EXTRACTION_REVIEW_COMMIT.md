@@ -289,3 +289,47 @@ source, digest, UTF-16, membership/revocation, and JS-to-SQL integration
 suites. They are **not** a substitute for production concurrent-load
 testing or genuine two-user Supabase Auth/PostgREST/RLS/Storage evidence.
 There is still no customer-facing intake, proposal approval or send route.
+
+
+## Staged PostgreSQL human service-review draft transaction
+
+`db/typed_note_scope_review_commit.sql` is a **private, service-role-only
+staged** primitive for source revision 2→3. It persists a deliberately
+non-sendable `reviewed-for-proposal-draft` decision after a human's
+server-verified selection. It checks current membership **before source
+existence**, locks that membership and the source row, and restricts this
+initial version to the original typed-note creator. A later reviewer
+delegation mechanism must be explicitly approved and tested, not assumed.
+
+The database validates the immutable original's source SHA-256, the stored
+candidate-array canonical SHA-256, the prior revision 2 extraction audit,
+the exact allowed 11 review-decision fields and the reviewer actor ID.
+Selected indices must be nonempty, sorted, unique, within bounds and
+must not select the same service code twice. Optional acknowledgements
+must name unique selected codes. Extra prices, approval flags, client
+actors, nonexistent sources, foreign tenants, revoked members, duplicate
+decisions and invalid source hashes are rejected without modifying the
+original text, extraction review or extraction audit.
+
+**Critical trust limit:** The SQL function does **not** have an
+authoritative database-backed versioned approved-policy store. Its
+`policyRevision`, `policySha256`, `reviewKey` and
+`reviewedSelectionSha256` fields are shape-checked, but their values
+and the true optional status of each code are NOT independently proved
+against an approved tenant policy by this function. The existing
+`commitAuthorizedServiceReview` TypeScript policy/selection validator
+must eventually be integrated through **current real Auth**, an approved
+company policy snapshot and a single primary-database CAS. Until that
+connection and Item 3's real Auth/RLS/Storage security acceptance, this
+draft SQL primitive is **not safe for live review routes**, cannot issue
+a quote approval and must remain unexposed.
+
+The existing real `intake-db` GitHub Actions job installs this primitive
+after the staged extraction and concurrency suites, then runs
+`ci/db_intake_scope_review_test.sql`. This verifies the one-way
+revision 2→3 transition, unchanged original and extraction audit,
+restricted original creator, same-tenant and cross-tenant denial,
+nonexistent source, forged client controls, malformed selection, replay
+refusal and post-revocation denial against disposable PostgreSQL. No
+production migrations, pricing authorization, sending or billing are
+created.
