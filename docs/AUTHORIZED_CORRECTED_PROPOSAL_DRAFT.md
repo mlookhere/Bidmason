@@ -90,3 +90,24 @@ human correction lineage. This remains an internal `preview-only` integrity
 check: source-store tenant authorization, immutable SQL/Storage evidence,
 session revocation, reviewer permission and proposal approval are separate
 live acceptance requirements.
+
+## Async read-back mutation isolation
+
+Both original and corrected proposal readers now call the common
+`snapshotInertEvidence` helper on **each** authorized source response,
+immediately after the awaited store read and before any subsequent awaited
+company-policy lookup. It validates the complete bounded data-only graph,
+then uses a detached `structuredClone` snapshot for provenance checks,
+review receipts, calculated lines and exact-revision fingerprints.
+If cloning fails, the same unsafe-evidence rejection applies.
+
+Previously, a shared mutable adapter object could be changed **after**
+passing inert-data preflight during an asynchronous policy lookup. New
+regressions inject a getter into the raw returned scope on the first
+policy read, and into the raw source text on the second policy read.
+Both previews must continue using the original authorized immutable
+snapshots and never execute the late getters. These tests protect the
+in-process asynchronous boundary only; the second independent
+`readAuthorized` and the live tenant/session/RLS validation gates are
+still mandatory. This does **not** create proposal approval, sending
+authorization, or a commercial signature.
