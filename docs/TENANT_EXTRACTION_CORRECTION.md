@@ -65,3 +65,30 @@ No reconciliation path writes, retries the mutation, changes the active
 review, signs any business decision or authorizes sending. The production
 adapter still needs independently validated, append-only tenant persistence
 and authorization; tests use synthetic in-memory transactions only.
+
+## Independent activation (still not a priced selection)
+
+`readExtractionActivationContext` validates a persisted pending correction
+and performs **two independent authorized primary reads** before returning a
+revision/snapshot/correction-digest binding. `commitAuthorizedExtractionActivation`
+requires the *distinct* `activate-extraction-correction` permission checked
+by the trusted adapter against current membership and source ownership
+inside a locked atomic compare-and-swap transaction. A server-trusted actor
+identity, the exact pending original revision, all before/after candidate
+evidence and SHA-256 values are recomputed and verified. A fresh authenticated
+read-back is required to confirm the write; an uncertain write is not retried.
+
+Activation moves the source into `awaiting-renewed-human-scope-review`:
+the original provider extraction and extraction audit remain intact, the
+corrected candidate review is stored as a separate new data record, and
+the pending human correction plus invalidated previous scope remain in
+the immutable activation lineage. Active `scopeReview` stays NULL.
+Existing tenant intake and pricing/preview paths **reject** records with
+activated corrections instead of falling back to the original provider
+suggestions. This prevents a correction from being mistaken for a
+commercial approval. A future distinct, authorized renewed scope-review
+workflow must validate the new corrected review and policy before any
+pricing preview can be used.
+
+This is a pure server-side contract tested with synthetic adapter behavior,
+not a deployed PostgREST transaction or independently verified permission.

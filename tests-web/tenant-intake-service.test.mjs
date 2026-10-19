@@ -130,3 +130,17 @@ test("a committed pending correction blocks both old workbench and price preview
  await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
   {...selector,request}),/missing or inconsistent/);
 });
+
+test("activated correction must not expose the old provider scope through preview",async()=>{
+ const f=fixture(),request=await selected(f);
+ const changed=structuredClone(f.records.get(S));
+ changed.revision+=2;
+ changed.pendingCorrection=null;
+ changed.activatedCorrection={state:"awaiting-renewed-human-scope-review",
+  sourceRevision:changed.revision,correctedReview:changed.review};
+ f.records.set(S,changed);
+ await assert.rejects(readTenantIntakeWorkbench(f.sourceStore,f.policyStore,"a",selector),
+  /missing or inconsistent/);
+ await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,"a",
+  {...selector,request}),/missing or inconsistent/);
+});

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { prepareExtractionReview } from "../lib/intake-review.ts";
 import { prepareExtractionCorrectionDraft } from "../lib/extraction-correction-draft.ts";
 import { readExtractionCorrectionContext, commitAuthorizedExtractionCorrection,
-  reconcileExtractionCorrection } from "../lib/tenant-extraction-correction.ts";
+  reconcileExtractionCorrection, readExtractionActivationContext,
+  commitAuthorizedExtractionActivation } from "../lib/tenant-extraction-correction.ts";
 
 const ORG="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const OTHER="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -44,7 +45,8 @@ function fixture(reviewed=false){
   mutateAuthorized({session,organizationId,sourceId,permission,transform}){
    const work=queue.catch(()=>{}).then(()=>{
     ++writes;beforeWrite();
-    if(permission!=="correct-extraction")throw Error("Unauthorized correction permission");
+    if(!["correct-extraction","activate-extraction-correction"].includes(permission))
+     throw Error("Unauthorized correction permission");
     const actor=authenticate(session,organizationId,true);
     const next=transform(sourceId===SOURCE?structuredClone(row):null,actor);
     row=structuredClone(next);afterWrite();
@@ -277,4 +279,90 @@ test("matching pending evidence cannot independently prove historic actor author
  assert.equal(out.state,"recorded-pending-at-read");
  assert.equal(out.correctedBy,OTHER);
  assert.equal(Object.hasOwn(out,"approved"),false);
+});
+
+async function pendingActivation(f) {
+ const req=await request(f);
+ await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
+ const context=await readExtractionActivationContext(f.store,"reviewer",selector);
+ return { ...selector, expectedRevision:context.expectedRevision,
+  expectedSnapshotSha256:context.expectedSnapshotSha256,
+  expectedCorrectionSha256:context.expectedCorrectionSha256 };
+}
+
+test("explicit authorized activation retains provider lineage and needs new human scope",async()=>{
+ const f=fixture(true),originalRow=f.get();
+ const activation=await pendingActivation(f);
+ const before=f.get();
+ const result=await commitAuthorizedExtractionActivation(f.store,"reviewer",activation);
+ assert.equal(result.state,"activated-for-renewed-human-scope-review");
+ assert.equal(result.revision,5);
+ assert.equal(result.activatedBy,WRITER);
+ assert.match(result.activationSha256,/^[a-f0-9]{64}$/);
+ const row=f.get();
+ assert.deepEqual(row.original,originalRow.original);
+ assert.deepEqual(row.review,originalRow.review);
+ assert.deepEqual(row.extractionAudit,originalRow.extractionAudit);
+ assert.equal(row.scopeReview,null);
+ assert.equal(row.pendingCorrection,null);
+ assert.equal(row.activatedCorrection.state,"awaiting-renewed-human-scope-review");
+ assert.equal(row.activatedCorrection.correctedReview.candidates[0].units,3);
+ assert.deepEqual(row.activatedCorrection.priorCorrection,before.pendingCorrection);
+ assert.deepEqual(row.activatedCorrection.priorCorrection.invalidatedScopeReview,
+  originalRow.scopeReview);
+ assert.equal(Object.hasOwn(result,"approved"),false);
+ assert.equal(Object.hasOwn(result,"send"),false);
+});
+
+test("activation is one-time, CAS-bound, and does not silently reapply corrections",async()=>{
+ const f=fixture(),activation=await pendingActivation(f);
+ const outcomes=await Promise.allSettled([
+  commitAuthorizedExtractionActivation(f.store,"reviewer",activation),
+  commitAuthorizedExtractionActivation(f.store,"reviewer",activation),
+ ]);
+ assert.equal(outcomes.filter(x=>x.status==="fulfilled").length,1);
+ assert.equal(outcomes.filter(x=>x.status==="rejected").length,1);
+ assert.equal(f.get().revision,4);
+ await assert.rejects(readExtractionActivationContext(f.store,"reviewer",selector));
+ await assert.rejects(readExtractionCorrectionContext(f.store,"reviewer",selector));
+});
+
+test("revoked, foreign, view-only and invalid activation digests cannot write",async()=>{
+ const f=fixture(),activation=await pendingActivation(f),baseline=f.get();
+ for(const session of ["viewer","foreign"]){
+  await assert.rejects(commitAuthorizedExtractionActivation(f.store,session,activation),
+   /Unauthorized/);
+ }
+ for(const input of [
+  {...activation,expectedRevision:activation.expectedRevision+1},
+  {...activation,expectedSnapshotSha256:"0".repeat(64)},
+  {...activation,expectedCorrectionSha256:"0".repeat(64)},
+  {...activation,actorId:WRITER},
+  {...activation,approved:true},
+ ])await assert.rejects(commitAuthorizedExtractionActivation(f.store,"reviewer",input));
+ assert.deepEqual(f.get(),baseline);
+ f.permissions.delete("reviewer");
+ await assert.rejects(commitAuthorizedExtractionActivation(f.store,"reviewer",activation),
+  /Unauthorized/);
+ assert.deepEqual(f.get(),baseline);
+});
+
+test("tampered pending lineage and false write acknowledgements fail closed",async()=>{
+ const f=fixture(),request=await pendingActivation(f);
+ const originalRead=f.store.readAuthorized;
+ f.store.readAuthorized=async opts=>{
+  const row=await originalRead(opts);
+  row.pendingCorrection.changes[0].after.units=99;
+  return row;
+ };
+ await assert.rejects(readExtractionActivationContext(f.store,"reviewer",selector));
+ // Locked transaction must reject even if a previously read client digest was valid.
+ const second=fixture(),req=await pendingActivation(second),read=second.store.readAuthorized;
+ second.store.mutateAuthorized=async opts=>opts.transform(second.get(),WRITER);
+ await assert.rejects(commitAuthorizedExtractionActivation(second.store,"reviewer",req),
+  /not confirmed/);
+ const third=fixture(),thirdReq=await pendingActivation(third);
+ third.hooks.setAfterWrite(()=>third.permissions.delete("reviewer"));
+ await assert.rejects(commitAuthorizedExtractionActivation(third.store,"reviewer",thirdReq),
+  /Unauthorized/);
 });

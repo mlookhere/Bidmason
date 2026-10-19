@@ -15,6 +15,8 @@ export type AuthorizedIntakeRecord = {
   review: ExtractionReview;
   /** Pending human corrections may never reuse the original extraction. */
   pendingCorrection?: unknown;
+  /** Corrected evidence needs renewed human scope review, never old pricing. */
+  activatedCorrection?: unknown;
 };
 
 /** Must validate session, organization membership and source ownership on
@@ -48,7 +50,8 @@ function checkedRecord(record: AuthorizedIntakeRecord | null,
     || Buffer.byteLength(record.original.text, "utf8") > 65536
     || !Array.isArray(record.review.candidates)
     || record.review.candidates.length > 50
-    || (record.pendingCorrection !== null && record.pendingCorrection !== undefined)) {
+    || (record.pendingCorrection !== null && record.pendingCorrection !== undefined)
+    || (record.activatedCorrection !== null && record.activatedCorrection !== undefined)) {
     throw new Error("Tenant-owned intake record missing or inconsistent");
   }
   // Consistency stamp detects source/extraction mutation even when a buggy

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { selectReviewedServices } from "./intake-review.ts";
+import { prepareExtractionReview, selectReviewedServices, type ExtractionReview } from "./intake-review.ts";
 import { prepareExtractionCorrectionDraft,
   type ExtractionCorrectionAudit, type ExtractionCorrectionChange }
   from "./extraction-correction-draft.ts";
@@ -24,9 +24,21 @@ export type PendingExtractionCorrection = {
   invalidatedScopeReview: ScopeReviewDecision | null;
 };
 
+/** Distinct authorized activation of a pending correction, still not a
+ * selected, priced or approved proposal. Full lineage remains immutable. */
+export type ActivatedExtractionCorrection = {
+  state: "awaiting-renewed-human-scope-review";
+  sourceRevision: number;
+  activatedBy: string;
+  activationSha256: string;
+  priorCorrection: PendingExtractionCorrection;
+  correctedReview: ExtractionReview;
+};
+
 export type TenantExtractionCorrectionRecord = TenantServiceReviewRecord & {
-  /** A correction is never usable as an approved extraction or quote. */
+  /** Original extraction review and original extraction audit stay unchanged. */
   pendingCorrection?: PendingExtractionCorrection | null;
+  activatedCorrection?: ActivatedExtractionCorrection | null;
 };
 
 /** The adapter MUST authorize current tenant/source and correct-extraction
@@ -37,7 +49,7 @@ export interface TrustedExtractionCorrectionStore {
     Promise<TenantExtractionCorrectionRecord | null>;
   mutateAuthorized(input: Selector & {
     session: unknown;
-    permission: "correct-extraction";
+    permission: "correct-extraction" | "activate-extraction-correction";
     transform: (current: TenantExtractionCorrectionRecord | null,
       authenticatedActorId: string) => TenantExtractionCorrectionRecord;
   }): Promise<TenantExtractionCorrectionRecord>;
@@ -72,6 +84,7 @@ function checkRecord(value: TenantExtractionCorrectionRecord | null,
     || (value.scopeReview !== null && value.scopeReview !== undefined
       && (value.scopeReview.state !== "reviewed-for-proposal-draft"
         || value.scopeReview.sourceRevision !== value.revision))
+    || value.activatedCorrection != null
     || (!allowPending && value.pendingCorrection != null)) {
     throw new Error("Authorized extraction correction source missing, stale or unavailable");
   }
@@ -90,7 +103,7 @@ function fingerprint(record: TenantExtractionCorrectionRecord): string {
     record.organizationId, record.sourceId, record.revision,
     record.original, record.review, record.extractionAudit,
     record.creationAudit ?? null, record.scopeReview ?? null,
-    record.pendingCorrection ?? null,
+    record.pendingCorrection ?? null, record.activatedCorrection ?? null,
   ])).digest("hex");
 }
 
@@ -334,4 +347,185 @@ export async function reconcileExtractionCorrection(
     return {state:"conflict",sourceId:target.sourceId};
   }
   return classification;
+}
+
+function actionsFromPending(pending: PendingExtractionCorrection):
+  ExtractionCorrectionChange[] {
+  if (!Array.isArray(pending.changes)
+    || pending.changes.length < 1 || pending.changes.length > 100) {
+    throw new Error("Pending extraction correction audit is malformed");
+  }
+  return pending.changes.map(change => {
+    if (change.action === "add" && change.after) {
+      return {action:"add" as const, candidate:change.after, reason:change.reason};
+    }
+    if (change.action === "remove" && Number.isSafeInteger(change.originalIndex)) {
+      return {action:"remove" as const, index:change.originalIndex!, reason:change.reason};
+    }
+    if (change.action === "replace" && Number.isSafeInteger(change.originalIndex)
+      && change.after) {
+      return {action:"replace" as const, index:change.originalIndex!,
+        candidate:change.after, reason:change.reason};
+    }
+    throw new Error("Unsupported pending extraction correction audit");
+  });
+}
+
+function verifiedPending(record: TenantExtractionCorrectionRecord):
+  {pending: PendingExtractionCorrection; correctedReview: ExtractionReview} {
+  const pending = record.pendingCorrection;
+  if (!pending || pending.state !== "pending-authorized-activation"
+    || pending.sourceRevision !== record.revision
+    || typeof pending.correctedBy !== "string" || !UUID.test(pending.correctedBy)
+    || record.scopeReview !== null) {
+    throw new Error("Pending extraction correction is absent or inconsistent");
+  }
+  // Reconstruct all changes against the original immutable source and model
+  // extraction, rather than trusting persisted proposed candidates or hashes.
+  const proposal = prepareExtractionCorrectionDraft(
+    record.original, record.review!, actionsFromPending(pending));
+  const expected: PendingExtractionCorrection = {
+    state:"pending-authorized-activation",
+    sourceRevision:record.revision,
+    correctedBy:pending.correctedBy,
+    originalCandidatesSha256:proposal.originalCandidatesSha256,
+    proposedCandidatesSha256:proposal.proposedCandidatesSha256,
+    correctionSha256:proposal.correctionSha256,
+    changes:proposal.changes,
+    proposedCandidates:proposal.proposedCandidates,
+    invalidatedScopeReview:pending.invalidatedScopeReview,
+  };
+  if (!isDeepStrictEqual(pending, expected)) {
+    throw new Error("Pending correction lineage does not match original evidence");
+  }
+  const correctedReview = prepareExtractionReview(
+    record.original, proposal.proposedCandidates);
+  return {pending, correctedReview};
+}
+
+export type ActivationCommitRequest = Selector & {
+  expectedRevision: number;
+  expectedSnapshotSha256: string;
+  expectedCorrectionSha256: string;
+};
+
+function checkActivationRequest(request: ActivationCommitRequest): void {
+  if (!request || typeof request !== "object" || Array.isArray(request)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(request))) {
+    throw new TypeError("Invalid correction activation request");
+  }
+  const names = ["organizationId","sourceId","expectedRevision",
+    "expectedSnapshotSha256","expectedCorrectionSha256"];
+  const keys = Reflect.ownKeys(request);
+  if (keys.length !== names.length || keys.some(key => {
+    if (typeof key !== "string" || !names.includes(key)) return true;
+    const descriptor = Object.getOwnPropertyDescriptor(request, key);
+    return !descriptor || descriptor.enumerable !== true
+      || !Object.hasOwn(descriptor, "value");
+  })) {
+    throw new TypeError("Invalid correction activation request");
+  }
+  selector(request);
+  if (!Number.isSafeInteger(request.expectedRevision)
+    || request.expectedRevision < 3
+    || typeof request.expectedSnapshotSha256 !== "string"
+    || !HASH.test(request.expectedSnapshotSha256)
+    || typeof request.expectedCorrectionSha256 !== "string"
+    || !HASH.test(request.expectedCorrectionSha256)) {
+    throw new TypeError("Invalid correction activation request");
+  }
+}
+
+/** Read-only preparation. Observation is never authorization to activate;
+ * the store MUST independently reauthorize on the subsequent locked write. */
+export async function readExtractionActivationContext(
+  store: Pick<TrustedExtractionCorrectionStore, "readAuthorized">,
+  session: unknown, target: Selector,
+): Promise<{state:"requires-authorized-extraction-activation"; organizationId:string;
+  sourceId:string; expectedRevision:number; expectedSnapshotSha256:string;
+  expectedCorrectionSha256:string}> {
+  selector(target);
+  const first = await store.readAuthorized({...target, session});
+  checkRecord(first, target, true);
+  const {pending} = verifiedPending(first);
+  const stamp = fingerprint(first);
+  const last = await store.readAuthorized({...target, session});
+  checkRecord(last, target, true);
+  verifiedPending(last);
+  if (fingerprint(last) !== stamp) {
+    throw new Error("Pending correction changed during activation preparation");
+  }
+  return {state:"requires-authorized-extraction-activation", ...target,
+    expectedRevision:first.revision, expectedSnapshotSha256:stamp,
+    expectedCorrectionSha256:pending.correctionSha256};
+}
+
+/** Server-only, independent CAS activation of already committed correction.
+ * Keeps original model extraction and earlier scope audit immutable, and
+ * produces a NEW review requiring human selection. Not a quote or send. */
+export async function commitAuthorizedExtractionActivation(
+  store: TrustedExtractionCorrectionStore, session: unknown,
+  request: ActivationCommitRequest,
+): Promise<{state:"activated-for-renewed-human-scope-review"; sourceId:string;
+  revision:number; activatedBy:string; activationSha256:string}> {
+  checkActivationRequest(request);
+  let expected: TenantExtractionCorrectionRecord | null = null;
+  const committed = await store.mutateAuthorized({
+    organizationId:request.organizationId, sourceId:request.sourceId,
+    session, permission:"activate-extraction-correction",
+    transform(current, actorId) {
+      checkRecord(current, request, true);
+      if (typeof actorId !== "string" || !UUID.test(actorId)) {
+        throw new Error("Authenticated correction activator identity required");
+      }
+      if (current.revision !== request.expectedRevision
+        || fingerprint(current) !== request.expectedSnapshotSha256) {
+        throw new Error("Stale correction activation source; refresh required");
+      }
+      const {pending, correctedReview} = verifiedPending(current);
+      if (pending.correctionSha256 !== request.expectedCorrectionSha256) {
+        throw new Error("Pending correction digest has changed");
+      }
+      if (current.revision >= Number.MAX_SAFE_INTEGER) {
+        throw new RangeError("Extraction activation revision overflow");
+      }
+      const revision = current.revision + 1;
+      const activationSha256 = createHash("sha256").update(JSON.stringify([
+        current.organizationId,current.sourceId,revision,actorId,
+        fingerprint(current),pending.correctionSha256,
+        correctedReview.candidatesSha256,
+      ])).digest("hex");
+      const activatedCorrection: ActivatedExtractionCorrection = {
+        state:"awaiting-renewed-human-scope-review",
+        sourceRevision:revision,
+        activatedBy:actorId,activationSha256,
+        priorCorrection:structuredClone(pending),
+        correctedReview,
+      };
+      const next: TenantExtractionCorrectionRecord = {
+        ...current,revision,scopeReview:null,
+        pendingCorrection:null,activatedCorrection,
+      };
+      expected = structuredClone(next);
+      return next;
+    },
+  });
+  if (!expected || fingerprint(committed) !== fingerprint(expected)) {
+    throw new Error("Extraction activation mutation not confirmed");
+  }
+  const last = await store.readAuthorized({
+    session,organizationId:request.organizationId,sourceId:request.sourceId,
+  });
+  if (!last || fingerprint(last) !== fingerprint(expected)) {
+    throw new Error("Extraction activation read-back not confirmed");
+  }
+  const saved = last.activatedCorrection;
+  if (!saved || saved.state !== "awaiting-renewed-human-scope-review"
+    || saved.sourceRevision !== last.revision || last.scopeReview !== null
+    || last.pendingCorrection !== null) {
+    throw new Error("Activated correction missing immutable review lineage");
+  }
+  return {state:"activated-for-renewed-human-scope-review",
+    sourceId:last.sourceId,revision:last.revision,
+    activatedBy:saved.activatedBy,activationSha256:saved.activationSha256};
 }
