@@ -161,7 +161,7 @@ begin
  select * into v_reply from bm_intake_private.commit_typed_note_scope_review(
    v_org,v_creator,v_id,v_source_sha,v_candidates_sha,v_scope);
  if v_reply.source_revision<>3 or
-   v_reply.reviewed_selection_sha256<>repeat('3',64) then
+   v_reply.reviewed_selection_sha256<>(v_scope->>'reviewedSelectionSha256') then
    raise exception 'Valid scope transition returned incorrect revision'; end if;
  if (select count(*) from public.bm_intake_sources
     where organization_id=v_org and id=v_id
