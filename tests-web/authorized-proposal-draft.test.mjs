@@ -276,3 +276,67 @@ test('internal draft preview retains original tenant and source across authoriza
  const canonical=Object.assign(Object.create(null),selector);
  assert.equal((await readDraft(f,'reviewer',canonical)).sourceId,SOURCE);
 });
+
+
+test("original proposal read-back cannot execute malicious stored getters or serializers",async()=>{
+ const f=fixture();await committed(f);
+ const baseline=f.get();
+ let getters=0,sourceReads=0,policyReads=0;
+ const policies={readAuthorized:async()=>{policyReads++;
+  throw Error("Unexpected approved policy lookup");}};
+ const changes=[
+  row=>Object.defineProperty(row,"organizationId",{enumerable:true,
+   get(){getters++;throw Error("Unsafe tenant getter");}}),
+  row=>Object.defineProperty(row.original,"text",{enumerable:true,
+   get(){getters++;throw Error("Unsafe original text getter");}}),
+  row=>Object.defineProperty(row.review.candidates,"0",{enumerable:true,
+   get(){getters++;throw Error("Unsafe candidate index getter");}}),
+  row=>Object.defineProperty(row.review.candidates[0],"units",{enumerable:true,
+   get(){getters++;throw Error("Unsafe quantity getter");}}),
+  row=>{delete row.review.candidates[0];},
+  row=>{row.review.candidates[Symbol("send")]=true;},
+  row=>Object.defineProperty(row.extractionAudit[0],"actorId",{enumerable:true,
+   get(){getters++;throw Error("Unsafe extraction actor getter");}}),
+  row=>Object.defineProperty(row.extractionAudit[0],"toJSON",{
+   enumerable:true,value(){getters++;throw Error("Unsafe audit serializer");}}),
+  row=>Object.defineProperty(row.scopeReview,"reviewedBy",{enumerable:true,
+   get(){getters++;throw Error("Unsafe scope reviewer getter");}}),
+  row=>Object.defineProperty(row.scopeReview.selectedIndices,"0",{enumerable:true,
+   get(){getters++;throw Error("Unsafe selected index getter");}}),
+  row=>{row.scopeReview.selectedIndices[Symbol("approved")]=true;},
+  row=>Object.defineProperty(row.scopeReview,"hiddenApproved",{value:true}),
+  row=>Object.setPrototypeOf(row.scopeReview,{approved:true}),
+  row=>{row.scopeReview.self=row.scopeReview;},
+  row=>{row.scopeReview.policyRevision=Number.NaN;},
+ ];
+ for(const change of changes){
+  const stored=structuredClone(baseline);change(stored);
+  const source={readAuthorized:async()=>{sourceReads++;return stored;}};
+  await assert.rejects(readAuthorizedProposalDraftPreview(
+   source,policies,"reviewer",selector),/Unsafe original proposal evidence/);
+ }
+ assert.equal(sourceReads,changes.length);
+ assert.equal(policyReads,0);
+ assert.equal(getters,0);
+});
+
+test("malicious evidence on second original proposal read never confirms a draft",async()=>{
+ const f=fixture();await committed(f);
+ let reads=0,policies=0,getters=0;
+ const source={readAuthorized:async input=>{
+  const row=await f.sourceStore.readAuthorized(input);
+  if(++reads===2){
+   Object.defineProperty(row.scopeReview,"toJSON",{
+    enumerable:true,value(){getters++;throw Error("Unsafe late serializer");}});
+  }
+  return row;
+ }};
+ const policyStore={readAuthorized:async input=>{
+  policies++;return f.policyStore.readAuthorized(input);
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(
+  source,policyStore,"reviewer",selector),/Unsafe original proposal evidence/);
+ assert.equal(reads,2);
+ assert.equal(policies,1);
+ assert.equal(getters,0);
+});
