@@ -169,3 +169,44 @@ required `intake-db` job provisions Node 24 and executes these assertions
 after all SQL fixture setup. No empty/skipped check substitutes for this.
 No public customer route, live Auth, deployed migration or payment/send
 feature is enabled by the new bridge proof.
+
+
+## Read-only reconciliation after an uncertain extraction CAS
+
+`createTrustedTypedNoteExtraction(...).reconcile(input)` is an
+internal-only recovery inspection for the case where the private 1→2
+extraction CAS could have committed but its response or authorized read-back
+was lost. It accepts the **same original** source selector and bounded raw
+extraction response; it never creates a request ID, issues CAS, retries,
+prices, approves, sends, or publishes.
+
+It executes **two independent freshly authenticated creator-scoped primary
+reads**, validates the complete typed-note lifecycle on each read, parses
+the expected model candidates only against the persisted immutable original
+(including UTF-16 exact excerpt spans and canonical candidates checksum),
+and compares the complete consecutive records. It reports only:
+
+- `matching-extraction-at-read`: both reads observe the exact parsed
+  review and server-authored extraction actor, at revision 2 or 3; this
+  is a **matching stored snapshot**, not proof that this specific
+  ambiguous attempt was the writer, and never an approval.
+- `unprocessed-at-read`: both reads observe revision 1. This is **not**
+  proof of transaction rollback or absence of an in-flight commit.
+- `changed-during-read`: source/evidence changed between observations.
+- `different-extraction-at-read`: a stable advanced source contains
+  other reviewed evidence; the caller must not reinterpret it as its own
+  operation.
+
+Any denied/missing source, revoked session, changed Auth actor, invalid
+provenance, primary DB outage or malformed record **throws**, not a
+fabricated negative or successful reconciliation. None of these statuses
+authorizes blind retry; restart and subsequent human workflow decisions
+need their own trusted server-owned coordination and current source/policy
+checks. The adapter is still staging-only, with injected synthetic Auth
+and isolated private PostgreSQL proof, not real Supabase acceptance.
+
+Mocked adversarial Node tests cover each read-only outcome, revocation
+between reads, forged candidate text and racing source changes. The
+`intake-db` job also tests **actual JS reconciliation against actual
+PostgreSQL** after deliberately dropping an already-committed SQL response,
+then proves there was exactly one CAS and two subsequent read queries.
