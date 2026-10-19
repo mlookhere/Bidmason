@@ -11,6 +11,29 @@ export type ReviewWorkbenchAction =
   | { type: "acknowledge-addon"; serviceCode: string; checked: boolean }
   | { type: "reset" };
 
+/** Reject untrusted selection directives without evaluating any getters. */
+function exactSelection(value: unknown): value is ReviewWorkbenchSelection {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const keys = ["key", "selectedIndices", "acceptedAddonCodes"];
+  return Reflect.ownKeys(value).length === keys.length && keys.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true
+      && Object.hasOwn(descriptor, "value");
+  });
+}
+function canonicalSelectionArray(value: unknown): value is unknown[] {
+  if (!Array.isArray(value) || value.length > 50
+    || Object.getPrototypeOf(value) !== Array.prototype
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let index = 0; index < value.length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor?.enumerable !== true
+      || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
+}
+
 export function emptyReviewSelection(key: string): ReviewWorkbenchSelection {
   return { key, selectedIndices: [], acceptedAddonCodes: [] };
 }
@@ -59,14 +82,12 @@ export function prepareReviewPreviewRequest(
   model: ReviewWorkbenchModel, selection: ReviewWorkbenchSelection,
 ): { reviewKey: string; selectedIndices: number[];
   acceptedAddonCodes: string[] } {
-  if (!selection || selection.key !== model.key
-    || !Array.isArray(selection.selectedIndices)
+  if (!exactSelection(selection) || selection.key !== model.key
+    || !canonicalSelectionArray(selection.selectedIndices)
     || selection.selectedIndices.length === 0
-    || selection.selectedIndices.length > 50
     || selection.selectedIndices.some((index, i) => !Number.isSafeInteger(index)
       || index < 0 || (i > 0 && index <= selection.selectedIndices[i - 1]))
-    || !Array.isArray(selection.acceptedAddonCodes)
-    || selection.acceptedAddonCodes.length > 50
+    || !canonicalSelectionArray(selection.acceptedAddonCodes)
     || selection.acceptedAddonCodes.some((code, i) => typeof code !== "string"
       || !/^[a-z][a-z0-9_-]{0,63}$/.test(code)
       || (i > 0 && code <= selection.acceptedAddonCodes[i - 1]))) {

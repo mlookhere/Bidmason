@@ -175,3 +175,34 @@ test("review rows cannot be selected when deterministic company economics fail",
  assert.throws(()=>changeReviewSelection(partial,emptyReviewSelection(partial.key),
    {type:"select",index:1,checked:true}),/not eligible/);
 });
+
+test("preview selection rejects hidden directives and accessors before evaluation",()=>{
+ const model=build(),selected={key:model.key,selectedIndices:[0],acceptedAddonCodes:[]};
+ let called=0;
+ const hidden={...selected};
+ Object.defineProperty(hidden,"send",{value:true});
+ const symbol={...selected};
+ symbol[Symbol("approved")]=true;
+ const inherited=Object.assign(Object.create({send:true}),selected);
+ const getter={...selected};
+ Object.defineProperty(getter,"key",{enumerable:true,
+  get(){called++;throw Error("unsafe selection getter");}});
+ const selectedGetter={...selected,selectedIndices:[0]};
+ Object.defineProperty(selectedGetter.selectedIndices,"0",{enumerable:true,
+  get(){called++;throw Error("unsafe index getter");}});
+ const addonGetter={...selected,acceptedAddonCodes:["floor"]};
+ Object.defineProperty(addonGetter.acceptedAddonCodes,"0",{enumerable:true,
+  get(){called++;throw Error("unsafe add-on getter");}});
+ const sparse={...selected,selectedIndices:new Array(1)};
+ const hiddenIndex={...selected,selectedIndices:[0]};
+ Object.defineProperty(hiddenIndex.selectedIndices,"send",{value:true});
+ const alteredPrototype={...selected,selectedIndices:[0]};
+ Object.setPrototypeOf(alteredPrototype.selectedIndices,Object.create(Array.prototype));
+ for(const candidate of [hidden,symbol,inherited,getter,selectedGetter,
+  addonGetter,sparse,hiddenIndex,alteredPrototype]){
+  assert.throws(()=>prepareReviewPreviewRequest(model,candidate),/stale or incomplete/);
+ }
+ assert.equal(called,0);
+ const canonical=Object.assign(Object.create(null),selected);
+ assert.deepEqual(prepareReviewPreviewRequest(model,canonical).selectedIndices,[0]);
+});
