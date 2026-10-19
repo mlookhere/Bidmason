@@ -64,8 +64,13 @@ function sha(text: string): string {
  * smuggled rateCents, approval or send directives. */
 function exactKeys(value: unknown, keys: readonly string[]): boolean {
   return !!value && typeof value === "object" && !Array.isArray(value)
-    && Object.keys(value).length === keys.length
-    && keys.every(key => Object.hasOwn(value, key));
+    && [Object.prototype, null].includes(Object.getPrototypeOf(value))
+    && Reflect.ownKeys(value).length === keys.length
+    && keys.every(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor?.enumerable === true
+        && Object.hasOwn(descriptor, "value");
+    });
 }
 
 const SOURCE_KEYS = ["organizationId", "sourceId", "revision", "original",
@@ -74,10 +79,7 @@ const REVIEW_KEYS = ["state", "kind", "sourceSha256", "candidatesSha256", "candi
 const CANDIDATE_KEYS = ["serviceCode", "units", "start", "end", "excerpt"];
 
 export function validateTypedNoteCreateRequest(request: TypedNoteCreateRequest): void {
-  if (!request || typeof request !== "object" || Array.isArray(request)
-    || Object.keys(request).length !== 3
-    || !["organizationId", "requestId", "text"].every(k =>
-      Object.hasOwn(request, k))
+  if (!exactKeys(request, ["organizationId", "requestId", "text"])
     || typeof request.organizationId !== "string"
     || !UUID.test(request.organizationId)
     || typeof request.requestId !== "string" || !UUID.test(request.requestId)
@@ -122,7 +124,7 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
     || record.original.text !== request.text
     || record.original.transcriptionSucceeded !== undefined
     || !Array.isArray(record.extractionAudit)
-    || !record.creationAudit || Object.keys(record.creationAudit).length !== 3
+    || !exactKeys(record.creationAudit, ["actorId", "requestId", "textSha256"])
     || record.creationAudit.actorId !== actorId
     || record.creationAudit.requestId !== request.requestId
     || record.creationAudit.textSha256 !== textSha256
@@ -166,9 +168,8 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
   const keys = ["sourceRevision", "reviewedBy", "reviewKey", "sourceSha256",
     "candidatesSha256", "selectedIndices", "acceptedAddonCodes",
     "policyRevision", "policySha256", "reviewedSelectionSha256", "state"];
-  if (!scope || Object.keys(scope).length !== keys.length
-    || keys.some(key => !Object.hasOwn(scope, key))
-    || scope.state !== "reviewed-for-proposal-draft"
+  if (!exactKeys(scope, keys)
+    || !scope || scope.state !== "reviewed-for-proposal-draft"
     || scope.sourceRevision !== 3 || !UUID.test(scope.reviewedBy)
     || !SHA.test(scope.reviewKey) || !SHA.test(scope.policySha256)
     || !SHA.test(scope.reviewedSelectionSha256)
@@ -202,22 +203,29 @@ export async function commitAuthorizedTypedNote(
   | { state: "existing-source"; organizationId: string; sourceId: string; revision: 2 | 3; textSha256: string }
 > {
   validateTypedNoteCreateRequest(request);
-  const textSha256 = sha(request.text);
+  // Fix scalar identity and original bytes before any asynchronous storage call.
+  // Caller mutation must never retarget the durable ledger or read-back.
+  const target: TypedNoteCreateRequest = {
+    organizationId: request.organizationId,
+    requestId: request.requestId,
+    text: request.text,
+  };
+  const textSha256 = sha(target.text);
   const created = await store.createAuthorized({
-    session, organizationId: request.organizationId,
-    requestId: request.requestId, permission: "create-intake", textSha256,
-    materialize: verified => build(request, textSha256,
+    session, organizationId: target.organizationId,
+    requestId: target.requestId, permission: "create-intake", textSha256,
+    materialize: verified => build(target, textSha256,
       verified.sourceId, verified.authenticatedActorId),
   });
   if (!created || typeof created.authenticatedActorId !== "string") {
     throw new Error("Trusted typed-note create returned no verified actor");
   }
-  verifyTypedNoteSourceRecord(created.record, request, textSha256, created.authenticatedActorId);
+  verifyTypedNoteSourceRecord(created.record, target, textSha256, created.authenticatedActorId);
   const persisted = await store.readAuthorized({
-    session, organizationId: request.organizationId,
+    session, organizationId: target.organizationId,
     sourceId: created.record.sourceId,
   });
-  verifyTypedNoteSourceRecord(persisted, request, textSha256, created.authenticatedActorId);
+  verifyTypedNoteSourceRecord(persisted, target, textSha256, created.authenticatedActorId);
   // A provider response or replay may be false; compare the full data instead
   // of merely trusting the source UUID or a browser-supplied checksum.
   // PostgreSQL JSONB and adapters may reorder object keys. Compare the
@@ -225,7 +233,7 @@ export async function commitAuthorizedTypedNote(
   if (!isDeepStrictEqual(persisted, created.record)) {
     throw new Error("Typed-note read-back differs from authorized create result");
   }
-  const base = { organizationId: request.organizationId,
+  const base = { organizationId: target.organizationId,
     sourceId: created.record.sourceId, textSha256 };
   // A replay of a processed source does NOT authorize a second extraction.
   if (persisted!.revision === 1) {

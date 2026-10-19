@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { commitAuthorizedTypedNote } from "../lib/tenant-typed-note-source.ts";
+import { commitAuthorizedTypedNote, verifyTypedNoteSourceRecord } from "../lib/tenant-typed-note-source.ts";
 import { readExtractionPreparation } from "../lib/tenant-extraction-service.ts";
 import { prepareExtractionReview } from "../lib/intake-review.ts";
 
@@ -336,4 +336,93 @@ test("a forged extraction actor cannot be hidden behind valid source and candida
     /extraction progression is invalid/);
   assert.equal(f.calls().count,1);
   assert.equal(f.ledger.size,1);
+});
+
+test("source selectors reject hidden, symbolic, inherited and accessor directives",async()=>{
+ const f=fixture(), hidden={...note}, symbol={...note}, accessor={...note};
+ let getterCalls=0;
+ Object.defineProperty(hidden,"send",{value:true,enumerable:false});
+ symbol[Symbol("approved")]=true;
+ Object.defineProperty(accessor,"text",{
+  enumerable:true,get(){getterCalls++;return note.text;}
+ });
+ const inherited=Object.assign(Object.create({send:true}),note);
+ for(const input of [hidden,symbol,accessor,inherited]){
+  await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",input),/Invalid/);
+ }
+ assert.equal(getterCalls,0,"Untrusted accessor must not execute during validation");
+ assert.equal(f.calls().count,0);
+});
+
+test("stored source, extraction and approved-scope objects reject hidden and accessor data",async()=>{
+ const f=fixture(),saved=await commitAuthorizedTypedNote(f.store,"operator",note);
+ const base=f.records.get(saved.sourceId);
+ const check=record=>verifyTypedNoteSourceRecord(
+  record,note,saved.textSha256,ACTOR);
+ let hits=0;
+ const original=structuredClone(base);
+ Object.defineProperty(original.original,"text",{
+  enumerable:true,get(){hits++;return note.text;}
+ });
+ assert.throws(()=>check(original),/immutable original/);
+ const hidden=structuredClone(base);
+ Object.defineProperty(hidden.creationAudit,"send",{value:true});
+ assert.throws(()=>check(hidden),/immutable original/);
+ const symbol=structuredClone(base);
+ symbol[Symbol("approved")]=true;
+ assert.throws(()=>check(symbol),/immutable original/);
+ const reviewed=structuredClone(base);
+ reviewed.revision=2;
+ reviewed.review=prepareExtractionReview(reviewed.original,[{
+  serviceCode:"painting",units:2,start:0,end:13,excerpt:"Paint 2 rooms"
+ }]);
+ reviewed.extractionAudit=[{sourceRevision:2,actorId:ACTOR,
+  sourceSha256:reviewed.review.sourceSha256,
+  candidatesSha256:reviewed.review.candidatesSha256}];
+ Object.defineProperty(reviewed.review.candidates[0],"send",{value:true});
+ assert.throws(()=>check(reviewed),/extraction progression/);
+ const scoped=structuredClone(reviewed);
+ delete scoped.review.candidates[0].send;
+ scoped.revision=3;
+ scoped.scopeReview={sourceRevision:3,reviewedBy:ACTOR,
+  reviewKey:"a".repeat(64),sourceSha256:scoped.review.sourceSha256,
+  candidatesSha256:scoped.review.candidatesSha256,selectedIndices:[0],
+  acceptedAddonCodes:[],policyRevision:1,policySha256:"b".repeat(64),
+  reviewedSelectionSha256:"c".repeat(64),state:"reviewed-for-proposal-draft"};
+ Object.defineProperty(scoped.scopeReview,"send",{value:true});
+ assert.throws(()=>check(scoped),/reviewed scope progression/);
+ assert.equal(hits,0);
+});
+
+test("in-flight caller mutations cannot retarget typed note storage or confirmation",async()=>{
+ const f=fixture(),input={...note};
+ const initial={...note};
+ const adapter={
+  async createAuthorized(args){
+   input.organizationId=OTHER;
+   input.requestId=randomUUID();
+   input.text="Forged after initial validation";
+   return f.store.createAuthorized(args);
+  },
+  async readAuthorized(args){
+   input.organizationId=OTHER;
+   input.text="Mutated while reading";
+   return f.store.readAuthorized(args);
+  }
+ };
+ const saved=await commitAuthorizedTypedNote(adapter,"operator",input);
+ assert.equal(saved.organizationId,initial.organizationId);
+ assert.equal(saved.state,"ready-for-extraction");
+ const row=f.records.get(saved.sourceId);
+ assert.equal(row.original.text,initial.text);
+ assert.equal(row.creationAudit.requestId,initial.requestId);
+ assert.equal(f.calls().count,1);
+});
+
+test("canonical null-prototype typed-note request remains valid",async()=>{
+ const f=fixture();
+ const input=Object.assign(Object.create(null),note);
+ const saved=await commitAuthorizedTypedNote(f.store,"operator",input);
+ assert.equal(saved.state,"ready-for-extraction");
+ assert.equal(f.calls().count,1);
 });
