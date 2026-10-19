@@ -128,10 +128,12 @@ function checkRequest(request: ExtractionCorrectionCommitRequest): void {
   const names = ["organizationId","sourceId","expectedRevision",
     "expectedSnapshotSha256","expectedCorrectionSha256","changes"];
   const keys = Reflect.ownKeys(request);
-  if (keys.length !== names.length || keys.some(key => typeof key !== "string"
-    || !names.includes(key) || !Object.hasOwn(request, key)
-    || Object.getOwnPropertyDescriptor(request, key)?.enumerable !== true
-    || !Object.hasOwn(Object.getOwnPropertyDescriptor(request, key), "value"))) {
+  if (keys.length !== names.length || keys.some(key => {
+    if (typeof key !== "string" || !names.includes(key)) return true;
+    const descriptor = Object.getOwnPropertyDescriptor(request, key);
+    return descriptor?.enumerable !== true
+      || !descriptor || !Object.hasOwn(descriptor, "value");
+  })) {
     throw new TypeError("Invalid extraction correction request");
   }
   selector(request);
