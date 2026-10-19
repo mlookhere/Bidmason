@@ -118,3 +118,35 @@ test("valid high-cent percentage arithmetic does not falsely overflow intermedia
   assert.equal(quoteFromPolicy(policy,[{serviceCode:"big",units:1}]).totalCents,
     1500000000000);
 });
+
+test("direct quote inputs reject hidden prices and approval directives", () => {
+  const normal=[{serviceCode:"visit",units:2}];
+  const expected=quoteFromPolicy(cleaning,normal);
+  assert.equal(expected.totalCents,14000);
+  for (const forged of [
+    {rateCents:1}, {unitPriceCents:1}, {totalCents:1}, {priceCents:1},
+    {discountBps:10000}, {approved:true}, {send:true},
+    {recipient:"attacker@example.invalid"}, {organizationId:"forged"},
+    {addonAccepted:false}, {addonAccepted:true,approved:true},
+  ]) {
+    assert.throws(()=>quoteFromPolicy(cleaning,[
+      {...normal[0],...forged},
+    ]), /unsupported fields|non-optional/);
+  }
+  for (const bad of [null,[],{},Object.create({serviceCode:"visit",units:1})]) {
+    assert.throws(()=>quoteFromPolicy(cleaning,[bad]),/unsupported fields/);
+  }
+  assert.equal(quoteFromPolicy(cleaning,normal).totalCents,expected.totalCents);
+});
+
+test("direct quote calculator bounds request cardinality to reviewed intake limits", () => {
+  const many=Array.from({length:51},(_,i)=>({
+    serviceCode:`line_${i}`,units:1,
+  }));
+  const policy={...cleaning,services:Object.fromEntries(many.map(line=>[
+    line.serviceCode,
+    {label:"Line",unit:"job",rateCents:100,billing:"charged"},
+  ]))};
+  assert.throws(()=>quoteFromPolicy(policy,many),/One to 50 services/);
+  assert.equal(quoteFromPolicy(policy,many.slice(0,50)).lines.length,50);
+});
