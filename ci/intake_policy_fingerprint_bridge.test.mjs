@@ -64,6 +64,10 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",asy
   const active=readActivePolicy(approved,org);
   const fingerprint=approved.revisions[0].policySha256;
   assert.equal(companyPolicySha256(active),fingerprint);
+  sql(`set role service_role;
+    select bm_intake_private.ci_stage_approved_policy(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:author,p3:reviewer,p4:canonicalCompanyPolicyText(active)});
   const activated=JSON.parse(sql(`set role service_role;
     select row_to_json(x) from (
       select activated_revision,activated_sha256
@@ -334,6 +338,10 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",asy
     reviewedBy:reviewer,decision:"approve",expectedRevision:2,
     expectedSha256:nextDraft.revisions[1].policySha256});
   const nextPolicy=readActivePolicy(nextApproved,org);
+  sql(`set role service_role;
+    select bm_intake_private.ci_stage_approved_policy(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:author,p3:reviewer,p4:canonicalCompanyPolicyText(nextPolicy)});
   const activatedNext=JSON.parse(sql(`set role service_role;
     select row_to_json(x) from (
       select activated_revision,activated_sha256
