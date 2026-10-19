@@ -37,6 +37,20 @@ function exact(value:unknown,keys:readonly string[]):value is Record<string,unkn
     return d?.enumerable===true && Object.hasOwn(d,"value");
   });
 }
+/** Only dense, plain data arrays can serve as privileged SQL evidence.
+ * Reject accessors, sparse arrays, symbol/extra keys and altered prototypes
+ * before iterating or invoking any array method. */
+function canonicalDataArray(value:unknown,min:number,max:number):value is unknown[] {
+  if(!Array.isArray(value)||value.length<min||value.length>max
+    ||Object.getPrototypeOf(value)!==Array.prototype
+    ||Reflect.ownKeys(value).length!==value.length+1)return false;
+  for(let i=0;i<value.length;i++){
+    const d=Object.getOwnPropertyDescriptor(value,String(i));
+    if(d?.enumerable!==true||!Object.hasOwn(d,"value"))return false;
+  }
+  return true;
+}
+
 function uuid(value:unknown):value is string {
   return typeof value==="string" && UUID.test(value);
 }
@@ -108,7 +122,7 @@ function createInternalCorrectedEconomicsPreview(
         ? await db.query(READ_SESSION_LOCKED,[
           org,current.userId,current.sessionId as string,source,expected])
         : await db.query(READ,[org,current.userId,source,expected]);
-      if(!result||!Array.isArray(result.rows)||result.rows.length!==1
+      if(!result||!canonicalDataArray(result.rows,1,1)
         || !exact(result.rows[0],["projection"])){
         throw new Error("Approved internal corrected pricing evidence unavailable");
       }
@@ -129,8 +143,7 @@ function createInternalCorrectedEconomicsPreview(
         || !sha(projection.evidence.policySha256)
         || !Number.isSafeInteger(projection.evidence.policyRevision)
         || (projection.evidence.policyRevision as number)<1
-        || !Array.isArray(projection.requested)
-        || projection.requested.length<1 || projection.requested.length>50){
+        || !canonicalDataArray(projection.requested,1,50)){
         throw new Error("Unsafe corrected economics projection");
       }
       // Clone ONLY canonical data. Never run policy getters or toJSON, and
