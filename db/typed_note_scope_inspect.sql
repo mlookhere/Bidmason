@@ -14,6 +14,7 @@ declare
  v_scope jsonb;
  v_original_sha text;
  v_historical_sha text;
+ v_historical_policy jsonb;
  v_active_revision integer;
  v_active_sha text;
 begin
@@ -92,13 +93,22 @@ begin
  -- A historical snapshot can remain valid evidence after active rates
  -- advance; validate the original approved revision rather than pretending
  -- the older review still authorizes a current quotation.
- select v.policy_sha256 into v_historical_sha
+ select v.policy_sha256,v.policy into v_historical_sha,v_historical_policy
  from bm_intake_private.approved_policy_versions v
  where v.organization_id=p_org and v.revision=(v_scope->>'policyRevision')::integer
    and v.policy_sha256=v_scope->>'policySha256' for share;
  if not found or v_historical_sha is null then
    raise exception 'Persisted review lacks approved policy provenance'
     using errcode='22023';
+ end if;
+ -- A digest proves consistency with chosen indices; it cannot prove the
+ -- service was actually billable or its optional consent was valid. Check
+ -- eligibility against the exact historical approved policy snapshot.
+ if not bm_intake_private.matches_approved_scope_services(
+    v_historical_policy,v_note.review->'candidates',
+    v_scope->'selectedIndices',v_scope->'acceptedAddonCodes') then
+   raise exception 'Persisted scope violates historical company service rules'
+     using errcode='22023';
  end if;
  if v_scope->>'reviewKey' is distinct from
     bm_intake_private.review_workbench_sha256(
