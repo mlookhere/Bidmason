@@ -668,3 +668,39 @@ provider failures, policy-review signatures or human consent.
 A previously persisted review is **not** a current quote merely because
 its transaction succeeded while an earlier ratecard was active. Sending,
 approval, retry and billing remain disabled.
+
+
+## Independent PostgreSQL commercial-policy validation
+
+`db/staged_policy_activation.sql` now independently rejects company ratecard
+economics that the approved-policy TypeScript model already disallows but
+the earlier database shape checker could accept. In addition to current
+two-distinct-member authorization, immutable policy history and the
+monotonic active-head transaction, the private SQL activation enforces:
+
+- A nonblank company policy ID; `minimum.rule = none` requires zero
+  minimum cents and `tax.method = none` requires zero tax basis points.
+- Each service's optional `surchargeBps`/`discountBps` must be a
+  nonnegative integer within 0–10,000, including pending and included
+  services. Invalid JSON types, fractions and out-of-range values fail.
+- `excludedServiceCodes`, if present, must be an array of distinct
+  strings identifying services actually listed in the approved policy.
+- `unitDirectCostsCents`, if present, must be a JSON object with
+  existing service codes and nonnegative whole-cent values bounded to
+  JavaScript's maximum safe integer. Required minimum and service rates
+  are likewise checked against the safe-integer ceiling.
+- An invalid approval attempt cannot create an approved version,
+  advance the active pricing head or rewrite prior immutable history.
+
+The mandatory real disposable `intake-db` job now executes
+`ci/db_intake_policy_economics_test.sql` after the existing active
+two-actor ratecard tests. It submits a deliberately malformed first
+policy for each invalid commercial field, checks the absence of any
+approved policy record/head, activates a valid synthetic example, and
+proves a malformed successor cannot replace it.
+
+This is a **defense-in-depth commercial data-integrity check**, not
+evidence of an approved contractor ratecard or real tax-law settings.
+The database does not validate live Supabase sessions or actual
+two-person pricing consent; approved pricing and sends remain disabled
+until the Item 3 real-provider/security gates are satisfied.
