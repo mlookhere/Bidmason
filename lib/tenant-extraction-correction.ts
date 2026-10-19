@@ -55,8 +55,25 @@ export interface TrustedExtractionCorrectionStore {
   }): Promise<TenantExtractionCorrectionRecord>;
 }
 
-function selector(value: unknown): asserts value is Selector {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+/** Inspect only own enumerable data fields; never invoke caller getters. */
+function exactFields(value: unknown, fields: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || Reflect.ownKeys(value).length !== fields.length) return false;
+  return fields.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor?.enumerable === true
+      && Object.hasOwn(descriptor, "value");
+  });
+}
+function selector(value: unknown, exact = false): asserts value is Selector {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+    || (exact && !exactFields(value, ["organizationId", "sourceId"]))
+    || ["organizationId", "sourceId"].some(key => {
+      const d = Object.getOwnPropertyDescriptor(value, key);
+      return d?.enumerable !== true || !Object.hasOwn(d, "value");
+    })) {
     throw new TypeError("Invalid extraction correction selector");
   }
   const v = value as Selector;
@@ -64,6 +81,50 @@ function selector(value: unknown): asserts value is Selector {
     || typeof v.sourceId !== "string" || !UUID.test(v.sourceId)) {
     throw new TypeError("Invalid extraction correction selector");
   }
+}
+/** Clone the exact bounded correction action graph before async CAS or reads. */
+function snapshotChanges(input: ExtractionCorrectionChange[]): ExtractionCorrectionChange[] {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100
+    || Object.getPrototypeOf(input) !== Array.prototype
+    || Reflect.ownKeys(input).length !== input.length + 1) {
+    throw new TypeError("Invalid extraction correction action list");
+  }
+  for (let i=0;i<input.length;i++){
+    const d=Object.getOwnPropertyDescriptor(input,String(i));
+    if (d?.enumerable!==true || !Object.hasOwn(d,"value")) {
+      throw new TypeError("Invalid extraction correction action list");
+    }
+  }
+  return input.map(action => {
+    const d=action && typeof action==="object"
+      ? Object.getOwnPropertyDescriptor(action,"action") : undefined;
+    if (d?.enumerable!==true || !Object.hasOwn(d,"value")) {
+      throw new TypeError("Invalid extraction correction action");
+    }
+    const type=d.value;
+    const keys=type==="replace" ? ["action","index","candidate","reason"]
+      : type==="remove" ? ["action","index","reason"]
+      : type==="add" ? ["action","candidate","reason"] : [];
+    if (!keys.length || !exactFields(action,keys)
+      || typeof action.reason!=="string") {
+      throw new TypeError("Invalid extraction correction action");
+    }
+    if (type!=="add" && !Number.isSafeInteger(action.index)) {
+      throw new TypeError("Invalid extraction correction index");
+    }
+    if (type==="remove") return {action:"remove" as const,
+      index:action.index,reason:action.reason};
+    const candidate=action.candidate;
+    if (!exactFields(candidate,["serviceCode","units","start","end","excerpt"])) {
+      throw new TypeError("Invalid extraction correction candidate");
+    }
+    const copy={serviceCode:candidate.serviceCode, units:candidate.units,
+      start:candidate.start,end:candidate.end,excerpt:candidate.excerpt};
+    return type==="add"
+      ? {action:"add" as const,candidate:copy,reason:action.reason}
+      : {action:"replace" as const,index:action.index,candidate:copy,
+        reason:action.reason};
+  });
 }
 
 function checkRecord(value: TenantExtractionCorrectionRecord | null,
@@ -111,16 +172,17 @@ export async function readExtractionCorrectionContext(
   store: TrustedExtractionCorrectionStore, session: unknown, target: Selector,
 ): Promise<{ state: "requires-human-extraction-correction"; organizationId: string;
   sourceId: string; expectedRevision: number; expectedSnapshotSha256: string }> {
-  selector(target);
-  const first = await store.readAuthorized({...target, session});
-  checkRecord(first, target);
+  selector(target, true);
+  const bound:Selector={organizationId:target.organizationId,sourceId:target.sourceId};
+  const first = await store.readAuthorized({...bound, session});
+  checkRecord(first, bound);
   const stamp = fingerprint(first);
-  const last = await store.readAuthorized({...target, session});
-  checkRecord(last, target);
+  const last = await store.readAuthorized({...bound, session});
+  checkRecord(last, bound);
   if (stamp !== fingerprint(last)) {
     throw new Error("Source changed during extraction correction preparation");
   }
-  return {state:"requires-human-extraction-correction", ...target,
+  return {state:"requires-human-extraction-correction", ...bound,
     expectedRevision:first.revision, expectedSnapshotSha256:stamp};
 }
 
@@ -173,22 +235,29 @@ export async function commitAuthorizedExtractionCorrection(
   sourceId: string; revision: number; correctedBy: string;
   correctionSha256: string }> {
   checkRequest(request);
+  const target:ExtractionCorrectionCommitRequest={
+    organizationId:request.organizationId,sourceId:request.sourceId,
+    expectedRevision:request.expectedRevision,
+    expectedSnapshotSha256:request.expectedSnapshotSha256,
+    expectedCorrectionSha256:request.expectedCorrectionSha256,
+    changes:snapshotChanges(request.changes),
+  };
   let expected: TenantExtractionCorrectionRecord | null = null;
   const committed = await store.mutateAuthorized({
-    organizationId:request.organizationId, sourceId:request.sourceId,
+    organizationId:target.organizationId, sourceId:target.sourceId,
     session, permission:"correct-extraction",
     transform(current, actorId) {
-      checkRecord(current, request);
+      checkRecord(current, target);
       if (typeof actorId !== "string" || !UUID.test(actorId)) {
         throw new Error("Authenticated extraction corrector identity required");
       }
-      if (current.revision !== request.expectedRevision
-        || fingerprint(current) !== request.expectedSnapshotSha256) {
+      if (current.revision !== target.expectedRevision
+        || fingerprint(current) !== target.expectedSnapshotSha256) {
         throw new Error("Stale extraction correction; reload the source");
       }
       const draft = prepareExtractionCorrectionDraft(
-        current.original, current.review!, request.changes);
-      if (draft.correctionSha256 !== request.expectedCorrectionSha256) {
+        current.original, current.review!, target.changes);
+      if (draft.correctionSha256 !== target.expectedCorrectionSha256) {
         throw new Error("Human correction decisions changed; review again");
       }
       if (current.revision >= Number.MAX_SAFE_INTEGER) {
@@ -218,7 +287,7 @@ export async function commitAuthorizedExtractionCorrection(
     throw new Error("Extraction correction mutation not confirmed");
   }
   const persisted = await store.readAuthorized({
-    session, organizationId:request.organizationId, sourceId:request.sourceId,
+    session, organizationId:target.organizationId, sourceId:target.sourceId,
   });
   if (!persisted || fingerprint(persisted) !== fingerprint(expected)) {
     throw new Error("Extraction correction read-back not confirmed");
@@ -226,7 +295,7 @@ export async function commitAuthorizedExtractionCorrection(
   const audit = persisted.pendingCorrection;
   if (!audit || audit.state !== "pending-authorized-activation"
     || audit.sourceRevision !== persisted.revision
-    || audit.correctionSha256 !== request.expectedCorrectionSha256
+    || audit.correctionSha256 !== target.expectedCorrectionSha256
     || persisted.scopeReview !== null) {
     throw new Error("Committed correction missing its pending audit");
   }
@@ -260,7 +329,7 @@ export async function reconcileExtractionCorrection(
   const revision = request.expectedRevision;
   const expectedSnapshot = request.expectedSnapshotSha256;
   const expectedCorrection = request.expectedCorrectionSha256;
-  const changes = request.changes;
+  const changes = snapshotChanges(request.changes);
   const read = () => store.readAuthorized({...target, session});
   const first = await read();
   if (!first || first.organizationId !== target.organizationId
@@ -444,18 +513,19 @@ export async function readExtractionActivationContext(
 ): Promise<{state:"requires-authorized-extraction-activation"; organizationId:string;
   sourceId:string; expectedRevision:number; expectedSnapshotSha256:string;
   expectedCorrectionSha256:string}> {
-  selector(target);
-  const first = await store.readAuthorized({...target, session});
-  checkRecord(first, target, true);
+  selector(target, true);
+  const bound:Selector={organizationId:target.organizationId,sourceId:target.sourceId};
+  const first = await store.readAuthorized({...bound, session});
+  checkRecord(first, bound, true);
   const {pending} = verifiedPending(first);
   const stamp = fingerprint(first);
-  const last = await store.readAuthorized({...target, session});
-  checkRecord(last, target, true);
+  const last = await store.readAuthorized({...bound, session});
+  checkRecord(last, bound, true);
   verifiedPending(last);
   if (fingerprint(last) !== stamp) {
     throw new Error("Pending correction changed during activation preparation");
   }
-  return {state:"requires-authorized-extraction-activation", ...target,
+  return {state:"requires-authorized-extraction-activation", ...bound,
     expectedRevision:first.revision, expectedSnapshotSha256:stamp,
     expectedCorrectionSha256:pending.correctionSha256};
 }
@@ -469,21 +539,27 @@ export async function commitAuthorizedExtractionActivation(
 ): Promise<{state:"activated-for-renewed-human-scope-review"; sourceId:string;
   revision:number; activatedBy:string; activationSha256:string}> {
   checkActivationRequest(request);
+  const target:ActivationCommitRequest={
+    organizationId:request.organizationId,sourceId:request.sourceId,
+    expectedRevision:request.expectedRevision,
+    expectedSnapshotSha256:request.expectedSnapshotSha256,
+    expectedCorrectionSha256:request.expectedCorrectionSha256,
+  };
   let expected: TenantExtractionCorrectionRecord | null = null;
   const committed = await store.mutateAuthorized({
-    organizationId:request.organizationId, sourceId:request.sourceId,
+    organizationId:target.organizationId, sourceId:target.sourceId,
     session, permission:"activate-extraction-correction",
     transform(current, actorId) {
-      checkRecord(current, request, true);
+      checkRecord(current, target, true);
       if (typeof actorId !== "string" || !UUID.test(actorId)) {
         throw new Error("Authenticated correction activator identity required");
       }
-      if (current.revision !== request.expectedRevision
-        || fingerprint(current) !== request.expectedSnapshotSha256) {
+      if (current.revision !== target.expectedRevision
+        || fingerprint(current) !== target.expectedSnapshotSha256) {
         throw new Error("Stale correction activation source; refresh required");
       }
       const {pending, correctedReview} = verifiedPending(current);
-      if (pending.correctionSha256 !== request.expectedCorrectionSha256) {
+      if (pending.correctionSha256 !== target.expectedCorrectionSha256) {
         throw new Error("Pending correction digest has changed");
       }
       if (current.revision >= Number.MAX_SAFE_INTEGER) {
@@ -514,7 +590,7 @@ export async function commitAuthorizedExtractionActivation(
     throw new Error("Extraction activation mutation not confirmed");
   }
   const last = await store.readAuthorized({
-    session,organizationId:request.organizationId,sourceId:request.sourceId,
+    session,organizationId:target.organizationId,sourceId:target.sourceId,
   });
   if (!last || fingerprint(last) !== fingerprint(expected)) {
     throw new Error("Extraction activation read-back not confirmed");
