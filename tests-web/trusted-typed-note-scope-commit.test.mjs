@@ -34,6 +34,7 @@ const starting={organizationId:ORG,sourceId:SOURCE,revision:2,
 function fixture(options={}) {
   let current=structuredClone(starting);
   let activePolicy=structuredClone(policy),active=true,who=ACTOR;
+  let currentMember=true,sourceReads=0;
   let authCalls=0, writes=0;
   const calls=[];
   const auth={async verifyActiveSession(token) {
@@ -44,10 +45,19 @@ function fixture(options={}) {
   const db={async query(sql,params) {
     calls.push({sql,params});
     if(sql.includes("read_typed_note_for_extraction")) {
-      if(params[1]!==ACTOR)throw Error("Creator denied");
-      return {rows:[{record:structuredClone(current)}]};
+      if(params[1]!==ACTOR || !currentMember)throw Error("Creator denied");
+      const sourceRow={record:structuredClone(current)};
+      sourceReads++;
+      // Simulate membership revoked just AFTER a successful private source
+      // read-back, before the final privileged policy query.
+      if (options.revokeAfterReadback && sourceReads===2) currentMember=false;
+      return {rows:[sourceRow]};
     }
     if(sql.includes("active_policy_heads")) {
+      assert.match(sql,/join public\\.bm_memberships m/);
+      assert.match(sql,/for share of h,v,m/);
+      assert.deepEqual(params,[ORG,ACTOR]);
+      if(!currentMember) return {rows:[]};
       return {rows:[{revision:activePolicy.revision,
         policy_sha256:companyPolicySha256(activePolicy),
         policy:structuredClone(activePolicy),submitted_by:ACTOR,reviewed_by:OTHER}]};
@@ -156,4 +166,14 @@ test("revocation or policy change after the only write never claims success",asy
   await assert.rejects(f.api.commit(request),pattern);
   assert.equal(f.writes,1);
  }
+});
+
+
+test("revocation after valid source readback cannot pass the final policy lookup",async()=>{
+  const f=fixture({revokeAfterReadback:true});
+  await assert.rejects(f.api.commit(request),/No unambiguous approved current policy/);
+  assert.equal(f.writes,1);
+  assert.equal(f.record.revision,3);
+  assert.equal(f.calls.filter(x=>x.sql.includes("active_policy_heads")).length,2);
+  assert.equal(Object.hasOwn(f.record,"send"),false);
 });
