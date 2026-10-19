@@ -733,3 +733,42 @@ post-write creation request ID and proves the success claim is denied
 after exactly one write. The mandatory CI matrix remains intact.
 These are additional verification checks, not a replacement for Item 3
 live authenticated tenant isolation and server-owned immutable storage.
+
+
+## Historical policy eligibility on recovery (fingerprints are not consent)
+
+The private `db/typed_note_review_fingerprint.sql` now exports
+`bm_intake_private.matches_approved_scope_services`, a shared
+service-role-only, immutable PostgreSQL validator used by both the
+revision 2→3 human scope CAS **and** read-only revision 3 recovery.
+It checks sorted, in-range selected candidate indices, unique selected
+service codes, supported `charged`/`included` billing, tenant policy
+exclusions, exact approved `optionalAddon` consent and no unselected
+or duplicate acknowledgements. Neither caller-supplied hashes nor
+a validly structured selected-service fingerprint proves these rules.
+
+For durable revision 3 reads, `db/typed_note_scope_inspect.sql` now
+loads the actual immutable **historical approved policy JSON**, not just
+its SHA-256, and independently rechecks selected service eligibility
+before classifying any read as matching, different, or stale. This
+preserves the meaning of a stored review after a newer ratecard becomes
+active, but refuses to legitimize corrupt historical service choices.
+The live CAS uses the same helper rather than a separate eligibility
+implementation, reducing policy rule drift.
+
+`ci/intake_policy_fingerprint_bridge.test.mjs` now simulates a hostile
+**privileged direct PostgreSQL UPDATE** of a separate revision 2 source
+to a revision 3 scope that has a valid source hash, canonical
+candidate hash, exact review key, valid selection SHA and approved policy
+revision. The selected service is nevertheless either `pending` or
+an optional service without separate consent. The isolated private
+reconciliation must reject both as invalid historical policy evidence.
+Each hostile write runs in a rollback-only transaction; a valid optional
+service with explicit consent is the positive control. This proves
+recovery does not turn a structurally correct checksum into an
+approval, billing right or verified consent.
+
+**Still not production approval:** The test uses synthetic two-person
+approval and disposable PostgreSQL. It cannot validate actual user
+signatures, live Supabase Auth/RLS/Storage, antivirus or organizational
+policy ownership. No public route, customer send or billing is enabled.
