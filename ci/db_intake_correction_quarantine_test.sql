@@ -32,7 +32,7 @@ declare
  source_sha text;
  candidate_sha text;
  candidates jsonb;
- review jsonb;
+ expected_review jsonb;
  outcome record;
 begin
  select source_id,original_sha256 into src,text_sha from
@@ -44,11 +44,11 @@ begin
    'serviceCode','painting','units',2,
    'start',0,'end',length(txt)+1,'excerpt',txt));
  candidate_sha:=bm_intake_private.canonical_candidate_sha256(candidates);
- review:=jsonb_build_object('state','needs-human-review','kind','typed-note',
+ expected_review:=jsonb_build_object('state','needs-human-review','kind','typed-note',
   'sourceSha256',source_sha,'candidatesSha256',candidate_sha,
   'candidates',candidates);
  perform bm_intake_private.commit_typed_note_extraction(
-  org,creator,src,text_sha,review);
+  org,creator,src,text_sha,expected_review);
 
  -- Untrusted direct update cannot create a quarantined source without a
  -- private receipt, even with service_role UPDATE rights.
@@ -60,6 +60,16 @@ begin
  exception when insufficient_privilege then null; end;
 
  -- Foreign actor, tenant, invalid digest/reason must NOT create ledger rows.
+ begin
+  perform bm_intake_private.quarantine_typed_note_for_correction(
+   org,creator,src,null,source_sha,candidate_sha,repeat('1',64),'Reason');
+  raise exception 'Null expected revision bypassed optimistic lock';
+ exception when invalid_parameter_value then null; end;
+ begin
+  perform bm_intake_private.quarantine_typed_note_for_correction(
+   org,creator,src,2,repeat('0',64),candidate_sha,repeat('1',64),'Reason');
+  raise exception 'Forged source fingerprint quarantined source';
+ exception when invalid_parameter_value then null; end;
  begin
   perform bm_intake_private.quarantine_typed_note_for_correction(
    org,foreign_actor,src,2,source_sha,candidate_sha,repeat('1',64),'Reason');
@@ -91,7 +101,7 @@ begin
  end if;
  if (select count(*) from public.bm_intake_sources
   where organization_id=org and id=src and revision=4
-   and original_text=txt and text_sha256=text_sha and review=review
+   and original_text=txt and text_sha256=text_sha and review=expected_review
    and scope_review is null
    and correction_hold->>'state'='quarantined-awaiting-correction')<>1
  or (select count(*) from bm_intake_private.correction_holds
@@ -109,7 +119,7 @@ begin
  -- Old extraction SQL likewise rejects changed revision.
  begin
   perform bm_intake_private.commit_typed_note_extraction(
-   org,creator,src,text_sha,review);
+   org,creator,src,text_sha,expected_review);
   raise exception 'Legacy extraction accepted quarantined source';
  exception when serialization_failure then null; end;
  -- Replay / stale hash / double hold impossible.

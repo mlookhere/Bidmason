@@ -141,7 +141,7 @@ declare
  v_hold jsonb;
 begin
  if p_org is null or p_actor is null or p_source is null
-   or p_expected_revision not in (2,3)
+   or p_expected_revision is null or p_expected_revision not in (2,3)
    or coalesce(p_expected_source_sha,'') !~ '^[a-f0-9]{64}$'
    or coalesce(p_expected_candidates_sha,'') !~ '^[a-f0-9]{64}$'
    or coalesce(p_request_sha,'') !~ '^[a-f0-9]{64}$'
