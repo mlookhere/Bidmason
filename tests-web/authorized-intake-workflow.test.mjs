@@ -6,6 +6,7 @@ import { emptyReviewSelection, changeReviewSelection,
   prepareReviewPreviewRequest } from "../lib/intake-review-selection.ts";
 import { readAuthorizedReviewWorkbench, previewAuthorizedWorkbenchSelection }
   from "../lib/authorized-intake-workflow.ts";
+import {buildReviewWorkbench} from "../lib/intake-review-workbench.ts";
 
 const orgA="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const orgB="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -179,4 +180,47 @@ test("draft-only or malformed policy history produces no workbench or preview",a
   previous.revisions[0].policy.pricing.services.clean.rateCents=2;
   f.states.set(orgA,previous);
   await assert.rejects(readAuthorizedReviewWorkbench(f.store,"a",ctx),/integrity/);
+});
+
+test("canonical indices and add-on order across legacy preview paths",async()=>{
+ const f=setup(),request=await selected(f,{addon:true});
+ assert.deepEqual(request.selectedIndices,[0,1]);
+ assert.deepEqual(request.acceptedAddonCodes,["floor"]);
+ const wrong=[
+   {...request,selectedIndices:[1,0]},
+   {...request,selectedIndices:[0,0]},
+   {...request,selectedIndices:[0,1.5]},
+   {...request,selectedIndices:[0,Number.MAX_SAFE_INTEGER+1]},
+   {...request,selectedIndices:Array.from({length:51},(_,i)=>i)},
+   {...request,acceptedAddonCodes:["floor","floor"]},
+   {...request,acceptedAddonCodes:["FLOOR"]},
+ ];
+ for(const invalid of wrong) {
+   await assert.rejects(previewAuthorizedWorkbenchSelection(f.store,"a",{
+     ...ctx,request:invalid,
+   }),/noncanonical|incomplete/);
+ }
+ // The shared helper is also used by the legacy store-backed commit flow.
+ const model=await readAuthorizedReviewWorkbench(f.store,"a",ctx);
+ assert.throws(()=>prepareReviewPreviewRequest(model,{
+   key:model.key,selectedIndices:[1,0],acceptedAddonCodes:["floor"],
+ }),/noncanonical/);
+});
+
+test("multiple optional acknowledgements must use a single canonical order",()=>{
+ const model=buildReviewWorkbench(original,review,{
+   ...pricing(1),pricing:{
+     ...pricing(1).pricing,services:{
+       ...pricing(1).pricing.services,
+       clean:{...pricing(1).pricing.services.clean,optionalAddon:true},
+     },
+   },
+ });
+ const correct={key:model.key,selectedIndices:[0,1],
+   acceptedAddonCodes:["clean","floor"]};
+ assert.deepEqual(prepareReviewPreviewRequest(model,correct).acceptedAddonCodes,
+   ["clean","floor"]);
+ assert.throws(()=>prepareReviewPreviewRequest(model,{
+   ...correct,acceptedAddonCodes:["floor","clean"],
+ }),/noncanonical/);
 });
