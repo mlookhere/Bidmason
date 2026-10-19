@@ -34,6 +34,13 @@ function activeReceipt(result:unknown):boolean {
   if(!result||typeof result!=="object"||Array.isArray(result))return false;
   const property=Object.getOwnPropertyDescriptor(result,"rows");
   if(!property||!Object.hasOwn(property,"value"))return false;
+  // Ordinary pg SELECT results report one row and the SELECT command.
+  // Never accept a contradictory or accessor-backed metadata receipt.
+  for(const [key,expected] of [["rowCount",1],["command","SELECT"]] as const){
+    const metadata=Object.getOwnPropertyDescriptor(result,key);
+    if(metadata && (!Object.hasOwn(metadata,"value")
+      || metadata.value!==expected))return false;
+  }
   const rows=property.value;
   if(!Array.isArray(rows)||rows.length!==1
     || Object.getPrototypeOf(rows)!==Array.prototype
