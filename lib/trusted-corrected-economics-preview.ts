@@ -120,7 +120,9 @@ function createInternalCorrectedEconomicsPreview(
       if(!exact(input,["organizationId","sourceId","expectedDecisionSha256","session"])
         || !uuid(input.organizationId)||!uuid(input.sourceId)
         || !sha(input.expectedDecisionSha256)
-        || input.session===null || input.session===undefined){
+        || typeof input.session!=="string"
+        || input.session.length===0 || input.session.length>16384
+        || /[\\x00-\\x20\\x7f]/.test(input.session)){
         throw new TypeError("Invalid private corrected economics selector");
       }
       // Capture selectors BEFORE auth await: do not trust mutable browser data.
