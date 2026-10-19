@@ -58,7 +58,7 @@ function sha(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function validateInput(request: TypedNoteCreateRequest): void {
+export function validateTypedNoteCreateRequest(request: TypedNoteCreateRequest): void {
   if (!request || typeof request !== "object" || Array.isArray(request)
     || Object.keys(request).length !== 3
     || !["organizationId", "requestId", "text"].every(k =>
@@ -96,7 +96,7 @@ function build(request: TypedNoteCreateRequest, textSha256: string,
  * originally created record has advanced. We never infer approval from it.
  * This contract currently supports source revisions 1, 2, and 3 only.
  */
-function verify(record: TypedNoteSourceRecord | null,
+export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null,
   request: TypedNoteCreateRequest, textSha256: string, actorId: string): void {
   if (!record || record.organizationId !== request.organizationId
     || typeof record.sourceId !== "string" || !UUID.test(record.sourceId)
@@ -178,7 +178,7 @@ export async function commitAuthorizedTypedNote(
   | { state: "ready-for-extraction"; organizationId: string; sourceId: string; revision: 1; textSha256: string }
   | { state: "existing-source"; organizationId: string; sourceId: string; revision: 2 | 3; textSha256: string }
 > {
-  validateInput(request);
+  validateTypedNoteCreateRequest(request);
   const textSha256 = sha(request.text);
   const created = await store.createAuthorized({
     session, organizationId: request.organizationId,
@@ -189,12 +189,12 @@ export async function commitAuthorizedTypedNote(
   if (!created || typeof created.authenticatedActorId !== "string") {
     throw new Error("Trusted typed-note create returned no verified actor");
   }
-  verify(created.record, request, textSha256, created.authenticatedActorId);
+  verifyTypedNoteSourceRecord(created.record, request, textSha256, created.authenticatedActorId);
   const persisted = await store.readAuthorized({
     session, organizationId: request.organizationId,
     sourceId: created.record.sourceId,
   });
-  verify(persisted, request, textSha256, created.authenticatedActorId);
+  verifyTypedNoteSourceRecord(persisted, request, textSha256, created.authenticatedActorId);
   // A provider response or replay may be false; compare the full data instead
   // of merely trusting the source UUID or a browser-supplied checksum.
   if (JSON.stringify(persisted) !== JSON.stringify(created.record)) {
