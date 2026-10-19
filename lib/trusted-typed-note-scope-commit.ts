@@ -204,7 +204,8 @@ export function createTrustedTypedNoteScopeCommit(
       if (after.revision!==3 || !isDeepStrictEqual(after.scopeReview,scope)
         || !isDeepStrictEqual(after.original,record.original)
         || !isDeepStrictEqual(after.review,record.review)
-        || !isDeepStrictEqual(after.extractionAudit,record.extractionAudit)) {
+        || !isDeepStrictEqual(after.extractionAudit,record.extractionAudit)
+        || !isDeepStrictEqual(after.creationAudit,record.creationAudit)) {
         throw new Error("Scope read-back indeterminate; inspect, never retry");
       }
       const latest=await activePolicy(input,creator);
