@@ -26,7 +26,7 @@ function reviewed(status) {
     decision:status,expectedRevision:1,expectedSha256:sha});
 }
 function fixture(history=null,{advanceAfterFirst=false,changeActor=false,
-  reviewerRole=true}={}) {
+  reviewerRole=true,afterFirstRead=()=>{}}={}) {
   let stored=history,reads=0,writes=0,actor=reviewer,queryCalls=0;
   const auth={async verifyActiveSession(session) {
     if(session==="sub")return {userId:submitter};
@@ -40,6 +40,7 @@ function fixture(history=null,{advanceAfterFirst=false,changeActor=false,
     const current=structuredClone(stored);
     if(advanceAfterFirst&&reads===1)stored=reviewed("approve");
     if(changeActor&&reads===1)actor=other;
+    if(reads===1)afterFirstRead();
     return current;
   }};
   const db={async query(statement,params) {
@@ -121,4 +122,61 @@ test("forged SHA, changed actor and unsafe selectors fail closed with no writes"
     assert.equal(f.queryCalls,0);
     assert.equal(f.writes,0);
   }
+});
+
+test("policy-event recovery locks reviewer decision and tenant across two reads",async()=>{
+  const input={...reviewInput};
+  const f=fixture(reviewed("approve"),{afterFirstRead(){
+    input.organizationId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    input.revision=100;
+    input.policySha256="f".repeat(64);
+    input.kind="submission";
+    input.decision="reject";
+    input.session="sub";
+  }});
+  const actual=await f.service.reconcile(input);
+  assert.deepEqual(actual,{organizationId:org,revision:1,policySha256:sha,
+    state:"matching-record-at-read",observedStatus:"approved"});
+  assert.equal(f.reads,2);
+  assert.equal(f.queryCalls,2);
+  assert.equal(f.writes,0);
+});
+
+test("policy-event recovery rejects hostile selector descriptors before any Auth read",async()=>{
+  const hidden={...reviewInput};
+  Object.defineProperty(hidden,"send",{value:true});
+  const symbol={...reviewInput};
+  symbol[Symbol("send")]=true;
+  const inherited=Object.assign(Object.create({send:true}),reviewInput);
+  let calls=0;
+  const accessor={...reviewInput};
+  Object.defineProperty(accessor,"decision",{enumerable:true,
+    get(){calls++;throw Error("unsafe decision getter");}});
+  const accessorOrg={...reviewInput};
+  Object.defineProperty(accessorOrg,"organizationId",{enumerable:true,
+    get(){calls++;throw Error("unsafe organization getter");}});
+  for(const bad of [hidden,symbol,inherited,accessor,accessorOrg]){
+    const f=fixture(reviewed("approve"));
+    await assert.rejects(f.service.reconcile(bad),
+      /Invalid private policy event recovery selector/);
+    assert.equal(f.reads,0);
+    assert.equal(f.queryCalls,0);
+    assert.equal(f.writes,0);
+  }
+  assert.equal(calls,0);
+});
+
+test("forged current membership row cannot report authorized policy review",async()=>{
+  const guarded={...reviewInput};
+  let reads=0;
+  const auth={async verifyActiveSession(){return {userId:reviewer}}};
+  const store={async readAuthorized(){reads++;return reviewed("approve")}};
+  const poison=[{allowed:1}];
+  Object.defineProperty(poison[0],"allowed",{enumerable:true,
+    get(){throw Error("untrusted membership getter executed");}});
+  const db={async query(){return {rows:poison}}};
+  await assert.rejects(createTrustedCompanyPolicyEventRecovery(
+    auth,store,db).reconcile(guarded),
+    /Current independent policy reviewer permission required/);
+  assert.equal(reads,0);
 });
