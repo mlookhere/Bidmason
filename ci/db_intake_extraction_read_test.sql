@@ -28,7 +28,7 @@ declare
  sha text;
 begin
  select t.source_id,t.original_sha256 into source_id,sha
- from bm_intake_private.create_typed_note(org,creator,req,'Clean café 🧱');
+ from bm_intake_private.create_typed_note(org,creator,req,'Clean café 🧱') t;
  select record into result from bm_intake_private.read_typed_note_for_extraction(
     org,creator,source_id);
  if result is null
