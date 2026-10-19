@@ -181,6 +181,42 @@ export function createTrustedTypedNoteScopeCommit(
     }
   }
 
+  // Rebuild canonical reviewed economics from server-owned evidence and the
+  // active, independently approved company ratecard. Never trust saved prices.
+  function checkedScope(
+    record: TypedNoteSourceRecord,
+    active: {revision:number;sha:string;policy:VersionedEconomicsPolicy},
+    creator: string,
+    requested: Pick<Request,"reviewKey"|"selectedIndices"|"acceptedAddonCodes">,
+  ) {
+    if (!record.review) throw new Error("Missing stored extraction review");
+    const model=buildReviewWorkbench(record.original,record.review,active.policy);
+    if (model.key!==requested.reviewKey) {
+      throw new Error("Scope or approved company policy changed; refresh");
+    }
+    const selection=prepareReviewPreviewRequest(model,{
+      key:model.key,selectedIndices:requested.selectedIndices,
+      acceptedAddonCodes:requested.acceptedAddonCodes,
+    });
+    const preview=previewReviewedEconomics(record.original,record.review,
+      selection.selectedIndices,active.policy,selection.acceptedAddonCodes);
+    if (preview.economics.policySha256!==active.sha
+      || preview.economics.policyRevision!==active.revision) {
+      throw new Error("Approved policy fingerprint differs from scope preview");
+    }
+    const expected={
+      state:"reviewed-for-proposal-draft" as const,sourceRevision:3,
+      reviewedBy:creator,reviewKey:model.key,
+      sourceSha256:record.review.sourceSha256,
+      candidatesSha256:record.review.candidatesSha256,
+      selectedIndices:selection.selectedIndices,
+      acceptedAddonCodes:selection.acceptedAddonCodes,
+      policyRevision:active.revision,policySha256:active.sha,
+      reviewedSelectionSha256:preview.reviewedSelectionSha256,
+    };
+    return {expected,preview};
+  }
+
   return {
     /** Source-backed, read-only, currently authorized review workbench. */
     async readWorkbench(input: Selector) {
@@ -222,6 +258,39 @@ export function createTrustedTypedNoteScopeCommit(
     },
 
     /**
+     * Internal read-only handoff to a later proposal DRAFT step.
+     * Caller supplies only a session and tenant-owned source ID: selection,
+     * actor, current ratecard and all money come from private primary records.
+     * This is NOT quote, operator/contractor approval, or permission to send.
+     */
+    async readReviewedDraft(input: Selector) {
+      validateSelector(input);
+      const creator=await actor(input.session);
+      const record=await source(input,creator);
+      if (record.revision!==3 || !record.review || !record.scopeReview
+        || record.scopeReview.reviewedBy!==creator) {
+        throw new Error("No creator-owned, persisted reviewed scope available");
+      }
+      const active=await activePolicy(input,creator);
+      const saved=record.scopeReview;
+      if (saved.policyRevision!==active.revision || saved.policySha256!==active.sha) {
+        throw new Error("Reviewed scope policy superseded; renewed review required");
+      }
+      const {expected,preview}=checkedScope(record,active,creator,{
+        reviewKey:saved.reviewKey,selectedIndices:saved.selectedIndices,
+        acceptedAddonCodes:saved.acceptedAddonCodes,
+      });
+      if (!isDeepStrictEqual(saved,expected)) {
+        throw new Error("Persisted reviewed scope does not match approved economics");
+      }
+      await stable(input,creator,record,active);
+      return {state:"internal-reviewed-scope-only" as const,
+        organizationId:input.organizationId,sourceId:input.sourceId,
+        sourceRevision:3 as const,reviewedBy:creator,
+        reviewedSelectionSha256:saved.reviewedSelectionSha256,preview};
+    },
+
+    /**
      * Recover an uncertain 2->3 scope CAS using two fresh creator-owned
      * primary source AND policy observations. No SQL mutations, no retries.
      * Even a matching snapshot does not prove which attempt wrote it, and
@@ -259,19 +328,9 @@ export function createTrustedTypedNoteScopeCommit(
       // pricing fingerprint even when no scope CAS is observed (revision 2).
       // Otherwise an invalid selection could be called "unreviewed" merely
       // because the key matched, misleading an ambiguous-write investigation.
-      let selection: ReturnType<typeof prepareReviewPreviewRequest>;
-      let preview: ReturnType<typeof previewReviewedEconomics>;
+      let expected: NonNullable<TypedNoteSourceRecord["scopeReview"]>;
       try {
-        selection=prepareReviewPreviewRequest(model,{
-          key:model.key,selectedIndices:input.selectedIndices,
-          acceptedAddonCodes:input.acceptedAddonCodes,
-        });
-        preview=previewReviewedEconomics(second.original,second.review!,
-          selection.selectedIndices,secondPolicy.policy,selection.acceptedAddonCodes);
-        if (preview.economics.policyRevision!==secondPolicy.revision
-          || preview.economics.policySha256!==secondPolicy.sha) {
-          return {...selector,state:"different-scope-at-read"};
-        }
+        ({expected}=checkedScope(second,secondPolicy,creator,input));
       } catch {
         return {...selector,state:"different-scope-at-read"};
       }
@@ -281,16 +340,6 @@ export function createTrustedTypedNoteScopeCommit(
       if (!second.scopeReview) {
         return {...selector,state:"different-scope-at-read"};
       }
-      const expected: typeof second.scopeReview={
-        state:"reviewed-for-proposal-draft",sourceRevision:3,
-        reviewedBy:creator,reviewKey:model.key,
-        sourceSha256:second.review!.sourceSha256,
-        candidatesSha256:second.review!.candidatesSha256,
-        selectedIndices:selection.selectedIndices,
-        acceptedAddonCodes:selection.acceptedAddonCodes,
-        policyRevision:secondPolicy.revision,policySha256:secondPolicy.sha,
-        reviewedSelectionSha256:preview.reviewedSelectionSha256,
-      };
       if (!isDeepStrictEqual(second.scopeReview,expected)) {
         return {...selector,state:"different-scope-at-read"};
       }
