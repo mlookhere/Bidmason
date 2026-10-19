@@ -337,3 +337,67 @@ test("unreviewed scope recovery requires eligible chosen services and optional c
  assert.equal(valid.writes,0);
 });
 
+
+test("readReviewedDraft requires stored scope and returns only source-backed internal preview",async()=>{
+ const f=fixture();
+ const selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+ await assert.rejects(f.api.readReviewedDraft(selector),/persisted reviewed scope/);
+ assert.equal(f.writes,0);
+ const committed=await f.api.commit(request);
+ const callsBefore=f.calls.length;
+ const authBefore=f.authCalls;
+ const draft=await f.api.readReviewedDraft(selector);
+ assert.equal(draft.state,"internal-reviewed-scope-only");
+ assert.equal(draft.organizationId,ORG);
+ assert.equal(draft.sourceId,SOURCE);
+ assert.equal(draft.sourceRevision,3);
+ assert.equal(draft.reviewedBy,ACTOR);
+ assert.equal(draft.reviewedSelectionSha256,committed.reviewedSelectionSha256);
+ assert.equal(draft.preview.state,"preview-only");
+ assert.equal(draft.preview.economics.policySha256,companyPolicySha256(policy));
+ assert.equal(draft.preview.economics.policyRevision,1);
+ assert.equal(draft.preview.selectedServices[0].addonAccepted,true);
+ assert.equal(f.writes,1);
+ assert.equal(f.calls.length-callsBefore,4);
+ assert.equal(f.authCalls-authBefore,5);
+ assert.equal(Object.hasOwn(draft,"approved"),false);
+ assert.equal(Object.hasOwn(draft,"quote"),false);
+ assert.equal(Object.hasOwn(draft,"send"),false);
+});
+test("readReviewedDraft handles lost acknowledgement without redoing CAS",async()=>{
+ const f=fixture({lostAck:true});
+ await assert.rejects(f.api.commit(request),/Provider acknowledgement lost/);
+ const draft=await f.api.readReviewedDraft({
+   session:"signed-in",organizationId:ORG,sourceId:SOURCE,
+ });
+ assert.equal(draft.state,"internal-reviewed-scope-only");
+ assert.equal(draft.reviewedSelectionSha256,f.record.scopeReview.reviewedSelectionSha256);
+ assert.equal(f.writes,1);
+});
+test("readReviewedDraft denies forged selectors, stale policies and corrupted evidence",async()=>{
+ const selector={session:"signed-in",organizationId:ORG,sourceId:SOURCE};
+ const forged=fixture();
+ for(const extra of [{actorId:ACTOR},{rateCents:1},{approved:true},{selectedIndices:[0]}]){
+   await assert.rejects(forged.api.readReviewedDraft({...selector,...extra}),TypeError);
+ }
+ assert.equal(forged.calls.length,0);
+ const changed=fixture();
+ await changed.api.commit(request);
+ changed.changePolicy();
+ await assert.rejects(changed.api.readReviewedDraft(selector),
+   /Reviewed scope policy superseded/);
+ assert.equal(changed.writes,1);
+ const tampered=fixture({afterWrite:({tamper})=>tamper()});
+ await assert.rejects(tampered.api.commit(request),/read-back indeterminate/);
+ await assert.rejects(tampered.api.readReviewedDraft(selector),
+   /does not match approved economics/);
+ assert.equal(tampered.writes,1);
+ const foreign=fixture();await foreign.api.commit(request);
+ foreign.switchActor();
+ await assert.rejects(foreign.api.readReviewedDraft(selector),/Creator denied/);
+ const revoked=fixture();await revoked.api.commit(request);
+ revoked.revoke();
+ await assert.rejects(revoked.api.readReviewedDraft(selector),/Session revoked/);
+ assert.equal(foreign.writes,1);
+ assert.equal(revoked.writes,1);
+});
