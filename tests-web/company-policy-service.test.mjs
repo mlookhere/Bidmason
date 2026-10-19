@@ -190,3 +190,96 @@ test("untrusted policy overrides cannot be substituted for the approved catalog"
   await assert.rejects(previewAuthorizedReviewedEconomics(f.port,"readonlyA",request()),
     /integrity/);
 });
+
+
+test("policy draft CAS persists the submitted ratecard despite delayed caller mutation",async()=>{
+  const f=fixture(),input=initial();
+  const deferred={...f.port,mutateAuthorized:args=>f.port.mutateAuthorized({
+    ...args,transform:(current,actor)=>{
+      input.organizationId=B;
+      input.expectedRevision=999;
+      input.expectedSha256="f".repeat(64);
+      input.policy.pricing.services.office.rateCents=1;
+      input.policy.excludedServiceCodes.push("office");
+      return args.transform(current,actor);
+    },
+  })};
+  const created=await submitCompanyPolicyDraft(deferred,"adminA",input);
+  assert.equal(created.organizationId,A);
+  assert.equal(created.revisions[0].policy.pricing.services.office.rateCents,7000);
+  assert.deepEqual(created.revisions[0].policy.excludedServiceCodes,["pending"]);
+  assert.equal(f.data.has(B),false);
+});
+
+test("review CAS preserves the original human decision and expected head",async()=>{
+  const f=fixture(),submitted=await submitCompanyPolicyDraft(f.port,"adminA",initial());
+  const input={organizationId:A,decision:"approve",...head(submitted)};
+  const deferred={...f.port,mutateAuthorized:args=>f.port.mutateAuthorized({
+    ...args,transform:(current,actor)=>{
+      input.organizationId=B;
+      input.decision="reject";
+      input.expectedRevision=999;
+      input.expectedSha256="0".repeat(64);
+      return args.transform(current,actor);
+    },
+  })};
+  const reviewed=await reviewCompanyPolicyDraft(deferred,"reviewA",input);
+  assert.equal(reviewed.organizationId,A);
+  assert.equal(reviewed.activeRevision,1);
+  assert.equal(reviewed.revisions[0].reviewedBy,reviewer);
+  assert.equal(f.data.has(B),false);
+});
+
+test("economics preview binds original tenant, evidence and selection before authorized reads",async()=>{
+  const f=fixture();await approved(f);
+  const baseline=await previewAuthorizedReviewedEconomics(f.port,"readonlyA",request());
+  const input={...request(),selection:[0],acceptedAddonCodes:[]};
+  let reads=0;
+  const store={...f.port,readAuthorized:async args=>{
+    const data=await f.port.readAuthorized(args);
+    if(++reads===1){
+      input.organizationId=B;
+      input.original.text="forged source";
+      input.review.candidates[0].units=999;
+      input.selection[0]=2;
+      input.acceptedAddonCodes.push("floor");
+    }
+    return data;
+  }};
+  const reviewed=await previewAuthorizedReviewedEconomics(store,"readonlyA",input);
+  assert.equal(reads,2);
+  assert.deepEqual(reviewed,baseline);
+});
+
+test("policy endpoints refuse getter-backed, hidden and decorated price data before adapters",async()=>{
+  const f=fixture();
+  let malicious=0,calls=0;
+  const store={...f.port,mutateAuthorized:args=>{calls++;return f.port.mutateAuthorized(args)},
+    readAuthorized:args=>{calls++;return f.port.readAuthorized(args)}};
+  const hidden=initial();Object.defineProperty(hidden,"send",{value:true});
+  const nestedGetter=initial();
+  Object.defineProperty(nestedGetter.policy.pricing.services.office,"rateCents",{
+    enumerable:true,get(){malicious++;throw Error("untrusted policy getter");
+    },
+  });
+  const nestedSymbol=initial();
+  nestedSymbol.policy.pricing.services.office[Symbol("approved")]=true;
+  const decoratedArray=initial();
+  Object.defineProperty(decoratedArray.policy.excludedServiceCodes,"send",{value:true});
+  for(const bad of [hidden,nestedGetter,nestedSymbol,decoratedArray]){
+    assert.throws(()=>submitCompanyPolicyDraft(store,"adminA",bad),
+      /Invalid company policy request|Invalid policy request data/);
+  }
+  const reviewerRequest={organizationId:A,decision:"approve",
+    expectedRevision:1,expectedSha256:"a".repeat(64)};
+  Object.defineProperty(reviewerRequest,"send",{value:true});
+  assert.throws(()=>reviewCompanyPolicyDraft(store,"reviewA",reviewerRequest),
+    /Invalid company policy request/);
+  const previewGetter={...request()};
+  Object.defineProperty(previewGetter,"organizationId",{enumerable:true,
+    get(){malicious++;throw Error("unsafe organization getter");}});
+  await assert.rejects(previewAuthorizedReviewedEconomics(store,"readonlyA",previewGetter),
+    /Invalid company pricing preview request/);
+  assert.equal(malicious,0);
+  assert.equal(calls,0);
+});
