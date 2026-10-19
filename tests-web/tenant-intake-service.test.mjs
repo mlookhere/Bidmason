@@ -191,3 +191,63 @@ test("null correction columns preserve legitimate original previews",async()=>{
   {...selector,request});
  assert.equal(price.economics.quote.totalCents,7000);
 });
+
+
+test("tenant workbench uses original source identity across both authorized reads",async()=>{
+ const f=fixture(),mutable={...selector};
+ f.onRead(({sourceReads})=>{
+  if(sourceReads===1){mutable.organizationId=B;mutable.sourceId=S2;}
+ });
+ const model=await readTenantIntakeWorkbench(
+  f.sourceStore,f.policyStore,"a",mutable);
+ assert.equal(model.state,"internal-review-only");
+ assert.equal(f.count().sourceReads,2);
+ assert.equal(f.count().policyReads,2);
+});
+
+test("preview request, source and tenant identities remain bound across async reads",async()=>{
+ const f=fixture(),request=await selected(f);
+ const mutable={...selector,request};
+ f.onRead(({sourceReads})=>{
+  if(sourceReads===3){
+   mutable.organizationId=B;
+   mutable.sourceId=S2;
+   mutable.request.reviewKey="0".repeat(64);
+   mutable.request.selectedIndices[0]=1;
+   mutable.request.acceptedAddonCodes.push("floor");
+  }
+ });
+ const result=await previewTenantIntakeSelection(
+  f.sourceStore,f.policyStore,"a",mutable);
+ assert.equal(result.state,"preview-only");
+ assert.equal(result.economics.quote.totalCents,7000);
+ assert.deepEqual(result.selectedServices.map(row=>row.serviceCode),["office"]);
+ assert.equal(f.count().sourceReads,4);
+ assert.equal(f.count().policyReads,4);
+});
+
+test("tenant preview rejects accessor-backed selectors and forged review data before any authorized read",async()=>{
+ const f=fixture(),request=await selected(f),before=f.count().sourceReads;
+ let called=0;
+ const selectorGetter={...selector,request};
+ Object.defineProperty(selectorGetter,"sourceId",{enumerable:true,
+  get(){called++;throw Error("untrusted source getter");}});
+ const requestGetter={...selector,request:{...request}};
+ Object.defineProperty(requestGetter.request,"reviewKey",{enumerable:true,
+  get(){called++;throw Error("untrusted key getter");}});
+ const indexGetter={...selector,request:{...request,selectedIndices:[0]}};
+ Object.defineProperty(indexGetter.request.selectedIndices,"0",{enumerable:true,
+  get(){called++;throw Error("untrusted index getter");}});
+ const hidden={...selector,request:{...request}};
+ Object.defineProperty(hidden.request,"send",{value:true});
+ const decorated={...selector,request:{...request,acceptedAddonCodes:[]}};
+ Object.defineProperty(decorated.request.acceptedAddonCodes,"send",{value:true});
+ const symbolic={...selector,request:{...request}};
+ symbolic.request[Symbol("approval")]=true;
+ for(const invalid of [selectorGetter,requestGetter,indexGetter,hidden,decorated,symbolic]){
+  await assert.rejects(previewTenantIntakeSelection(f.sourceStore,f.policyStore,
+   "a",invalid),/Invalid tenant intake record selector|Invalid internal preview request/);
+ }
+ assert.equal(called,0);
+ assert.equal(f.count().sourceReads,before);
+});
