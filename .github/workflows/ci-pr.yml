@@ -148,3 +148,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql
       - name: Test tenant membership, duplicates, payload conflicts, RLS and FK
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
+      - name: Install tenant-authorized read-only request ledger lookup
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_lookup.sql
+      - name: Prove authorized recovery, actor isolation and revocation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_lookup_test.sql

@@ -48,3 +48,30 @@ yet authenticate that a reviewer is authorized for the progression; a
 future trusted row-locking backend adapter must enforce source-specific
 actor/role, audit evidence and exact revision CAS. Database owners and
 privileged bypass roles are outside a user-facing authorization model.
+
+
+## Read-only request reconciliation (staged)
+
+\`db/typed_note_lookup.sql\` supplies an additional private, SECURITY
+INVOKER, \`service_role\`-only SQL function. It resolves the original
+tenant/verified-actor/request ledger key to a single immutable creation
+receipt plus **current** typed-note source JSON in one transaction snapshot.
+It checks and locks current tenant membership BEFORE returning either a
+match or zero rows, joins every ledger identity and text digest field, and
+takes share locks on both rows. It does not insert, update, send, approve,
+or create another source. Revoked actors receive a permission error, not a
+false "not found" result. Another actor's same request key is isolated.
+
+The result is designed for a future server-only adapter implementing
+\`TrustedTypedNoteLedger.lookupAuthorized\`. Its \`record\` is a JSONB
+object with all eight expected typed-note keys; the trusted adapter must
+map snake_case SQL outputs to that interface and derive actor UUID from a
+**verified, non-revoked session**, never from browser input. Two calls in
+\`reconcileAuthorizedTypedNote\` independently reauthorize against primary
+PostgreSQL. Two absent responses still never authorize a blind retry.
+This is not an exposed PostgREST RPC or live Supabase migration.
+
+The \`intake-db\` CI gate installs and tests the lookup after its original
+synthetic create/ledger tests. It exercises matching revision 1/2/3 reads,
+cross-tenant and same-tenant different-actor denials, absence, revoked
+membership, client-role privilege denial, and read-only no-duplication.
