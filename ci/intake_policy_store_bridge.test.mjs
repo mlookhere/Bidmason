@@ -32,6 +32,7 @@ function databaseQuery(statement,params) {
     "select submitted_revision,submitted_sha256",
     "select reviewed_revision,reviewed_sha256,reviewed_status",
     "select h.revision,h.policy_sha256,v.policy,",
+    "select v.revision,v.policy_sha256,v.policy,",
     "select activated_revision, activated_sha256",
   ];
   if(!allowed.some(prefix=>statement.startsWith(prefix)))throw Error("Unexpected policy SQL");
