@@ -128,3 +128,62 @@ test("internal economics preview rejects caller-provided quote authority and amo
  assert.equal(previewCompanyEconomics(clean,[input]).totalWithTaxCents,
    base.totalWithTaxCents);
 });
+
+test("policy preview uses one canonical revision for prices, costs and SHA",()=>{
+ const policy=structuredClone(clean);
+ const original=previewCompanyEconomics(policy,[{serviceCode:"office",units:2}]);
+ assert.equal(original.policyRevision,1);
+ assert.equal(original.economics,undefined);
+ assert.equal(original.quote.totalCents,14000);
+ assert.equal(original.estimatedDirectCostsCents,8000);
+ policy.pricing.services.office.rateCents=8000;
+ policy.unitDirectCostsCents.office=5000;
+ const changed=previewCompanyEconomics(policy,[{serviceCode:"office",units:2}]);
+ assert.equal(changed.quote.totalCents,16000);
+ assert.equal(changed.estimatedDirectCostsCents,10000);
+ assert.notEqual(original.policySha256,changed.policySha256);
+ assert.equal(original.quote.totalCents,14000);
+});
+
+test("untrusted policy getters never run before quote and hash evaluation",()=>{
+ let reads=0;
+ for(const variant of ["rate","tax","directCosts"]){
+  const input=structuredClone(clean);
+  if(variant==="rate"){
+   Object.defineProperty(input.pricing.services.office,"rateCents",{
+    enumerable:true,get(){reads++;return 1;},
+   });
+  }else if(variant==="tax"){
+   Object.defineProperty(input.tax,"bps",{
+    enumerable:true,get(){reads++;return 10000;},
+   });
+  }else{
+   Object.defineProperty(input.unitDirectCostsCents,"office",{
+    enumerable:true,get(){reads++;return 1;},
+   });
+  }
+  assert.throws(()=>previewCompanyEconomics(input,[{serviceCode:"office",units:1}]),
+   /own enumerable data/);
+ }
+ assert.equal(reads,0);
+});
+
+test("economic preview refuses hidden rate directives and custom serializers",()=>{
+ const baseline=previewCompanyEconomics(clean,[{serviceCode:"office",units:1}]);
+ const hidden=structuredClone(clean);
+ Object.defineProperty(hidden.pricing.services.office,"priceOverrideCents",{
+  value:1,enumerable:false,
+ });
+ assert.throws(()=>previewCompanyEconomics(hidden,[{serviceCode:"office",units:1}]),
+  /Policy must contain only own enumerable data fields/);
+ let toJSONCalls=0;
+ const forged=structuredClone(clean);
+ Object.defineProperty(forged.pricing.services.office,"toJSON",{
+  value(){toJSONCalls++;return {label:"Office",unit:"visit",rateCents:1,billing:"charged"};},
+ });
+ assert.throws(()=>previewCompanyEconomics(forged,[{serviceCode:"office",units:1}]),
+  /Policy must contain only own enumerable data fields/);
+ assert.equal(toJSONCalls,0);
+ assert.equal(previewCompanyEconomics(clean,[{serviceCode:"office",units:1}]).policySha256,
+  baseline.policySha256);
+});

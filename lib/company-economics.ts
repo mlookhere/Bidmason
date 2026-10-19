@@ -1,4 +1,4 @@
-import { companyPolicySha256 } from "./company-policy-fingerprint.ts";
+import { canonicalCompanyPolicyText, companyPolicySha256 } from "./company-policy-fingerprint.ts";
 import { quoteFromPolicy, type CompanyPricePolicy, type QuoteLineInput,
   type QuoteResult } from "./company-pricing.ts";
 
@@ -54,41 +54,46 @@ function roundedRate(amount: number, bps: number): number {
 export function previewCompanyEconomics(
   config: VersionedEconomicsPolicy, requested: QuoteLineInput[],
 ): EconomicsPreview {
-  if (!config || !Number.isSafeInteger(config.revision) || config.revision < 1
-    || !config.tax || !["none", "exclusive-all-charged"].includes(config.tax.method)
-    || !Number.isSafeInteger(config.tax.bps)
-    || config.tax.bps < 0 || config.tax.bps > 10000
-    || (config.tax.method === "none" && config.tax.bps !== 0)) {
+  // A single plain-data revision must drive both all amounts and the digest.
+  // The canonical serializer refuses getters, toJSON methods and hidden
+  // properties before any policy rate or cost is evaluated. A provider-owned
+  // or caller-owned object cannot alter the fingerprint after pricing.
+  const snapshot = JSON.parse(canonicalCompanyPolicyText(config)) as VersionedEconomicsPolicy;
+  if (!snapshot || !Number.isSafeInteger(snapshot.revision) || snapshot.revision < 1
+    || !snapshot.tax || !["none", "exclusive-all-charged"].includes(snapshot.tax.method)
+    || !Number.isSafeInteger(snapshot.tax.bps)
+    || snapshot.tax.bps < 0 || snapshot.tax.bps > 10000
+    || (snapshot.tax.method === "none" && snapshot.tax.bps !== 0)) {
     throw new TypeError("An explicit valid versioned tax policy is required");
   }
-  const excluded = config.excludedServiceCodes ?? [];
+  const excluded = snapshot.excludedServiceCodes ?? [];
   if (!Array.isArray(excluded) || excluded.some(code => typeof code !== "string"
-    || !Object.hasOwn(config.pricing?.services ?? {}, code))
+    || !Object.hasOwn(snapshot.pricing?.services ?? {}, code))
     || new Set(excluded).size !== excluded.length) {
     throw new TypeError("Invalid company service exclusions");
   }
   if (!Array.isArray(requested) || requested.some(input => excluded.includes(input.serviceCode))) {
     throw new Error("Company-excluded service cannot be quoted");
   }
-  const quote = quoteFromPolicy(config.pricing, requested);
+  const quote = quoteFromPolicy(snapshot.pricing, requested);
   // Only whole-quote tax is supported in this early version. Never guess
   // taxable allocation across mixed-exempt items or minimum adjustments.
-  const taxCents = config.tax.method === "exclusive-all-charged"
-    ? roundedRate(quote.totalCents, config.tax.bps) : 0;
+  const taxCents = snapshot.tax.method === "exclusive-all-charged"
+    ? roundedRate(quote.totalCents, snapshot.tax.bps) : 0;
   const totalWithTaxCents = add(quote.totalCents, taxCents, "tax-inclusive total");
   let estimatedDirectCostsCents: number | null = null;
   let estimatedGrossMarginBps: number | null = null;
-  if (config.unitDirectCostsCents !== undefined) {
-    if (!config.unitDirectCostsCents || typeof config.unitDirectCostsCents !== "object"
-      || Array.isArray(config.unitDirectCostsCents)) {
+  if (snapshot.unitDirectCostsCents !== undefined) {
+    if (!snapshot.unitDirectCostsCents || typeof snapshot.unitDirectCostsCents !== "object"
+      || Array.isArray(snapshot.unitDirectCostsCents)) {
       throw new TypeError("Invalid company unit direct costs");
     }
     let costs = 0;
     for (const line of quote.lines) {
-      if (!Object.hasOwn(config.unitDirectCostsCents, line.serviceCode)) {
+      if (!Object.hasOwn(snapshot.unitDirectCostsCents, line.serviceCode)) {
         throw new Error("Missing direct cost for reviewed service");
       }
-      const unit = nonnegative(config.unitDirectCostsCents[line.serviceCode],
+      const unit = nonnegative(snapshot.unitDirectCostsCents[line.serviceCode],
         "unit direct cost");
       costs = add(costs, multiply(unit, line.units, "line direct costs"),
         "total direct costs");
@@ -110,8 +115,8 @@ export function previewCompanyEconomics(
   return {
     state: "preview-only",
     policyId: quote.policyId,
-    policyRevision: config.revision,
-    policySha256: companyPolicySha256(config),
+    policyRevision: snapshot.revision,
+    policySha256: companyPolicySha256(snapshot),
     quote, taxCents, totalWithTaxCents,
     estimatedDirectCostsCents, estimatedGrossMarginBps,
   };
