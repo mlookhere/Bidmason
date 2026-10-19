@@ -137,6 +137,16 @@ begin
      and revision=2;
   raise exception 'Approved policy version was mutable';
  exception when insufficient_privilege then null; end;
+ -- Direct pointer rollback must fail even though the old approved
+ -- revision is still present in immutable history.
+ begin
+   update bm_intake_private.active_policy_heads
+   set revision=1,policy_sha256=(
+     select policy_sha256 from bm_intake_private.approved_policy_versions
+      where organization_id=v_org and revision=1)
+   where organization_id=v_org;
+   raise exception 'Direct approved policy rollback was allowed';
+ exception when insufficient_privilege then null; end;
  if (select revision from bm_intake_private.active_policy_heads
    where organization_id=v_org)<>2 then
    raise exception 'Unauthorized approval changed the active head'; end if;
