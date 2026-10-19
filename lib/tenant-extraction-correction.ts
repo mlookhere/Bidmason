@@ -66,6 +66,45 @@ function exactFields(value: unknown, fields: readonly string[]): boolean {
       && Object.hasOwn(descriptor, "value");
   });
 }
+/** Persistence may add columns, but fields used for authority and digest
+ * must be own enumerable data, never inherited or accessor-backed values. */
+function dataProjection(value: unknown, fields: readonly string[]): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  return fields.every(key => {
+    const d = Object.getOwnPropertyDescriptor(value, key);
+    return d?.enumerable === true && Object.hasOwn(d, "value");
+  });
+}
+function denseArray(value: unknown, min: number, max: number): value is unknown[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length < min || value.length > max
+    || Reflect.ownKeys(value).length !== value.length + 1) return false;
+  for (let i = 0; i < value.length; i++) {
+    const d = Object.getOwnPropertyDescriptor(value, String(i));
+    if (d?.enumerable !== true || !Object.hasOwn(d, "value")) return false;
+  }
+  return true;
+}
+function inertScopeReview(value: ScopeReviewDecision): boolean {
+  if (!exactFields(value, [
+    "sourceRevision", "reviewedBy", "reviewKey", "sourceSha256",
+    "candidatesSha256", "selectedIndices", "acceptedAddonCodes",
+    "policyRevision", "policySha256", "reviewedSelectionSha256", "state",
+  ]) || !denseArray(value.selectedIndices, 1, 50)
+    || !denseArray(value.acceptedAddonCodes, 0, 50)
+    || value.selectedIndices.some(x => !Number.isSafeInteger(x) || x < 0)
+    || value.acceptedAddonCodes.some(x => typeof x !== "string")
+    || typeof value.reviewedBy !== "string"
+    || typeof value.reviewKey !== "string"
+    || typeof value.sourceSha256 !== "string"
+    || typeof value.candidatesSha256 !== "string"
+    || typeof value.policySha256 !== "string"
+    || typeof value.reviewedSelectionSha256 !== "string"
+    || !Number.isSafeInteger(value.policyRevision)) return false;
+  return true;
+}
+
 function selector(value: unknown, exact = false): asserts value is Selector {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || ![Object.prototype, null].includes(Object.getPrototypeOf(value))
@@ -130,33 +169,38 @@ function snapshotChanges(input: ExtractionCorrectionChange[]): ExtractionCorrect
 
 function checkRecord(value: TenantExtractionCorrectionRecord | null,
   target: Selector, allowPending = false): asserts value is TenantExtractionCorrectionRecord {
-  if (!value || value.organizationId !== target.organizationId
+  const invalid = "Authorized extraction correction source missing, stale or unavailable";
+  if (!dataProjection(value, [
+    "organizationId", "sourceId", "revision", "original",
+    "review", "extractionAudit", "scopeReview",
+  ]) || ["creationAudit", "pendingCorrection", "activatedCorrection"].some(
+    key => key in value && !dataProjection(value, [key]))) {
+    throw new Error(invalid);
+  }
+  if (value.organizationId !== target.organizationId
     || value.sourceId !== target.sourceId
     || !Number.isSafeInteger(value.revision) || value.revision < 2
-    || !value.original || !value.review
-    || !Array.isArray(value.extractionAudit) || value.extractionAudit.length !== 1
-    || !value.extractionAudit[0]
-    || typeof value.extractionAudit[0].actorId !== "string"
-    || !UUID.test(value.extractionAudit[0].actorId)
-    || !Number.isSafeInteger(value.extractionAudit[0].sourceRevision)
-    || value.extractionAudit[0].sourceRevision < 2
-    || value.extractionAudit[0].sourceRevision > value.revision
-    || value.extractionAudit[0].sourceSha256 !== value.review.sourceSha256
-    || value.extractionAudit[0].candidatesSha256 !== value.review.candidatesSha256
-    || (value.scopeReview !== null && value.scopeReview !== undefined
-      && (value.scopeReview.state !== "reviewed-for-proposal-draft"
-        || value.scopeReview.sourceRevision !== value.revision))
+    || !denseArray(value.extractionAudit, 1, 1)
+    || !exactFields(value.extractionAudit[0], [
+      "sourceRevision", "actorId", "sourceSha256", "candidatesSha256",
+    ])) throw new Error(invalid);
+  // Validate the complete immutable model suggestion before accessing the
+  // candidate collection, digest fields or any persisted scope decision.
+  selectReviewedServices(value.original, value.review, [0]);
+  const audit = value.extractionAudit[0];
+  if (typeof audit.actorId !== "string" || !UUID.test(audit.actorId)
+    || !Number.isSafeInteger(audit.sourceRevision)
+    || audit.sourceRevision < 2 || audit.sourceRevision > value.revision
+    || audit.sourceSha256 !== value.review.sourceSha256
+    || audit.candidatesSha256 !== value.review.candidatesSha256
+    || (value.scopeReview != null && (
+      !inertScopeReview(value.scopeReview)
+      || value.scopeReview.state !== "reviewed-for-proposal-draft"
+      || value.scopeReview.sourceRevision !== value.revision))
     || value.activatedCorrection != null
     || (!allowPending && value.pendingCorrection != null)) {
-    throw new Error("Authorized extraction correction source missing, stale or unavailable");
+    throw new Error(invalid);
   }
-  // Revalidate the entire immutable model suggestion, even unselected rows.
-  const count = value.review.candidates?.length;
-  if (!Number.isSafeInteger(count) || count < 1 || count > 50) {
-    throw new Error("Stored extraction candidates are invalid");
-  }
-  selectReviewedServices(value.original, value.review,
-    Array.from({length: count}, (_, index) => index));
 }
 
 function fingerprint(record: TenantExtractionCorrectionRecord): string {
