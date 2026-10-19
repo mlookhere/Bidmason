@@ -40,7 +40,7 @@ function fixture(afterQuery){
   afterQuery?.({revoke:()=>revoked=true,swap:()=>current=other});
   return {rows:[{projection}]};
  }};
- return {api:createTrustedCorrectedEconomicsPreview(auth,db),
+ return {api:createTrustedCorrectedEconomicsPreview(auth,db,"disposable-postgres-test-no-session-lock"),
   request:()=>({organizationId:org,sourceId:source,
    expectedDecisionSha256:decision,session:"trusted-private-session"}),
   get authCalls(){return authCalls;},get sqlCalls(){return sqlCalls;},
@@ -142,7 +142,7 @@ test("mutation of caller selector during Auth await cannot change SQL target",as
  const db={async query(sql,params) {
   seen.push(params);return {rows:[{projection:payload()}]};
  }};
- const api=createTrustedCorrectedEconomicsPreview(auth,db);
+ const api=createTrustedCorrectedEconomicsPreview(auth,db,"disposable-postgres-test-no-session-lock");
  const input={organizationId:org,sourceId:source,
   expectedDecisionSha256:decision,session:"trusted-private-session"};
  const promise=api.preview(input);
@@ -151,4 +151,30 @@ test("mutation of caller selector during Auth await cannot change SQL target",as
  const out=await promise;
  assert.equal(out.evidence.organizationId,org);
  assert.deepEqual(seen,[[org,actor,source,decision]]);
+});
+
+test("legacy four-argument pricing factory cannot be used implicitly",()=>{
+ const auth={async verifyActiveSession(){return {userId:actor};}};
+ const db={async query(){throw Error("must not be called");}};
+ assert.throws(
+  ()=>createTrustedCorrectedEconomicsPreview(auth,db),
+  /Unsafe legacy pricing preview disabled/);
+ assert.throws(
+  ()=>createTrustedCorrectedEconomicsPreview(auth,db,""),
+  /Unsafe legacy pricing preview disabled/);
+});
+
+test("legacy disposable-test opt-in still fails closed in production",()=>{
+ const auth={async verifyActiveSession(){return {userId:actor};}};
+ const db={async query(){throw Error("must not be called");}};
+ const was=process.env.NODE_ENV;
+ try {
+  process.env.NODE_ENV="production";
+  assert.throws(()=>createTrustedCorrectedEconomicsPreview(
+   auth,db,"disposable-postgres-test-no-session-lock"),
+   /Unsafe legacy pricing preview disabled/);
+ } finally {
+  if(was===undefined)delete process.env.NODE_ENV;
+  else process.env.NODE_ENV=was;
+ }
 });

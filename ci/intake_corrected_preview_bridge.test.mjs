@@ -65,7 +65,7 @@ test("PostgreSQL returns only reviewed source lines and requires digest-parity p
  assert.deepEqual(p.requested,[{serviceCode:"painting",units:3}]);
  assert.equal(p.policy.pricing.services.painting.rateCents,23000);
  assert.equal(p.evidence.policyRevision,1);
- const adapter=createTrustedCorrectedEconomicsPreview(f.auth,f.db);
+ const adapter=createTrustedCorrectedEconomicsPreview(f.auth,f.db,"disposable-postgres-test-no-session-lock");
  // No conditional pass: the database must contain precisely the canonical
  // bytes computed by the production TypeScript serializer.
  assert.equal(canonicalCompanyPolicyText(p.policy),"{\"pricing\":{\"calculationOrder\":\"surcharge-then-discount\",\"currency\":\"USD\",\"minimum\":{\"cents\":0,\"rule\":\"none\"},\"policyId\":\"correction-painting-v1\",\"services\":{\"cleaning\":{\"billing\":\"pending\",\"label\":\"Cleaning\",\"rateCents\":9900,\"unit\":\"visit\"},\"painting\":{\"billing\":\"charged\",\"label\":\"Painting\",\"optionalAddon\":false,\"rateCents\":23000,\"unit\":\"room\"}}},\"revision\":1,\"tax\":{\"bps\":0,\"method\":\"none\"}}");
@@ -82,7 +82,7 @@ test("PostgreSQL returns only reviewed source lines and requires digest-parity p
  assert.equal(f.queries,2);
 });
 test("PostgreSQL rejects creator, foreign tenant and revoked reviewer before pricing",async()=>{
- const f=setup(),adapter=createTrustedCorrectedEconomicsPreview(f.auth,f.db);
+ const f=setup(),adapter=createTrustedCorrectedEconomicsPreview(f.auth,f.db,"disposable-postgres-test-no-session-lock");
  f.as("abababab-abab-4bab-8bab-abababababab");
  await assert.rejects(adapter.preview(f.selector),/permission|privilege|required|review/i);
  f.as(commercial);

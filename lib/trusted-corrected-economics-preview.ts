@@ -60,10 +60,20 @@ export function createTrustedSessionLockedCorrectedEconomicsPreview(
   return createInternalCorrectedEconomicsPreview(auth,db,true);
 }
 
-/** Legacy staging adapter retained only for earlier read-only tests. */
+/**
+ * UNSAFE legacy four-argument SQL preview: available only to disposable
+ * integration tests that explicitly acknowledge the missing session-row
+ * lock. Hard-blocked in production, even if the caller opts in.
+ * All actual server integrations must use the session-locked factory above.
+ */
 export function createTrustedCorrectedEconomicsPreview(
   auth:ActiveSessionVerifier,db:PrivateIntakeDatabase,
+  acknowledgement?:"disposable-postgres-test-no-session-lock",
 ):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
+  if(acknowledgement!=="disposable-postgres-test-no-session-lock"
+    || process.env.NODE_ENV==="production"){
+    throw new Error("Unsafe legacy pricing preview disabled; use session-locked verifier");
+  }
   return createInternalCorrectedEconomicsPreview(auth,db,false);
 }
 function createInternalCorrectedEconomicsPreview(

@@ -135,7 +135,7 @@ test("recheck from real Auth transport rejects revoked mid-read and never querie
     policySha256:companyPolicySha256(policy),policyRevision:1},
   }}]};
  }};
- const adapter=createTrustedCorrectedEconomicsPreview(auth,db);
+ const adapter=createTrustedCorrectedEconomicsPreview(auth,db,"disposable-postgres-test-no-session-lock");
  await assert.rejects(adapter.preview({
   organizationId:org,sourceId:source,expectedDecisionSha256:sha,session:token}));
  assert.equal(lookups,1);
@@ -165,7 +165,7 @@ test("Auth-backed internal pricing succeeds only for an approved canonical proje
     policySha256:companyPolicySha256(policy),policyRevision:1},
   }}]};
  }};
- const api=createTrustedCorrectedEconomicsPreview(auth,db);
+ const api=createTrustedCorrectedEconomicsPreview(auth,db,"disposable-postgres-test-no-session-lock");
  const preview=await api.preview({
   organizationId:org,sourceId:source,expectedDecisionSha256:sha,session:token});
  assert.equal(preview.economics.quote.totalCents,69000);
