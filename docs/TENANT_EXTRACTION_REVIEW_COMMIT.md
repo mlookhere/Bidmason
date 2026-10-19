@@ -1389,3 +1389,25 @@ preview does not authorize approval, publication, or sending.
 ### Direct quote-line input hardening (October 2026)
 
 The internal-only deterministic `quoteFromPolicy` entry point now accepts only plain own, enumerable data properties (`serviceCode`, `units`, and optional explicit `addonAccepted: true`). Inherited properties/prototypes, getters, symbols, hidden keys, and an `addonAccepted` property on a nonoptional service fail closed. This matches the strict reviewed-source boundary; it does not authorize a tenant, approve company prices, publish a quote, or enable outbound sends. `tests-web/company-pricing.test.mjs` contains positive/negative regression fixtures.
+
+## Canonical extraction read-back evidence (October 2026)
+
+The server-only `TrustedExtractionStore` boundary now validates persisted
+candidate evidence **before** enumerating any candidate or computing the next
+extraction decision. A single `selectReviewedServices(original, review, [0])`
+probe checks the **whole** candidate collection, exact original excerpts,
+source/candidate digests, and each line's canonical fields; index zero is
+only an integrity probe, **never an accepted human service selection**.
+
+The extraction audit must also be a dense, undecorated array of at most one
+element, with an exact plain-data audit record containing only the four
+required fields. Getter-backed indices or audit fields, hidden or symbolic
+directives, sparse arrays, and inherited audit values fail closed without
+running their getters. Positive persisted reviews remain separately
+non-reextractable. Regression coverage is in
+`tests-web/tenant-extraction-service.test.mjs`.
+
+This enforces input integrity for test/staging stores only. A production
+store must still derive authenticated operator identity server-side and
+enforce tenant membership, source ownership and atomic revision CAS inside
+one primary database transaction. Approval, send and billing remain disabled.
