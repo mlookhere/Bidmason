@@ -181,3 +181,37 @@ test("malicious model-side price and spoofed offsets never reach CAS",async()=>{
   assert.equal(f.stored().revision,1);
   assert.equal(f.calls.filter(x=>x.sql.includes("commit_typed_note_extraction")).length,0);
 });
+
+test("real primary SQL reconciles an ambiguous write without replaying CAS",async()=>{
+  const f=fixture(),original=f.db.query;
+  f.db.query=async(sql,params)=>{
+    const result=await original(sql,params);
+    if(sql.includes("commit_typed_note_extraction"))
+      throw Error("simulated lost commit response");
+    return result;
+  };
+  const api=createTrustedTypedNoteExtraction(f.auth,f.db);
+  await assert.rejects(api.commit(f.input),/lost commit response/);
+  assert.equal(f.stored().revision,2);
+  const prior=f.calls.length;
+  const proof=await api.reconcile(f.input);
+  assert.equal(proof.state,"matching-extraction-at-read");
+  assert.equal(proof.revision,2);
+  assert.equal(proof.candidatesSha256,f.stored().review.candidatesSha256);
+  assert.equal(f.calls.length,prior+2);
+  assert.equal(f.calls.filter(x=>x.sql.includes("commit_typed_note_extraction")).length,1);
+  assert.equal(Object.hasOwn(proof,"approved"),false);
+});
+
+test("real primary SQL reads do not turn absence of review into rollback proof",async()=>{
+  const f=fixture();
+  const result=await f.api.reconcile(f.input);
+  assert.deepEqual(result,{state:"unprocessed-at-read",
+    organizationId:ORG,sourceId:f.sourceId});
+  assert.equal(f.stored().revision,1);
+  assert.equal(f.calls.length,2);
+  assert.ok(f.calls.every(x=>x.sql.includes("read_typed_note_for_extraction")));
+  f.revokeMembership();
+  await assert.rejects(f.api.reconcile(f.input));
+  assert.equal(f.stored().revision,1);
+});
