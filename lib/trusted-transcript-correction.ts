@@ -175,7 +175,8 @@ export async function commitAuthorizedTranscriptCorrection(
         },
         correctionAudit: [...current.correctionAudit, audit],
       };
-      prepared.record = next;
+      // Snapshot expected bytes before any adapter can mutate the output.
+      prepared.record = structuredClone(next);
       return next;
     },
   });

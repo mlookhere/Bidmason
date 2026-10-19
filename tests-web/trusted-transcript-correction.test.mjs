@@ -194,3 +194,16 @@ test("permission revocation after write but before read-back prevents confirmati
  await assert.rejects(commitAuthorizedTranscriptCorrection(store,"editor",input),/Unauthorized/);
  assert.equal(f.get().correctionAudit.length,1); // Durable commit may have happened.
 });
+
+test("in-place mutation of callback output cannot rewrite expected persisted audit",async()=>{
+ const f=fixture(),input=await prepare(f);
+ const store={readAuthorized:f.store.readAuthorized,
+  async mutateAuthorized({transform}){
+   const result=transform(f.get(),ACTOR);
+   result.correctionAudit[0].actorId=OTHER;
+   f.put(result);
+   return result;
+  }};
+ await assert.rejects(commitAuthorizedTranscriptCorrection(store,"editor",input),/did not confirm commit/);
+ assert.equal(f.get().correctionAudit[0].actorId,OTHER);
+});
