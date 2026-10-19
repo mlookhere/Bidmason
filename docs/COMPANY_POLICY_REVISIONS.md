@@ -1,0 +1,31 @@
+# Item 4 — immutable company pricing revision transitions
+
+\`lib/company-policy-revisions.ts\` adds pure state transitions over
+organization-scoped draft, approved, and rejected pricing revisions.
+Every draft has an exact revision number and deterministic content
+SHA-256; a second, distinct reviewer must explicitly approve or reject.
+An approved predecessor remains active during review or rejection of
+the successor. The active revision changes only after an explicit,
+independent approval. Pending/unapproved services are allowed in a
+draft catalog but still cannot be quoted by the economics engine.
+
+The caller supplies the **expected latest revision and SHA-256** to
+prevent stale update attempts. All transitions clone snapshots and
+verify the complete input history for revision gaps and modifications;
+a persisted adapter must enforce the expected head atomically, not just
+compare it in memory. Pricing validation rejects invalid rules, negative
+or unsafe integer cents, unsupported service states, tax mismatches
+and unknown excluded service codes.
+
+**Not a security authorization implementation:** This module accepts
+opaque caller-provided actor IDs, so its distinct reviewer rule is only
+a domain invariant. A trusted server/storage adapter must derive actor
+identity and organization membership from authenticated sessions, apply
+row-level protection and durable compare-and-swap transactions, and
+retain immutable approval evidence. No production policy records,
+database migrations, sending, customer forms, or uploads are enabled.
+
+\`tests-web/company-policy-revisions.test.mjs\` covers two-company
+isolation, stale writes, reviewer separation, rejection, active version
+invalidation and tampered history. Item 3's deferred live Auth tests
+remain mandatory for deployment.
