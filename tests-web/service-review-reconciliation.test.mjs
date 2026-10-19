@@ -184,3 +184,36 @@ test('missing sources and missing approved policy fail without guessing outcome'
  await assert.rejects(reconcileServiceReview({readAuthorized:async()=>null},f.policyStore,'reviewer',req),/missing/);
  await assert.rejects(reconcileServiceReview(f.sourceStore,{readAuthorized:async()=>null},'reviewer',req),/unavailable/);
 });
+
+test('legacy review reconciliation and CAS use the same lifecycle-aware fingerprint',async()=>{
+ const f=fixture(),req=await request(f);
+ assert.deepEqual(await reconcileServiceReview(f.sourceStore,f.policyStore,'reviewer',req),
+  {state:'unchanged-at-read',sourceId:SOURCE});
+ await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ const recorded=await reconcileServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ assert.equal(recorded.state,'confirmed-current-at-read');
+});
+test('legacy review reconciliation returns conflict for newly corrected lifecycle',async()=>{
+ for(const field of ['pendingCorrection','activatedCorrection','correctedScopeReview']){
+  const f=fixture(),req=await request(f);
+  await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+  const record=f.get();record[field]={state:'not-legacy'};f.put(record);
+  assert.equal((await reconcileServiceReview(
+   f.sourceStore,f.policyStore,'reviewer',req)).state,'conflict');
+ }
+});
+test('legacy review recovery notices correction inserted between authorized reads',async()=>{
+ const f=fixture(),req=await request(f);
+ await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ let reads=0;
+ const source={readAuthorized:async input=>{
+  const record=await f.sourceStore.readAuthorized(input);
+  if(++reads===1){
+   const altered=f.get();altered.pendingCorrection={state:'pending-authorized-activation'};
+   f.put(altered);
+  }
+  return record;
+ }};
+ assert.equal((await reconcileServiceReview(source,f.policyStore,'reviewer',req)).state,
+  'conflict');
+});

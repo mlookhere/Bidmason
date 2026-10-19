@@ -57,3 +57,10 @@ normal original-extraction preview.
 This denial prevents routing corrected evidence through older internal
 preview paths; it does not replace live source ownership checks, grant any
 send rights, or constitute a production RLS validation.
+
+The legacy human scope and its read-only recovery now use the *same exported*
+`serviceReviewFingerprint` for compare-and-swap, so nullable correction fields
+cannot create inconsistent fingerprints across modules. The reconciliation
+reader classifies newly present correction lifecycle evidence as `conflict`,
+including state inserted between the two authorized reads. This is neither
+proof of rollback nor permission to retry a previously uncertain mutation.

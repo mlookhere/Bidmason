@@ -85,7 +85,8 @@ function checkRecord(record: TenantServiceReviewRecord | null, selector: Selecto
   }
 }
 
-function fingerprint(record: TenantServiceReviewRecord): string {
+/** Canonical legacy scope CAS; reused by read-only recovery. */
+export function serviceReviewFingerprint(record: TenantServiceReviewRecord): string {
   return createHash("sha256").update(JSON.stringify([
     record.organizationId, record.sourceId, record.revision,
     record.original, record.review, record.extractionAudit, record.scopeReview,
@@ -118,7 +119,7 @@ export async function readServiceReviewContext(
   const model = buildReviewWorkbench(first.original, first.review!, policy);
   const latest = await sourceStore.readAuthorized({ ...selector, session });
   checkRecord(latest, selector);
-  if (fingerprint(first) !== fingerprint(latest)) {
+  if (serviceReviewFingerprint(first) !== serviceReviewFingerprint(latest)) {
     throw new Error("Intake evidence changed during review; refresh required");
   }
   const latestPolicy = await policySnapshot(policyStore, session, selector.organizationId);
@@ -129,7 +130,7 @@ export async function readServiceReviewContext(
   return {
     state: "requires-human-service-review" as const,
     ...selector, expectedRevision: first.revision,
-    expectedSnapshotSha256: fingerprint(first), model,
+    expectedSnapshotSha256: serviceReviewFingerprint(first), model,
   };
 }
 
@@ -174,7 +175,7 @@ export async function commitAuthorizedServiceReview(
         throw new Error("Authenticated service reviewer identity required");
       }
       if (current.revision !== request.expectedRevision
-        || fingerprint(current) !== request.expectedSnapshotSha256) {
+        || serviceReviewFingerprint(current) !== request.expectedSnapshotSha256) {
         throw new Error("Stale reviewed extraction revision; reload");
       }
       const model = buildReviewWorkbench(current.original, current.review!, policy);
@@ -205,14 +206,14 @@ export async function commitAuthorizedServiceReview(
       return next;
     },
   });
-  if (!expected.record || fingerprint(committed) !== fingerprint(expected.record)) {
+  if (!expected.record || serviceReviewFingerprint(committed) !== serviceReviewFingerprint(expected.record)) {
     throw new Error("Scope review mutation did not confirm the expected transition");
   }
   // Authorized primary read-back; a failure is INDETERMINATE, not rollback.
   const persisted = await sourceStore.readAuthorized({
     organizationId:request.organizationId, sourceId:request.sourceId, session,
   });
-  if (!persisted || fingerprint(persisted) !== fingerprint(expected.record)) {
+  if (!persisted || serviceReviewFingerprint(persisted) !== serviceReviewFingerprint(expected.record)) {
     throw new Error("Reviewed scope did not match authorized read-back");
   }
   // Policy changes after the write leave a durable but stale bound decision.

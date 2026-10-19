@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readActivePolicy } from "./company-policy-revisions.ts";
-import type { TrustedServiceReviewStore, ServiceReviewCommitRequest,
-  TenantServiceReviewRecord } from "./tenant-service-review.ts";
+import { hasCorrectionLifecycle, serviceReviewFingerprint,
+  type TrustedServiceReviewStore, type ServiceReviewCommitRequest,
+  type TenantServiceReviewRecord } from "./tenant-service-review.ts";
 import { buildReviewWorkbench } from "./intake-review-workbench.ts";
 import { prepareReviewPreviewRequest } from "./intake-review-selection.ts";
 import { previewReviewedEconomics } from "./intake-quote-preview.ts";
@@ -18,14 +19,6 @@ export type ServiceReviewReconciliation =
   | { state: "recorded-stale-policy"; sourceId: string; revision: number;
       reviewedBy: string; reviewedSelectionSha256: string }
   | { state: "conflict"; sourceId: string };
-
-function sha(record: TenantServiceReviewRecord): string {
-  // Keep the original source CAS contract's exact serialized field order.
-  return createHash("sha256").update(JSON.stringify([
-    record.organizationId, record.sourceId, record.revision,
-    record.original, record.review, record.extractionAudit, record.scopeReview,
-  ])).digest("hex");
-}
 
 function checkRequest(request: ServiceReviewCommitRequest): void {
   if (!request || typeof request !== "object" || Array.isArray(request)
@@ -78,12 +71,17 @@ export async function reconcileServiceReview(
   });
   const current = await read();
   checkAuthorizedRecord(current, request);
+  // An original review can never reconcile a corrected extraction lifecycle,
+  // including a mistakenly restored old scope. This is conflicting evidence.
+  if (hasCorrectionLifecycle(current)) {
+    return {state:"conflict",sourceId:request.sourceId};
+  }
   // Reconstruct the original revision without erasing the persisted source or
   // extraction audit. A changed original is never counted as our commit.
   const before: TenantServiceReviewRecord = {
     ...current, revision:request.expectedRevision, scopeReview:null,
   };
-  if (sha(before) !== request.expectedSnapshotSha256) {
+  if (serviceReviewFingerprint(before) !== request.expectedSnapshotSha256) {
     return {state:"conflict",sourceId:request.sourceId};
   }
   const history = await readPolicy();
@@ -146,7 +144,8 @@ export async function reconcileServiceReview(
   // convert a source race into a confirmation or unchanged/rollback assertion.
   const last = await read();
   checkAuthorizedRecord(last, request);
-  if (sha(last) !== sha(current)) {
+  if (hasCorrectionLifecycle(last)
+    || serviceReviewFingerprint(last) !== serviceReviewFingerprint(current)) {
     return {state:"conflict",sourceId:request.sourceId};
   }
   // Same policy check after evidence read. A mid-flight switch must never
