@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { TenantServiceReviewRecord } from "./tenant-service-review.ts";
 import { selectReviewedServices } from "./intake-review.ts";
 
@@ -58,6 +59,20 @@ function sha(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+/** Fail closed on unexpected model or client-owned fields in persisted evidence.
+ * Review digests hash known candidate fields, so hashes alone cannot detect
+ * smuggled rateCents, approval or send directives. */
+function exactKeys(value: unknown, keys: readonly string[]): boolean {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value, key));
+}
+
+const SOURCE_KEYS = ["organizationId", "sourceId", "revision", "original",
+  "review", "extractionAudit", "scopeReview", "creationAudit"];
+const REVIEW_KEYS = ["state", "kind", "sourceSha256", "candidatesSha256", "candidates"];
+const CANDIDATE_KEYS = ["serviceCode", "units", "start", "end", "excerpt"];
+
 export function validateTypedNoteCreateRequest(request: TypedNoteCreateRequest): void {
   if (!request || typeof request !== "object" || Array.isArray(request)
     || Object.keys(request).length !== 3
@@ -98,10 +113,12 @@ function build(request: TypedNoteCreateRequest, textSha256: string,
  */
 export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null,
   request: TypedNoteCreateRequest, textSha256: string, actorId: string): void {
-  if (!record || record.organizationId !== request.organizationId
+  if (!exactKeys(record, SOURCE_KEYS)
+    || !record || record.organizationId !== request.organizationId
     || typeof record.sourceId !== "string" || !UUID.test(record.sourceId)
     || !UUID.test(actorId) || ![1, 2, 3].includes(record.revision)
-    || !record.original || record.original.kind !== "typed-note"
+    || !exactKeys(record.original, ["kind", "text"])
+    || record.original.kind !== "typed-note"
     || record.original.text !== request.text
     || record.original.transcriptionSucceeded !== undefined
     || !Array.isArray(record.extractionAudit)
@@ -122,8 +139,12 @@ export function verifyTypedNoteSourceRecord(record: TypedNoteSourceRecord | null
   }
   const review = record.review;
   const audit = record.extractionAudit[0];
-  if (!review || record.extractionAudit.length !== 1 || !audit
-    || Object.keys(audit).length !== 4
+  if (!exactKeys(review, REVIEW_KEYS)
+    || !review || !Array.isArray(review.candidates)
+    || review.candidates.some(candidate => !exactKeys(candidate, CANDIDATE_KEYS))
+    || record.extractionAudit.length !== 1 || !exactKeys(audit,
+      ["sourceRevision", "actorId", "sourceSha256", "candidatesSha256"])
+    || !audit
     || audit.sourceRevision !== 2 || !UUID.test(audit.actorId)
     || audit.sourceSha256 !== review.sourceSha256
     || audit.candidatesSha256 !== review.candidatesSha256) {
@@ -197,7 +218,9 @@ export async function commitAuthorizedTypedNote(
   verifyTypedNoteSourceRecord(persisted, request, textSha256, created.authenticatedActorId);
   // A provider response or replay may be false; compare the full data instead
   // of merely trusting the source UUID or a browser-supplied checksum.
-  if (JSON.stringify(persisted) !== JSON.stringify(created.record)) {
+  // PostgreSQL JSONB and adapters may reorder object keys. Compare the
+  // complete structured record, not its serialization or field order.
+  if (!isDeepStrictEqual(persisted, created.record)) {
     throw new Error("Typed-note read-back differs from authorized create result");
   }
   const base = { organizationId: request.organizationId,

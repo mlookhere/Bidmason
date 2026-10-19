@@ -281,3 +281,45 @@ test("progression between authorized create result and read-back is indeterminat
   await assert.rejects(commitAuthorizedTypedNote(adapter,"operator",note),/read-back differs/);
   assert.equal(f.calls().count,1);
 });
+
+test("authorized primary read-back tolerates JSON object key reordering",async()=>{
+  const f=fixture();
+  const adapter={createAuthorized:f.store.createAuthorized,
+    async readAuthorized(input){
+      const row=await f.store.readAuthorized(input);
+      const reverse=(x)=>Object.fromEntries(Object.entries(x).reverse());
+      return {...reverse(row),original:reverse(row.original),
+        creationAudit:reverse(row.creationAudit)};
+    }};
+  const first=await commitAuthorizedTypedNote(adapter,"operator",note);
+  assert.equal(first.state,"ready-for-extraction");
+  assert.equal(first.revision,1);
+  assert.equal(f.calls().count,1);
+});
+test("rejects extra persisted source or original directives even with matching hashes",async()=>{
+  for(const corrupt of [
+    row=>{row.send=true},
+    row=>{row.approved=true},
+    row=>{row.original.rateCents=1},
+    row=>{row.original.approved=true},
+  ]){
+    const f=fixture(),saved=await commitAuthorizedTypedNote(f.store,"operator",note);
+    corrupt(f.records.get(saved.sourceId));
+    await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",note));
+    assert.equal(f.calls().count,1);
+  }
+});
+test("rejects model-supplied price and approvals hidden in otherwise valid candidate digests",async()=>{
+  for(const corrupt of [
+    row=>{row.review.candidates[0].rateCents=1},
+    row=>{row.review.candidates[0].send=true},
+    row=>{row.review.candidates[0].approved=true},
+    row=>{row.review.approved=true},
+  ]){
+    const f=fixture(),saved=await commitAuthorizedTypedNote(f.store,"operator",note);
+    const row=advanceToExtraction(f,saved.sourceId);
+    corrupt(row);
+    await assert.rejects(commitAuthorizedTypedNote(f.store,"operator",note));
+    assert.equal(f.calls().count,1);
+  }
+});

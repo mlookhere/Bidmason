@@ -228,3 +228,17 @@ test("different authorized actor does not inherit another actor's request ID",as
  assert.equal(result.state,"not-found-at-read");
  assert.equal(f.records.has(created.sourceId),true);
 });
+
+test("ledger reconciliation rejects forged candidate pricing hidden from digest",async()=>{
+ const f=fixture(),created=await commitAuthorizedTypedNote(f.store,"operator",note);
+ const row=advanceToExtraction(f,created.sourceId);
+ row.review.candidates[0].rateCents=1234;
+ assert.equal((await reconcileAuthorizedTypedNote(trustedLedger(f),"operator",note)).state,
+  "conflict");
+});
+test("ledger reconciliation rejects extra top-level persisted approval fields",async()=>{
+ const f=fixture(),created=await commitAuthorizedTypedNote(f.store,"operator",note);
+ f.records.get(created.sourceId).approved=true;
+ assert.equal((await reconcileAuthorizedTypedNote(trustedLedger(f),"operator",note)).state,
+  "conflict");
+});

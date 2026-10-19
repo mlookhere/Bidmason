@@ -50,3 +50,17 @@ unknown later lifecycle revisions fail closed until deliberately supported.
 A source that changes between the create-ledger response and fresh primary
 read-back is indeterminate, and needs protected ledger reconciliation before
 any new action. Future database migrations and roles remain unimplemented.
+
+## Complete-record integrity and adapter object order
+
+A trusted source must contain **only the currently defined record fields**.
+Unknown keys in the original typed note, reviewed extraction, individual
+candidates or source record are rejected, including model-injected prices,
+approvals and send directives that are not covered by the known-field
+candidate checksum. This fail-closed schema is intentionally versioned with
+the source lifecycle; any future field requires an explicit review and tests.
+
+Read-back confirmation now compares the complete structured record, **not a
+JSON serialization string**. PostgreSQL JSONB or adapters can reorder object
+keys without changing the data. Reordering by itself does not constitute a
+failed write; actual field additions, removals or value changes do.
