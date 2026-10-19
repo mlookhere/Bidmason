@@ -41,3 +41,26 @@ has no public route or automatic network request.
 ## Pre-selection economics eligibility (October 2026)
 
 The internal review model evaluates each otherwise selectable, approved service through `previewCompanyEconomics` using the exact extracted quantity and an *evaluation-only* optional add-on acknowledgement. This does **not** grant optional consent: the real review selection still requires a separate human acknowledgment. If declared direct costs for that line are absent, percent/cents math is invalid or overflows, or the configured tax cannot be safely evaluated, the row is `invalid` and cannot be selected. Pending, explicitly excluded, and unlisted services retain their own blocked statuses. Missing **all** direct costs remains a visible unverified-margin condition in later economics, rather than a fabricated cost or a silent approval. The check is per line; the full selected bundle is independently recalculated before any internal preview. No public integration, authorization or outbound action is added.
+
+## Inert policy and extraction-evidence boundary
+
+The standalone server-side `buildReviewWorkbench` now validates and detaches
+the complete supplied company policy using the same canonical serializer
+used for policy revision fingerprints **before** examining any ratecard,
+service or exclusion field. It rejects accessor-backed values, hidden and
+symbol fields, inherited prototypes and custom serialization without
+executing application-supplied getters.
+
+Before enumerating extraction candidates, the workbench also uses the
+shared immutable-source and reviewed-candidate validator to check the
+original text, candidate collection, source/candidate digests and exact
+provenance. Its index-zero probe validates evidence only: it is neither a
+human service selection nor optional add-on acknowledgement. Invalid
+inputs cannot become selectable rows; valid policy records and verified
+review evidence retain their prior per-line availability semantics.
+
+These checks are internal data-integrity defenses. The workbench remains
+**unwired and non-sendable**. Neither the fingerprint nor the validation
+proves a real current tenant membership, approved company ratecard, or
+reviewer authorization. Those decisions still require the trusted
+tenant-owned backend and the separate live staging acceptance gates.
