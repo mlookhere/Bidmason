@@ -157,6 +157,69 @@ test("real PG activation SHA equals TS approval, preview and reviewed draft",asy
   assert.equal(unchanged.revision,2);
   assert.equal(unchanged.scope_review,null);
 
+  // A malicious privileged writer can take a syntactically valid revision
+  // 2->3 shortcut via an UPDATE. Its selection hashes can be perfectly
+  // correct while the chosen service is pending or optional without consent.
+  // Read-only recovery must reject that historical policy violation, not
+  // legitimize the direct write as an approved human review.
+  const forgedSourceId=sql(`set role service_role;
+    select source_id from bm_intake_private.create_typed_note(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
+    {p1:org,p2:author,p3:randomUUID(),p4:original.text});
+  assert.equal(sql(`set role service_role;
+    select source_revision from bm_intake_private.commit_typed_note_extraction(
+      :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text,:'p5'::jsonb);`,
+    {p1:org,p2:author,p3:forgedSourceId,p4:originalSha,
+      p5:JSON.stringify(review)}),"2");
+  function forgedScope(indices,acknowledged) {
+    const selectedHash=sql(`set role service_role;
+      select bm_intake_private.reviewed_selection_sha256(
+        :'p1'::jsonb,:'p2'::jsonb,:'p3'::jsonb,:'p4'::text);`,
+      {p1:JSON.stringify(review),p2:JSON.stringify(indices),
+        p3:JSON.stringify(acknowledged),p4:fingerprint});
+    return {...scope,selectedIndices:indices,acceptedAddonCodes:acknowledged,
+      reviewedSelectionSha256:selectedHash};
+  }
+  function inspectForged(scopeInput) {
+    const params={p1:org,p2:author,p3:forgedSourceId,
+      p4:JSON.stringify(scopeInput),p5:review.sourceSha256,
+      p6:review.candidatesSha256,
+      p7:scopeInput.reviewedSelectionSha256};
+    // With ON_ERROR_STOP, any failed inspection terminates the psql session,
+    // automatically rolling back this uncommitted hostile direct UPDATE.
+    // First bind the seven values as six plus an isolated SELECT fingerprint
+    // literal via the fully bounded SELECT source below.
+    const command=`set role service_role;
+      begin;
+      update public.bm_intake_sources
+      set revision=3,scope_review=:'p4'::jsonb
+      where organization_id=:'p1'::uuid and id=:'p3'::uuid and revision=2;
+      select observation from bm_intake_private.inspect_typed_note_scope_commit(
+        :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p5'::text,
+        :'p6'::text,:'p7'::text);
+      rollback;`;
+    // The SQL helper accepts only p1..p9 with explicit UTF-8 text bind args.
+    return sql(command,params);
+  }
+  for (const invalid of [
+    forgedScope([1],[]), // pending, unbillable cleaning
+    forgedScope([0],[]), // painting optional without consent
+  ]) {
+    assert.throws(()=>inspectForged(invalid),
+      /Persisted scope violates historical company service rules/);
+    assert.equal(JSON.parse(sql(`select row_to_json(x) from (
+      select revision,scope_review from public.bm_intake_sources
+       where organization_id=:'p1'::uuid and id=:'p2'::uuid
+     ) x;`,{p1:org,p2:forgedSourceId})).revision,2);
+  }
+  // The control input still satisfies historical service/consent rules.
+  assert.equal(inspectForged(forgedScope([0],["painting"])),
+    "matching-scope-at-read");
+  assert.equal(JSON.parse(sql(`select row_to_json(x) from (
+    select revision,scope_review from public.bm_intake_sources
+      where organization_id=:'p1'::uuid and id=:'p2'::uuid
+    ) x;`,{p1:org,p2:forgedSourceId})).scope_review,null);
+
   const inspect=(expectedSelection=scope.reviewedSelectionSha256,
       who=author,tenant=org)=>JSON.parse(sql(`set role service_role;
     select row_to_json(x) from (
