@@ -63,6 +63,9 @@ for(const [name,mutation,failedCheck] of [
  ["private receipt given direct browser reads",
   "GRANT SELECT ON bm_intake_private.corrected_commercial_decisions TO authenticated;",
   "private_receipt_browser_dml_denied"],
+ ["legacy pricing granted direct service execution",
+  "GRANT EXECUTE ON FUNCTION bm_intake_private.read_corrected_internal_preview_inputs(uuid,uuid,uuid,text) TO service_role;",
+  "internal_preview_indirect_only"],
 ]){
  test("preflight denies rollback-only regression: "+name,()=>{
   const report=rollbackProbe(mutation);

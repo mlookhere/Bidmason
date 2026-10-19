@@ -249,5 +249,9 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_corrected_preview_session_lock_test.sql
       - name: Prove trusted session-locked corrected pricing against real PostgreSQL
         run: node --test ci/intake_corrected_session_lock_bridge.test.mjs
+      - name: Revoke service-role access to unsafe legacy internal pricing reader
+        run: psql -X -v ON_ERROR_STOP=1 -f db/staged_seal_legacy_corrected_preview.sql
+      - name: Prove direct legacy SQL execution denied but locked pricing still works
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_sealed_legacy_corrected_preview_test.sql
       - name: Prove deployment schema preflight is complete and service-private in CI
         run: node --test ci/corrected_pricing_schema_preflight.test.mjs

@@ -105,14 +105,14 @@ with probes(check_name,passed) as (
        to_regprocedure(
        'bm_intake_private.read_corrected_internal_preview_session_locked(uuid,uuid,uuid,uuid,text)'),
        'EXECUTE'),true)),
- ('internal_preview_private',
+ ('internal_preview_indirect_only',
     to_regprocedure(
       'bm_intake_private.read_corrected_internal_preview_inputs(uuid,uuid,uuid,text)')
        is not null
-    and coalesce(has_function_privilege('service_role',
+    and not coalesce(has_function_privilege('service_role',
       to_regprocedure(
       'bm_intake_private.read_corrected_internal_preview_inputs(uuid,uuid,uuid,text)'),
-      'EXECUTE'),false)
+      'EXECUTE'),true)
     and not coalesce(has_function_privilege('anon',
       to_regprocedure(
       'bm_intake_private.read_corrected_internal_preview_inputs(uuid,uuid,uuid,text)'),
