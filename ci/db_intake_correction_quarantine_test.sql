@@ -130,10 +130,8 @@ begin
    where organization_id=org and id=src;
   raise exception 'Correction hold was overwritten';
  exception when insufficient_privilege then null; end;
- if (select count(*) from bm_intake_private.correction_holds
-   where organization_id=org and source_id=src)<>1 then
-   raise exception 'Correction hold ledger duplicated';
- end if;
+ -- The service role is intentionally unable to SELECT the private ledger.
+ -- Owner-only receipt cardinality is verified after RESET ROLE below.
 end;
 $test$;
 reset role;
