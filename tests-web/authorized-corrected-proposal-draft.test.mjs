@@ -241,3 +241,42 @@ test("extra selector keys and getter-backed IDs are rejected before data access"
   f.store,f.policyStore,"reviewer",getter),/Invalid corrected proposal draft selector/);
  assert.equal(calls,0);
 });
+
+
+test("corrected proposal preview keeps original source across both reads",async()=>{
+ const f=fixture();await reviewed(f);
+ const baseline=await draft(f),mutable={...selector};
+ let calls=0;
+ const proxy={readAuthorized:async input=>{
+  const found=await f.store.readAuthorized(input);
+  if(++calls===1){
+   mutable.organizationId=FOREIGN;
+   mutable.sourceId="22222222-2222-4222-8222-222222222222";
+  }
+  return found;
+ }};
+ const result=await readAuthorizedCorrectedProposalDraftPreview(
+  proxy,f.policyStore,"reviewer",mutable);
+ assert.equal(calls,2);
+ assert.equal(result.organizationId,ORG);
+ assert.equal(result.sourceId,SOURCE);
+ assert.equal(result.draftSnapshotSha256,baseline.draftSnapshotSha256);
+ assert.deepEqual(result.preview,baseline.preview);
+});
+
+test("corrected proposal selector rejects inherited or symbol approval directives before source lookup",async()=>{
+ const f=fixture();await reviewed(f);
+ const inherited=Object.assign(Object.create({approved:true}),selector);
+ const symbolic={...selector};
+ symbolic[Symbol("send")]=true;
+ let calls=0;
+ const proxy={readAuthorized:async input=>{
+  calls++;return f.store.readAuthorized(input);
+ }};
+ for(const invalid of [inherited,symbolic]){
+  await assert.rejects(readAuthorizedCorrectedProposalDraftPreview(
+   proxy,f.policyStore,"reviewer",invalid),
+   /Invalid corrected proposal draft selector/);
+ }
+ assert.equal(calls,0);
+});
