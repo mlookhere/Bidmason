@@ -64,3 +64,24 @@ cannot create inconsistent fingerprints across modules. The reconciliation
 reader classifies newly present correction lifecycle evidence as `conflict`,
 including state inserted between the two authorized reads. This is neither
 proof of rollback nor permission to retry a previously uncertain mutation.
+
+## Bounded inert-data validation of corrected proposal read-backs
+
+The internal corrected-proposal preview performs a bounded deep check of
+both separately authorized source read-backs **before** calling the
+correction-lineage verifier or `JSON.stringify` for its revision-bound
+consistency fingerprint. Plain/null-prototype objects and ordinary dense
+arrays of JSON scalar values are supported. It denies getter-backed
+properties, hidden or symbol directives, custom `toJSON` functions,
+unusual prototypes, sparse/decorated arrays, cycles, non-finite numbers,
+and overlarge/deep graphs **without invoking untrusted getters or methods**.
+Repeated noncyclic references in an in-memory test adapter are allowed.
+
+An unsafe first source read aborts before the approved-policy lookup. An
+unsafe second source read aborts rather than confirming a stale or malicious
+corrected review. Regression cases cover both stages, including corrected
+scope acknowledgements, extraction audit, original candidates, and nested
+human correction lineage. This remains an internal `preview-only` integrity
+check: source-store tenant authorization, immutable SQL/Storage evidence,
+session revocation, reviewer permission and proposal approval are separate
+live acceptance requirements.
