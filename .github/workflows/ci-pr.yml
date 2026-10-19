@@ -227,3 +227,7 @@ jobs:
         run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_scope_review.sql
       - name: Verify renewed human policy selection and continued quotation denial
         run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_scope_review_test.sql
+      - name: Install private third-party commercial decision receipt for corrected scope
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_commercial_decision.sql
+      - name: Prove commercial three-person review, stale policy and nonquotable state
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_commercial_decision_test.sql
