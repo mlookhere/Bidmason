@@ -101,6 +101,9 @@ export function prepareTranscriptCorrectionDraft(
   outcome: TranscriptionOutcome,
   decisions: TranscriptClarification[],
 ): TranscriptCorrectionDraft {
+  // The span helper validates input at runtime, but cannot narrow the
+  // discriminated outcome type in this caller. Repeat the explicit assertion.
+  requireBlocked(outcome);
   const spans = checkedUncertainties(outcome);
   if (!Array.isArray(decisions) || decisions.length !== spans.length) {
     throw new Error("Every ambiguous transcript span needs an explicit correction");
