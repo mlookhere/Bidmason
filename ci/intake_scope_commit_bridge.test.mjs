@@ -329,3 +329,21 @@ test("actual PostgreSQL lost scope acknowledgement can be read as draft without 
    f.stored.scope_review.reviewedSelectionSha256);
  assert.equal(f.writes,1);
 });
+
+test("real PostgreSQL verified scope preview matches persisted handoff across CAS",async()=>{
+ const f=fixture();
+ const selector={session:f.input.session,organizationId:f.org,sourceId:f.sourceId};
+ const before=await f.api.preview(f.input);
+ assert.equal(f.writes,0);
+ const committed=await f.api.commit(f.input);
+ assert.equal(committed.reviewedSelectionSha256,before.reviewedSelectionSha256);
+ const saved=await f.api.readReviewedDraft(selector);
+ const {reviewKey:_reviewKey,sourceId:_sourceId,...canonicalPreview}=before;
+ assert.deepEqual(saved.preview,canonicalPreview);
+ const recovery=await f.api.reconcile(f.input);
+ assert.equal(recovery.state,"matching-scope-at-read");
+ assert.equal(recovery.reviewedSelectionSha256,committed.reviewedSelectionSha256);
+ assert.equal(f.writes,1);
+ assert.equal(f.stored.revision,3);
+ assert.equal(f.calls.filter(x=>x.statement.includes("commit_typed_note_scope_review")).length,1);
+});
