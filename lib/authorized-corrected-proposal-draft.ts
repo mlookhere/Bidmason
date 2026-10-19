@@ -1,4 +1,4 @@
-import { inertEvidenceGraph } from "./inert-evidence-graph.ts";
+import { snapshotInertEvidence } from "./inert-evidence-graph.ts";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readActivePolicy } from "./company-policy-revisions.ts";
@@ -82,10 +82,9 @@ export async function readAuthorizedCorrectedProposalDraftPreview(
   const readPolicy = () => policyStore.readAuthorized({
     organizationId: target.organizationId, session,
   });
-  const first = await readSource();
-  if (!inertEvidenceGraph(first)) {
-    throw new Error("Unsafe corrected proposal evidence");
-  }
+  const first = snapshotInertEvidence(await readSource(),
+    "Unsafe corrected proposal evidence");
+
   checkReviewed(first, target);
   const originalStamp = sourceStamp(first);
   const evidence = verifyActivatedCorrectionLineage(first, target);
@@ -123,10 +122,9 @@ export async function readAuthorizedCorrectedProposalDraftPreview(
   if (!isDeepStrictEqual(scope, expected)) {
     throw new Error("Stored corrected scope integrity check failed");
   }
-  const latest = await readSource();
-  if (!inertEvidenceGraph(latest)) {
-    throw new Error("Unsafe corrected proposal evidence");
-  }
+  const latest = snapshotInertEvidence(await readSource(),
+    "Unsafe corrected proposal evidence");
+
   checkReviewed(latest, target);
   if (sourceStamp(latest) !== originalStamp) {
     throw new Error("Corrected evidence changed during internal draft preview");
