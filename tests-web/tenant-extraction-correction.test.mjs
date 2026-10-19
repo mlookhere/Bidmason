@@ -497,3 +497,70 @@ test("extraction preparation rejects hidden and accessor selectors before store 
  assert.equal(calls,0);
  assert.deepEqual(f.counts(),before);
 });
+
+
+test("correction context refuses hostile persisted audit and review getters before reading them",async()=>{
+ const f=fixture();
+ let getters=0,reads=0,writes=0;
+ const mutate=[
+  row=>Object.defineProperty(row,"organizationId",{enumerable:true,
+    get(){getters++;throw Error("unsafe tenant getter");}}),
+  row=>Object.defineProperty(row,"extractionAudit",{enumerable:true,
+    get(){getters++;throw Error("unsafe audit collection getter");}}),
+  row=>Object.defineProperty(row.extractionAudit,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe audit index getter");}}),
+  row=>Object.defineProperty(row.extractionAudit[0],"actorId",{enumerable:true,
+    get(){getters++;throw Error("unsafe stored actor getter");}}),
+  row=>{delete row.extractionAudit[0];},
+  row=>{row.extractionAudit[Symbol("send")]=true;},
+  row=>{row.extractionAudit[0][Symbol("approved")]=true;},
+  row=>Object.defineProperty(row.extractionAudit[0],"send",{value:true}),
+  row=>Object.setPrototypeOf(row.extractionAudit[0],{actorId:WRITER}),
+  row=>Object.defineProperty(row,"review",{enumerable:true,
+    get(){getters++;throw Error("unsafe review getter");}}),
+  row=>Object.defineProperty(row.review.candidates,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe candidate index getter");}}),
+  row=>Object.defineProperty(row.review.candidates[0],"units",{enumerable:true,
+    get(){getters++;throw Error("unsafe quantity getter");}}),
+  row=>{row.review.candidates[Symbol("approved")]=true;},
+  row=>{row.review.candidatesSha256="0".repeat(64);},
+  row=>Object.defineProperty(row,"pendingCorrection",{enumerable:true,
+    get(){getters++;throw Error("unsafe pending-correction getter");}}),
+ ];
+ for(const edit of mutate){
+  const row=f.get();edit(row);
+  const store={
+   readAuthorized:async()=>{reads++;return row;},
+   mutateAuthorized:async()=>{writes++;throw Error("unexpected write");},
+  };
+  await assert.rejects(readExtractionCorrectionContext(store,"reviewer",selector));
+ }
+ assert.equal(reads,mutate.length);
+ assert.equal(getters,0);
+ assert.equal(writes,0);
+});
+
+test("correction context verifies complete reviewed scope without executing stored getters",async()=>{
+ const f=fixture(true),baseline=f.get();
+ const ctx=await readExtractionCorrectionContext(f.store,"reviewer",selector);
+ assert.equal(ctx.expectedRevision,3);
+ let getters=0;
+ for(const change of [
+  row=>Object.defineProperty(row,"scopeReview",{enumerable:true,
+    get(){getters++;throw Error("unsafe reviewed scope");}}),
+  row=>Object.defineProperty(row.scopeReview,"selectedIndices",{enumerable:true,
+    get(){getters++;throw Error("unsafe scope selections");}}),
+  row=>Object.defineProperty(row.scopeReview.selectedIndices,"0",{enumerable:true,
+    get(){getters++;throw Error("unsafe selection index");}}),
+  row=>Object.defineProperty(row.scopeReview,"toJSON",{
+    value(){getters++;throw Error("unsafe scope serializer");}}),
+  row=>{row.scopeReview.acceptedAddonCodes[Symbol("send")]=true;},
+  row=>{row.scopeReview[Symbol("approved")]=true;},
+  row=>Object.setPrototypeOf(row.scopeReview,{approved:true}),
+ ]){
+  const row=structuredClone(baseline);change(row);
+  const store={readAuthorized:async()=>row};
+  await assert.rejects(readExtractionCorrectionContext(store,"reviewer",selector));
+ }
+ assert.equal(getters,0);
+});
