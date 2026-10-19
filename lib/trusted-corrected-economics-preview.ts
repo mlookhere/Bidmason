@@ -80,15 +80,20 @@ export function createTrustedSessionLockedCorrectedEconomicsPreview(
  * lock. Hard-blocked in production, even if the caller opts in.
  * All actual server integrations must use the session-locked factory above.
  */
+function assertDisposableLegacyMode():void {
+  if(process.env.NODE_ENV==="production"
+    || process.env.BIDMASON_CI_DISPOSABLE_POSTGRES!=="1"){
+    throw new Error("Unsafe legacy pricing preview disabled; use session-locked verifier");
+  }
+}
 export function createTrustedCorrectedEconomicsPreview(
   auth:ActiveSessionVerifier,db:PrivateIntakeDatabase,
   acknowledgement?:"disposable-postgres-test-no-session-lock",
 ):{preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>} {
-  if(acknowledgement!=="disposable-postgres-test-no-session-lock"
-    || process.env.NODE_ENV==="production"
-    || process.env.BIDMASON_CI_DISPOSABLE_POSTGRES!=="1"){
+  if(acknowledgement!=="disposable-postgres-test-no-session-lock"){
     throw new Error("Unsafe legacy pricing preview disabled; use session-locked verifier");
   }
+  assertDisposableLegacyMode();
   return createInternalCorrectedEconomicsPreview(auth,db,false);
 }
 function createInternalCorrectedEconomicsPreview(
@@ -109,6 +114,9 @@ function createInternalCorrectedEconomicsPreview(
   }
   return {
     async preview(input:unknown):Promise<PrivateCorrectedEconomicsPreview>{
+      // The test-only factory may survive a change in execution context.
+      // Deny its use unless the disposable marker is still present.
+      if(!locked)assertDisposableLegacyMode();
       if(!exact(input,["organizationId","sourceId","expectedDecisionSha256","session"])
         || !uuid(input.organizationId)||!uuid(input.sourceId)
         || !sha(input.expectedDecisionSha256)
@@ -119,10 +127,12 @@ function createInternalCorrectedEconomicsPreview(
       const org=input.organizationId,source=input.sourceId;
       const expected=input.expectedDecisionSha256,session=input.session;
       const current=await verified(session);
+      if(!locked)assertDisposableLegacyMode();
       const result=locked
         ? await db.query(READ_SESSION_LOCKED,[
           org,current.userId,current.sessionId as string,source,expected])
         : await db.query(READ,[org,current.userId,source,expected]);
+      if(!locked)assertDisposableLegacyMode();
       // Capture the trusted SQL envelope once. An injected adapter must not
       // execute a rows getter or contradict its own SELECT/row-count receipt.
       const descriptor=result && typeof result==="object" && !Array.isArray(result)
@@ -195,6 +205,7 @@ function createInternalCorrectedEconomicsPreview(
       };
       // Reverify after DB read and before calculating private economics.
       const renewed=await verified(session);
+      if(!locked)assertDisposableLegacyMode();
       if(renewed.userId!==current.userId
         || (locked&&renewed.sessionId!==current.sessionId)){
         throw new Error("Commercial reviewer session changed during preview");
