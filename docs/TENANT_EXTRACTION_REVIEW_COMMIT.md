@@ -75,19 +75,24 @@ and persists a database-authored actor/revision/digest audit. Rejected,
 duplicate, revoked or cross-tenant transitions do not update the record.
 This function cannot send, quote, approve, upload, or edit original evidence.
 
-**Deliberate trust limit:** PostgreSQL validates bounded candidate structure
-but DOES NOT independently reproduce JavaScript's UTF-16 offsets or the
-canonical candidates-array SHA-256 algorithm. Therefore it is not safe to
-invoke directly with browser or unvalidated AI JSON. A future server
-`TrustedExtractionStore` implementation must derive the actor through a
-fresh verified Supabase session, load the original under transaction/CAS
-controls, call `parseUntrustedExtraction` against that original to validate
-every exact excerpt and recompute the candidate hash, then pass only the
-validated review to this private SQL function. It must perform fresh authorized
-primary read-back and treat ambiguous commits as **indeterminate** (never
-retry blindly). This adapter and genuine provider session tests are still
-outstanding. Unrelated same-tenant actors cannot extract another member's
-private typed note with this staged function.
+**Layered provenance validation:** PostgreSQL now independently checks
+each candidate's excerpt against the immutable original using JavaScript's
+**UTF-16 code-unit offsets** (including two code units for non-BMP emoji)
+through a private `matches_typed_note_utf16_excerpt` function. Half-surrogate
+boundaries, out-of-source spans and fabricated excerpts fail before the
+revision 1→2 CAS. This complements JavaScript's existing source/excerpt
+checks. **Trust limit remains:** PostgreSQL does NOT independently compute
+the *canonical candidates-array SHA-256*; a privileged caller supplying a
+forged review digest is not made safe by SQL alone. Therefore browser or raw
+AI JSON must never be sent directly to this function. The staged server
+adapter `createTrustedTypedNoteExtraction` must receive fresh verified
+Supabase Auth, read the stored original from primary storage, call
+`parseUntrustedExtraction` to recompute canonical candidate hashes, then
+pass only the validated review through parameterized SQL. It must perform
+fresh authorized primary read-back; ambiguous commits remain **indeterminate**
+and are never retried blindly. Genuine provider wiring and two-user live
+security acceptance are still outstanding. Same-tenant noncreators cannot
+extract another member's private typed note with this staged function.
 
 The `intake-db` Actions job installs the candidate SQL after the prior
 source/ledger/lookup suites and executes `ci/db_intake_extraction_test.sql`.
@@ -210,3 +215,19 @@ between reads, forged candidate text and racing source changes. The
 `intake-db` job also tests **actual JS reconciliation against actual
 PostgreSQL** after deliberately dropping an already-committed SQL response,
 then proves there was exactly one CAS and two subsequent read queries.
+
+
+## PostgreSQL UTF-16 source/excerpt enforcement
+
+`ci/db_intake_utf16_provenance_test.sql` is part of the required
+disposable PostgreSQL `intake-db` job, in addition to the existing Node
+and JavaScript-to-SQL bridge tests. It independently proves that a
+valid emoji span (`6..8` UTF-16 units for `🧱`) and a word following
+that emoji are accepted, while forged excerpts, codepoint-versus-code-unit
+offset confusion, surrogate-pair split boundaries and very large offsets
+are rejected with no change to the original source. Anonymous and
+authenticated browser roles cannot execute the private validator.
+
+This does not implement provider authentication, approved company policy
+revision checks or the candidate-array digest inside SQL. It does not
+authorize a user to approve a proposal, send a message, or initiate billing.
