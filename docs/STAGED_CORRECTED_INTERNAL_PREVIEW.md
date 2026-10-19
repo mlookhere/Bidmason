@@ -31,7 +31,12 @@ path**. Its test-only constructor requires all three conditions:
 `NODE_ENV` is not `production`, an exact
 `disposable-postgres-test-no-session-lock` acknowledgment, and
 `BIDMASON_CI_DISPOSABLE_POSTGRES=1`. Only isolated fixture test modules
-activate this marker; no hosted service should set it. Live integrations use
+activate this marker; no hosted service should set it. The marker and
+nonproduction mode are rechecked at each invocation and after asynchronous
+Auth and database boundaries, so a test-only adapter created earlier cannot
+continue if its disposable execution context is withdrawn. This is a
+test-harness safeguard, **not** a replacement for database authorization.
+Live integrations use
 `createTrustedSessionLockedCorrectedEconomicsPreview` and require independent
 Auth, current `auth.sessions`, and the five-argument lock-protected SQL
 function. Passing this CI gate is not approval to migrate, quote or send.
