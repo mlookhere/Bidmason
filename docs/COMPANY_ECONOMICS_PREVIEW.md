@@ -78,3 +78,25 @@ already enforced by versioned economics and policy fingerprints. It does
 **not** prove that a ratecard has an approved revision or that its caller
 belongs to the company; trusted current-tenant policy lookup and separate
 approval checks remain necessary before any commercial use.
+
+## Optional add-on consent is inert, not a price override
+
+The standalone `previewReviewedEconomics` now validates the human-provided
+`acceptedAddonCodes` collection **before** reading any acknowledgement
+element. It only accepts a dense, ordinary, undecorated array of at most
+50 primitive service codes. Hidden, symbolic, inherited, sparse and
+getter-backed acknowledgement values fail closed without running getters.
+The accepted codes are copied into a private array, then checked for
+existing selected services, canonical ordering and current-policy
+`optionalAddon: true` entries.
+
+The company policy is canonicalized and snapshotted with the shared
+company-policy serializer **before** the add-on flags are consulted, and
+that same snapshot drives the deterministic economics calculation.
+A forged ratecard getter or custom serializer cannot manufacture an
+accepted optional service or change the calculation after a consent check.
+Regression tests live in `tests-web/intake-quote-preview.test.mjs`.
+
+A true human acknowledgement remains an independent reviewed action in
+the authorized workflow; accepting a data-only array is never a
+signature, an approval, a proposal or permission to contact customers.
