@@ -1,0 +1,41 @@
+# Item 4 — Internal read-only draft preview of corrected human scope
+
+**Status: preview-only. Not an approved quote, customer proposal, release,
+signing authority, or delivery authorization. No public route or live
+Supabase production adapter is provided.**
+
+The internal function `readAuthorizedCorrectedProposalDraftPreview` consumes
+only a tenant-owned, persistently recorded and independently human-reviewed
+`correctedScopeReview`. It requires two fresh, independently authorized
+primary reads of both tenant source and the active approved company policy.
+It verifies the immutable original extraction and human correction lineage,
+the activation fingerprint and revision, and the separately reviewed
+corrected scope. The original `scopeReview` must remain null.
+
+Every stored renewed-review field must match a fresh calculation from the
+**corrected** candidate review and the current company-owned approved policy:
+review key, source/candidates SHA-256, selected indices, optional-add-on
+acknowledgements, pricing policy revision and fingerprint, reviewer identity,
+activation SHA and reviewed-selection SHA. All monetary amounts are
+recomputed from the approved policy, never a browser or stored suggested
+price. Any changed record or ratecard between primary reads is rejected.
+
+The output state is `preview-only` with purpose
+`internal-corrected-proposal-draft`; it contains no approval, public send
+action or customer proposal and has no writes. Its draft snapshot checksum is
+a **consistency fingerprint only**, not proof of historic permissions, a
+commercial signature, or authorization to retry an uncertain transaction.
+
+This does not modify the existing original-extraction proposal reader:
+the legacy `readAuthorizedProposalDraftPreview` remains unable to consume
+records with corrected scope. Any subsequent signed, customer-visible
+proposal requires its own fresh atomic authorization and final human approval.
+Real two-user Supabase Auth/PostgREST/RLS/private original Storage, retained
+signed malware scanning, company ratecard approvals, privacy/legal/security,
+and operational release gates remain open.
+
+The adversarial staged test suite proves a full synthetic correction,
+activation and reviewed-scope lineage; corrected costs and optional consent;
+rejection of unreviewed, forged, changed or cross-tenant sources; source/policy
+changes between reads; lost membership; no writes; deterministic snapshot
+fingerprints; and explicit denial by the original proposal reader.
