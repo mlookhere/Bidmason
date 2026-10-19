@@ -370,6 +370,8 @@ test("tampered pending lineage and false write acknowledgements fail closed",asy
 
 test("correction decisions remain fixed before deferred CAS despite caller mutation",async()=>{
  const f=fixture(),req=await request(f);
+ // Detach from the module-level default correction used by other tests.
+ req.changes=structuredClone(req.changes);
  f.hooks.setBeforeWrite(()=>{
   req.organizationId=OTHER;
   req.sourceId="22222222-2222-4222-8222-222222222222";
@@ -393,6 +395,8 @@ test("correction decisions remain fixed before deferred CAS despite caller mutat
 
 test("read-only pending correction recovery holds submitted actions across both reads",async()=>{
  const f=fixture(),req=await request(f);
+ // Detach from the module-level default correction used by other tests.
+ req.changes=structuredClone(req.changes);
  await commitAuthorizedExtractionCorrection(f.store,"reviewer",req);
  let inspected=0;
  f.hooks.setBeforeRead(()=>{
