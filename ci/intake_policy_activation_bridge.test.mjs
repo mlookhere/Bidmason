@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {execFileSync} from "node:child_process";
 import {submitPolicyDraft,reviewPolicyDraft}
   from "../lib/company-policy-revisions.ts";
-import {companyPolicySha256}
+import {companyPolicySha256,canonicalCompanyPolicyText}
   from "../lib/company-policy-fingerprint.ts";
 import {createTrustedCompanyPolicyActivation}
   from "../lib/trusted-company-policy-activation.ts";
@@ -65,7 +65,7 @@ test("trusted reviewer policy activation bridges durable TS history to real PG",
     select bm_intake_private.ci_stage_approved_policy(
       :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
     {p1:org,p2:submitter,p3:reviewer,
-      p4:JSON.stringify(policy1)});
+      p4:canonicalCompanyPolicyText(policy1)});
   let reads=0,writes=0,authCalls=0,lostAck=false;
   const session="trusted-ci-review";
   const auth={async verifyActiveSession(provided) {
@@ -123,7 +123,7 @@ test("trusted reviewer policy activation bridges durable TS history to real PG",
     select bm_intake_private.ci_stage_approved_policy(
       :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
     {p1:org,p2:submitter,p3:reviewer,
-      p4:JSON.stringify(secondPolicy)});
+      p4:canonicalCompanyPolicyText(secondPolicy)});
   activeReviewer=submitter;
   await assert.rejects(service.activate(input),/authenticated distinct reviewer/);
   assert.equal(writes,1);
@@ -141,7 +141,7 @@ test("trusted reviewer policy activation bridges durable TS history to real PG",
     select bm_intake_private.ci_stage_approved_policy(
       :'p1'::uuid,:'p2'::uuid,:'p3'::uuid,:'p4'::text);`,
     {p1:org,p2:submitter,p3:reviewer,
-      p4:JSON.stringify(thirdPolicy)});
+      p4:canonicalCompanyPolicyText(thirdPolicy)});
   sql(`delete from public.bm_memberships
     where organization_id=:'p1'::uuid and user_id=:'p2'::uuid;`,
     {p1:org,p2:reviewer});
