@@ -110,6 +110,7 @@ function checkRecord(record: TenantServiceReviewRecord | null, selector: Selecto
   ]) || record.organizationId !== selector.organizationId
     || record.sourceId !== selector.sourceId
     || !Number.isSafeInteger(record.revision) || record.revision < 1
+    || !record.original || !record.review
     || hasCorrectionLifecycle(record)
     || !exactReviewArray(record.extractionAudit)
     || record.extractionAudit.length !== 1
