@@ -1218,7 +1218,11 @@ creation/extraction audit; each policy is checked against its canonical hash.
 No `commit_typed_note_scope_review` call or any other SQL mutation is made.
 
 - `unreviewed-at-read`: both observations show extraction revision 2 and
-  the same eligible review key. This **does not** prove the uncertain write
+  the same eligible review key **and a fully policy-eligible selection**, with
+  selected service indices valid, required optional-add-on acknowledgements
+  present, and deterministic preview fingerprint matching the approved policy.
+  An invalid selection with the same source/policy review key returns
+  `different-scope-at-read` instead; no approval or retry is implied. This **does not** prove the uncertain write
   rolled back or authorize a retry.
 - `matching-scope-at-read`: both observations show revision 3 with
   precisely the server-recomputed selection, optional acknowledgements,
