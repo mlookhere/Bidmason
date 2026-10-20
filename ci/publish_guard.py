@@ -18,6 +18,76 @@ LEGACY_NAMES = frozenset({
 })
 
 
+# Static drift prevention for the PUBLIC, fictional delivery lab (not auth).
+LAB_ROUTE = "app/delivery-lab/page.tsx"
+LAB_FIXTURE = "lib/delivery-lab-fixtures.ts"
+LAB_IMPORTS = {
+    LAB_ROUTE: {"next", "../../lib/delivery-lab-fixtures.ts"},
+    LAB_FIXTURE: {
+        "./outbound-preflight.ts", "./follow-up-assessment.ts",
+        "./delivery-event-projection.ts",
+    },
+}
+LAB_IMPORT = re.compile(
+    r"^\s*import\s+(?!\()(.*?)\s+from\s+['\"]([^'\"]+)['\"]\s*;",
+    re.M | re.S,
+)
+LAB_UNSAFE = re.compile(
+    r"(?i)(?:"
+    r"['\"]use client['\"]|['\"]use server['\"]|"
+    r"\b(?:fetch|eval|XMLHttpRequest|WebSocket|EventSource|sendBeacon|"
+    r"localStorage|sessionStorage|setTimeout|setInterval|cookies|headers|"
+    r"searchParams|prisma|supabase|createClient|readFile|writeFile|"
+    r"process\.env|globalThis)\b|"
+    r"\b(?:require|import)\s*\(|"
+    r"<\s*(?:form|input|textarea|button|select)\b|"
+    r"\b(?:onSubmit|formAction|action)\s*=|https?://)"
+)
+LAB_EMAIL = re.compile(r"[a-z0-9._%+\-]+@[a-z0-9.-]+\.[a-z]{2,}", re.I)
+
+
+def delivery_lab_findings(root: Path) -> list[str]:
+    """Require explicit review before adding dynamic inputs or actions to the lab.
+
+    Conservative source checks only; not a data-flow proof or tenant security.
+    """
+    route = root / LAB_ROUTE
+    fixture = root / LAB_FIXTURE
+    if not route.exists() and not fixture.exists():
+        return []
+    if (not route.is_file() or not fixture.is_file()
+            or route.is_symlink() or fixture.is_symlink()):
+        return ["Public delivery lab requires fixed non-symlink fixture and route"]
+    errors: list[str] = []
+    for extra in (root / "app/delivery-lab").rglob("*"):
+        if extra.is_file() and extra != route:
+            errors.append(f"Unreviewed public delivery lab route asset: {extra.relative_to(root)}")
+    for relative, allowed in LAB_IMPORTS.items():
+        source = (root / relative).read_text(encoding="utf-8", errors="replace")
+        imports = list(LAB_IMPORT.finditer(source))
+        count = len(re.findall(r"(?m)^\s*import\b", source))
+        if count != len(imports) or {m.group(2) for m in imports} != allowed:
+            errors.append(f"Unreviewed public delivery lab imports: {relative}")
+        if LAB_UNSAFE.search(source):
+            errors.append(f"Public delivery lab must remain offline and read-only: {relative}")
+        for address in LAB_EMAIL.findall(source):
+            if not address.lower().endswith((".example", ".test", ".invalid", ".localhost")):
+                errors.append(f"Nonfictional email in public delivery lab: {relative}")
+    page = route.read_text(encoding="utf-8")
+    for marker in ("index: false", "follow: false", "Synthetic records only",
+                   "not access controlled", "Delivery remains disabled"):
+        if marker not in page:
+            errors.append(f"Public delivery lab missing safety marker: {marker}")
+    source = fixture.read_text(encoding="utf-8")
+    companies = re.findall(r"\bcompany\s*:\s*['\"]([^'\"]+)['\"]", source)
+    if len(companies) != 4 or any(not c.startswith("Fictional ") for c in companies):
+        errors.append("Public delivery lab requires exactly four fictional companies")
+    if ("buildSyntheticDeliveryLabCases" not in source
+            or "assessSimulatedFollowUp" not in source):
+        errors.append("Public delivery lab must use reviewed offline projections")
+    return errors
+
+
 def findings(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for folder in PUBLISHABLE:
@@ -45,6 +115,7 @@ def findings(root: Path = ROOT) -> list[str]:
         errors.append("Development preview must remain noindex")
     if not page.is_file() or "No live lead capture" not in page.read_text(encoding="utf-8"):
         errors.append("Development preview must disclose disabled intake")
+    errors.extend(delivery_lab_findings(root))
     return errors
 
 
