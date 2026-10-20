@@ -33,7 +33,7 @@ export default function DeliveryLab() {
         <p className="eyebrow">Item 6 · Offline review demonstration</p>
         <h1>Delivery safety lab</h1>
         <p className="lab-lede">
-          These five invented scenarios are calculated from BidMason&apos;s internal
+          These six invented scenarios are calculated from BidMason&apos;s internal
           CRM projection and follow-up assessment. A reported delivery,
           fictional consent status, or eligible timestamp is never proof of a
           real send or authorization to contact a customer.
@@ -74,8 +74,9 @@ export default function DeliveryLab() {
                 <dl className="lab-facts">
                   <div><dt>Delivery evidence</dt><dd>{scenario.projection.delivery.replaceAll("_"," ")} (simulated)</dd></div>
                   <div><dt>Contact state</dt><dd>{scenario.contactState==="fictional-confirmed"?"Fixture states confirmed (unverified)":"Unknown — blocks contact"}</dd></div>
-                  <div><dt>Follow-up assessment</dt><dd>{scenario.triage.attention==="stop-contact"||scenario.followUp.state==="blocked"?"Blocked":"Internal candidate only — not send approval"}</dd></div>
+                  <div><dt>Follow-up assessment</dt><dd>{scenario.triage.attention==="stop-contact"||scenario.triage.historicalReplyObserved||scenario.followUp.state==="blocked"?"Blocked":"Internal candidate only — not send approval"}</dd></div>
                   <div><dt>Earlier proposal suppression</dt><dd>{scenario.historicalSuppression.length?scenario.historicalSuppression.join(", ").replaceAll("_"," ")+" (fictional)":"None in fixture — not verified clearance"}</dd></div>
+                  <div><dt>Earlier proposal reply</dt><dd>{scenario.triage.historicalReplyObserved?"Reply in fictional earlier proposal — manual review required":"None in fixture — not verified absence"}</dd></div>
                   <div><dt>Fictional reply</dt><dd>{scenario.projection.replied?"Recorded in fixture":"None in fixture"}</dd></div>
                   <div><dt>Operator review category</dt><dd>{scenario.triage.category.replaceAll("-"," ")} (simulation only)</dd></div>
                 </dl>
@@ -87,7 +88,9 @@ export default function DeliveryLab() {
                     ?scenario.followUp.blockers.map(reason=><li key={reason}>{reason}</li>)
                     :scenario.historicalSuppression.length
                       ?<li>Earlier recipient suppression overrides this proposal&apos;s internal timing assessment. Contact remains blocked.</li>
-                      :<li>No internal timing blocker in fixture. External authorization and real consent remain unverified.</li>}
+                      :scenario.triage.historicalReplyObserved
+                        ?<li>Earlier recipient reply requires manual review before a new follow-up. Contact remains blocked.</li>
+                        :<li>No internal timing blocker in fixture. External authorization and real consent remain unverified.</li>
                 </ul>
                 <details className="lab-history">
                   <summary>Inspect fictional event history ({scenario.projection.eventCount})</summary>

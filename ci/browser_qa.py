@@ -131,12 +131,12 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
     assert page.get_by_role("status").inner_text().startswith("Internal development preview")
     robots = page.locator("meta[name=robots]").get_attribute("content")
     assert robots is not None and "noindex" in robots
-    assert page.locator("article[data-scenario]").count() == 5
+    assert page.locator("article[data-scenario]").count() == 6
     assert page.get_by_role("heading", name="Fictional CRM review overview").count() == 1
     summaries = page.locator("article[data-review-company]")
     assert summaries.count() == 2, "Missing or mixed fictional tenant totals"
     for company, stops, reviews, reviewed in (
-        ("Fictional painting contractor", "0", "2", "2"),
+        ("Fictional painting contractor", "0", "3", "3"),
         ("Fictional cleaning contractor", "2", "1", "3"),
     ):
         summary = page.locator("article[data-review-company]").filter(has=page.get_by_role("heading", name=company))
@@ -146,25 +146,30 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
             assert count.count() == 1 and count.locator("dd").inner_text() == expected, f"Wrong {key}: {company}"
     assert page.get_by_text("No contact authorization or live tenant access.", exact=False).count() == 2
     assert page.get_by_text("Internal candidate only — not send approval").count() == 1
-    assert page.get_by_text("Blocked", exact=True).count() == 4
-    assert page.get_by_text("Synthetic scenario · Not a customer record").count() == 5
-    assert page.get_by_text("Operator review category", exact=True).count() == 5
+    assert page.get_by_text("Blocked", exact=True).count() == 5
+    assert page.get_by_text("Synthetic scenario · Not a customer record").count() == 6
+    assert page.get_by_text("Operator review category", exact=True).count() == 6
     for case_id, label in (
         ("painting-reply", "reply needs review (simulation only)"),
         ("cleaning-bounce", "contact suppressed (simulation only)"),
         ("painting-consent-unknown", "consent needs verification (simulation only)"),
         ("cleaning-internal-candidate", "external authorization required (simulation only)"),
         ("cleaning-prior-optout", "contact suppressed (simulation only)"),
+        ("painting-prior-reply", "reply needs review (simulation only)"),
     ):
         card = page.locator(f"[data-scenario='{case_id}']")
         assert card.get_by_text(label, exact=True).count() == 1, f"Incorrect review category: {case_id}"
         assert card.locator(".lab-review-rationale").count() == 1
         assert card.locator(".lab-review-rationale").inner_text().strip(), f"Missing reason: {case_id}"
-    assert page.get_by_text("What an operator would review", exact=True).count() == 5
+    assert page.get_by_text("What an operator would review", exact=True).count() == 6
     historical = page.locator("[data-scenario='cleaning-prior-optout']")
     assert historical.get_by_text("opted out (fictional)", exact=True).count() == 1
     assert historical.get_by_text("Earlier recipient suppression overrides", exact=False).count() == 1
     assert historical.get_by_text("Blocked", exact=True).count() == 1
+    previous_reply = page.locator("[data-scenario='painting-prior-reply']")
+    assert previous_reply.get_by_text("Reply in fictional earlier proposal — manual review required", exact=True).count() == 1
+    assert previous_reply.get_by_text("Earlier recipient reply requires manual review before a new follow-up", exact=False).count() == 1
+    assert previous_reply.get_by_text("Blocked", exact=True).count() == 1
     assert page.locator("form, input, textarea, select, button").count() == 0
     assert page.get_by_text("Delivery remains disabled").count() == 1
     assert not mutations and not errors, f"Unexpected requests/errors: {mutations}, {errors}"
@@ -181,7 +186,7 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
     assert dims["html"] <= dims["viewport"] + 1, f"Lab {width}px horizontal overflow: {dims}"
     assert dims["body"] <= dims["viewport"] + 1, f"Lab {width}px body overflow: {dims}"
     assert not mutations and not errors, f"Unexpected interaction: {mutations}, {errors}"
-    print(f"PASS: delivery lab {width}px; five synthetic cases, historical suppression, no mutations", flush=True)
+    print(f"PASS: delivery lab {width}px; six synthetic cases, prior reply and suppression, no mutations", flush=True)
     context.close()
 
 def main() -> int:

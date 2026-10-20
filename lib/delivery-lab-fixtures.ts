@@ -23,6 +23,7 @@ type CaseDefinition = {
   consent: "confirmed" | "unknown";
   events: readonly DeliveryEventKind[];
   earlierOptOutProposalId?: string;
+  earlierReplyProposalId?: string;
 };
 const CASES: readonly CaseDefinition[] = [
   {id:"painting-reply",label:"A reply stops reminders",
@@ -61,6 +62,14 @@ const CASES: readonly CaseDefinition[] = [
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered"],
    earlierOptOutProposalId:"22222222-2222-4222-8222-222222222222"},
+  {id:"painting-prior-reply",label:"Earlier reply holds a new follow-up",
+   company:"Fictional painting contractor",
+   organizationId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   proposalId:"33333333-3333-4333-8333-333333333333",
+   recipient:"buyer-prior-reply@fictional.example",
+   consent:"confirmed",
+   events:["reserved","provider_accepted","provider_delivered"],
+   earlierReplyProposalId:"44444444-4444-4444-8444-444444444444"},
 ];
 
 export type DeliveryLabCase = {
@@ -90,12 +99,14 @@ function buildFixtureRecords(): FixtureRecord[] {
     }));
     const policy={consent:scenario.consent,version:1,minimumDelayHours:24,maximumAttempts:2};
     const history: SyntheticRecipientHistory[] = scenario.earlierOptOutProposalId
+      || scenario.earlierReplyProposalId
       ? (()=>{
-        const previousIdentity={...identity,proposalId:scenario.earlierOptOutProposalId};
+        const previousIdentity={...identity,
+          proposalId:scenario.earlierOptOutProposalId ?? scenario.earlierReplyProposalId!};
         const previousIntent:DeliveryIntent={...previousIdentity,
           idempotencyKey:deliveryIdempotencyKey(previousIdentity)};
         const previousKinds:DeliveryEventKind[]=["reserved","provider_accepted",
-          "provider_delivered","recipient_opted_out"];
+          "provider_delivered",scenario.earlierReplyProposalId?"recipient_replied":"recipient_opted_out"];
         const previousEvents:DeliveryEvent[]=previousKinds.map((kind,index)=>({
           eventId:String(index+101).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           organizationId:previousIntent.organizationId,

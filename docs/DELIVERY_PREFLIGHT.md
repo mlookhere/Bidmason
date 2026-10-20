@@ -226,17 +226,17 @@ human/live acceptance is unchanged.
 
 The Next development preview includes the route /delivery-lab, a clearly
 labeled *fictional, read-only example*. It is NOT access-controlled, and
-has no real user, contractor, proposal, recipient or provider data. Five
+has no real user, contractor, proposal, recipient or provider data. Six
 deterministic examples (reply, bounce, unknown contact consent,
-internally due-but-not-authorized, and a prior-proposal opt-out) are computed using the existing
+internally due-but-not-authorized, a prior-proposal opt-out and a prior-proposal reply) are computed using the existing
 projectSimulatedDeliveryEvents and assessSimulatedFollowUp functions.
 Only invented companies, event labels, blockers and explicit warnings
 that no one may send or approve anything are shown. There are no forms,
 send controls, mutation endpoints, credential checks or external requests.
 
-The delivery-lab web tests verify the five scenario outcomes and static
+The delivery-lab web tests verify the six scenario outcomes and static
 no-send boundaries. The mandatory Chromium E2E visits /delivery-lab
-at 320, 375, 768 and 1280px; checks noindex, correct blockers, five
+at 320, 375, 768 and 1280px; checks noindex, correct blockers, six
 fictional cards, native event-history disclosure, zero form controls,
 no mutation requests, browser errors or overflow. Noindex is NOT access
 control: never feed real data into this page. A true operator dashboard
@@ -248,7 +248,7 @@ provider evidence, security review and H01-H13 acceptance.
 
 The mandatory fast/PR/security publication guard now validates the openly
 reachable /delivery-lab and its single fixture module. It requires the
-allowlisted local imports, exactly five fictional scenario labels, reserved
+allowlisted local imports, exactly six fictional scenario labels, reserved
 test/example email domains, its own noindex and preview warnings, and no
 other subroute or asset. It blocks added API/POST routes, live data sources,
 environment/secret access, dynamic imports, remote resources, form/input/send
@@ -278,7 +278,7 @@ follow-up becomes *external-authorization-required*, never "send ready".
 All outcomes have a permanent review-simulation-only state and no action.
 
 The public /delivery-lab displays the resulting explanation beside each
-of its five fictional examples, computed from the actual pure domain
+of its six fictional examples, computed from the actual pure domain
 functions. Eight adversarial Node regression groups in the required web
 and Windows checks cover precedence, fabricated approval prevention,
 replay, chronology, tenant mismatch, consent and incomplete delivery.
@@ -510,11 +510,11 @@ provider connection, email or deployment has been introduced.
 ## Tenant-scoped CRM summaries in the public fictional lab
 
 The static /delivery-lab now includes an accessible, noninteractive CRM
-review overview above its five fictional case histories. It
+review overview above its six fictional case histories. It
 reuses the pure summarizeSyntheticDeliveryReview engine rather than
 hardcoded counts, and groups source fixtures by the *exact* fictional
 organization ID before aggregation. These two organizations must never
-be merged: the fictional painting company has two operator-review cases,
+be merged: the fictional painting company has three operator-review cases,
 while the fictional cleaning company has two stop-contact cases and one
 operator-review case. Both have zero deferred cases in these fixtures.
 
@@ -566,7 +566,7 @@ prior opt-out override despite an otherwise internally eligible
 assessment, the two company-specific review totals and no live
 mutation or accessible send action at 320, 375, 768 and 1280px.
 The mandatory publication guard now permits only the reviewed
-recipient-history-aware pure helper imports, pins **exactly five**
+recipient-history-aware pure helper imports, pins **exactly six**
 fictional scenario labels, and continues to reject real email
 addresses, side-effect imports and unapproved Next routes. The
 literal fictional addresses remain testable by negative source
@@ -787,3 +787,36 @@ failed authenticated callbacks durably, protect recipient contacts with
 transactional locks and observed-version updates, and meet H01–H13
 external acceptance. Do not wire either simulation API to customer
 delivery or treat an exhausted retry budget as a successful hold.
+
+
+## Prior-reply manual-review case in the public fictional lab
+
+The static /delivery-lab now displays six invented cases, adding an
+independent painting-contractor **earlier-proposal reply** scenario.
+Its CURRENT proposal has a normal-looking reported delivery and
+internally eligible follow-up timing, but a DIFFERENT fictional proposal
+for the same recipient previously received a reply. The existing
+recipient-aware classifier therefore returns reply-needs-review /
+operator-review with historicalReplyObserved=true. The page shows
+**Blocked**, an explicit earlier-reply detail, and a manual-review
+explanation, even though the underlying current-proposal assessment
+alone would be candidate-internal-only. A reply remains distinct from
+sticky opt-out/bounce/complaint suppression and none of these cases
+allows contact.
+
+Both company-scoped CRM totals are calculated using the actual
+historical-evidence matrix: painting now has 3 operator-review cases
+and zero stop-contact; cleaning has 2 stop-contact and 1 operator review.
+The new scenario uses its own .example fictional recipient and distinct
+proposal identities. No raw recipient, tenant, proposal or dispatch
+identifiers are exposed. Public preview remains noindex, static and
+read-only, not access-controlled or suitable for real records.
+
+Required Node tests, source-level publication guard and real Chromium
+E2E cover all six cards, correct per-tenant aggregate counts, visible
+earlier-reply hold and blockers, no forms or mutation requests and
+320/375/768/1280px responsive layouts. The guard explicitly pins
+exactly six invented case definitions without permitting new runtime
+imports, network access, secrets, or dynamic customer data.
+H01–H13 and upstream draft PR holds remain unchanged; synthetic
+history does not establish verified consent or authenticate a reply.
