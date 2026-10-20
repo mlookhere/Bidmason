@@ -4,10 +4,11 @@ import {readFileSync} from "node:fs";
 import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../lib/delivery-lab-fixtures.ts";
 const page=readFileSync(new URL("../app/delivery-lab/page.tsx",import.meta.url),"utf8");
 
-test("four invented cases are derived from actual offline CRM and follow-up logic",()=>{
+test("five invented cases are derived from actual offline CRM and follow-up logic",()=>{
   const cases=buildSyntheticDeliveryLabCases();
   assert.deepEqual(cases.map(x=>x.id),[
     "painting-reply","cleaning-bounce","painting-consent-unknown","cleaning-internal-candidate",
+    "cleaning-prior-optout",
   ]);
   assert.ok(cases.every(x=>x.projection.state==="simulation-only"));
   assert.ok(cases.every(x=>x.triage.state==="review-simulation-only"));
@@ -20,9 +21,9 @@ test("redacted CRM summaries stay tenant-scoped and never imply send authority",
   const painting=grouped["Fictional painting contractor"];
   const cleaning=grouped["Fictional cleaning contractor"];
   assert.deepEqual(painting.attention,{stopContact:0,operatorReview:2,deferred:0});
-  assert.deepEqual(cleaning.attention,{stopContact:1,operatorReview:1,deferred:0});
+  assert.deepEqual(cleaning.attention,{stopContact:2,operatorReview:1,deferred:0});
   assert.equal(painting.reviewedCases,2);
-  assert.equal(cleaning.reviewedCases,2);
+  assert.equal(cleaning.reviewedCases,3);
   for(const {company,report} of reports){
     assert.ok(company.startsWith("Fictional "));
     assert.equal(report.state,"review-simulation-only");
@@ -46,6 +47,22 @@ test("reply, bounce and unknown consent each block follow-up",()=>{
   assert.equal(byId["painting-consent-unknown"].triage.category,"consent-needs-verification");
   assert.ok(byId["painting-consent-unknown"].followUp.blockers.some(x=>x.includes("consent")));
 });
+test("earlier fictional opt-out overrides otherwise internally eligible new proposal",()=>{
+  const cases=buildSyntheticDeliveryLabCases();
+  const caseWithHistory=cases.find(x=>x.id==="cleaning-prior-optout");
+  assert.equal(caseWithHistory.followUp.state,"candidate-internal-only");
+  assert.equal(caseWithHistory.triage.category,"contact-suppressed");
+  assert.equal(caseWithHistory.triage.attention,"stop-contact");
+  assert.deepEqual(caseWithHistory.historicalSuppression,["opted_out"]);
+  assert.equal(caseWithHistory.triage.historicalStreams,1);
+  assert.equal(caseWithHistory.triage.contactAuthorized,false);
+  assert.equal(caseWithHistory.triage.state,"review-simulation-only");
+  assert.equal(cases.filter(x=>x.triage.category==="external-authorization-required").length,1);
+  assert.equal(cases.filter(x=>x.triage.category==="contact-suppressed").length,2);
+  const serialized=JSON.stringify(caseWithHistory);
+  for(const token of ["buyer-cleaning-prior-optout@", "11111111-1111", "22222222-2222", "dryrun_"])
+    assert.ok(!serialized.includes(token),token);
+});
 test("timing candidate never becomes a sending authorization",()=>{
   const candidate=buildSyntheticDeliveryLabCases().find(x=>x.id==="cleaning-internal-candidate");
   assert.equal(candidate.followUp.state,"candidate-internal-only");
@@ -65,6 +82,8 @@ test("static route discloses limits and remains noindex, no input or mutation",(
   assert.match(page,/Operator review category/);
   assert.match(page,/Fictional CRM review overview/);
   assert.match(page,/Stop-contact review/);
+  assert.match(page,/Earlier proposal suppression/);
+  assert.match(page,/Earlier recipient suppression overrides this proposal/);
   assert.match(page,/No contact authorization or live tenant access/);
   assert.match(page,/What an operator would review/);
   assert.doesNotMatch(page,/fetch\(|submit\(|localStorage|sessionStorage|use client/i);

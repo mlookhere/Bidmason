@@ -1,6 +1,7 @@
 import {deliveryIdempotencyKey, type DeliveryIntent} from "./outbound-preflight.ts";
 import {assessSimulatedFollowUp, type FollowUpAssessment} from "./follow-up-assessment.ts";
-import {classifySimulatedDeliveryTriage, type DeliveryTriage} from "./delivery-triage.ts";
+import {classifySimulatedRecipientAwareTriage, type RecipientAwareDeliveryTriage} from "./recipient-aware-delivery-triage.ts";
+import type {SyntheticRecipientHistory} from "./recipient-suppression-history.ts";
 import {summarizeSyntheticDeliveryReview, type SyntheticReviewEntry, type SimulatedReviewSummary} from "./delivery-review-summary.ts";
 import {
   projectSimulatedDeliveryEvents, type DeliveryEvent, type DeliveryEventKind, type DeliveryProjection,
@@ -20,6 +21,7 @@ type CaseDefinition = {
   proposalId: string;
   consent: "confirmed" | "unknown";
   events: readonly DeliveryEventKind[];
+  earlierOptOutProposalId?: string;
 };
 const CASES: readonly CaseDefinition[] = [
   {id:"painting-reply",label:"A reply stops reminders",
@@ -46,21 +48,33 @@ const CASES: readonly CaseDefinition[] = [
    proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff",
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered"]},
+  {id:"cleaning-prior-optout",label:"Earlier opt-out overrides new proposal",
+   company:"Fictional cleaning contractor",
+   organizationId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+   proposalId:"11111111-1111-4111-8111-111111111111",
+   consent:"confirmed",
+   events:["reserved","provider_accepted","provider_delivered"],
+   earlierOptOutProposalId:"22222222-2222-4222-8222-222222222222"},
 ];
 
 export type DeliveryLabCase = {
   id:string;label:string;company:string;
-  projection:DeliveryProjection;followUp:FollowUpAssessment;triage:DeliveryTriage;
+  projection:DeliveryProjection;followUp:FollowUpAssessment;triage:RecipientAwareDeliveryTriage;
   contactState:"fictional-confirmed"|"fictional-unconfirmed";
+  historicalSuppression: RecipientAwareDeliveryTriage["historicalSuppression"];
 };
 
-type FixtureRecord = {organizationId:string;company:string;publicCase:DeliveryLabCase;review: SyntheticReviewEntry};
+type FixtureRecord = {organizationId:string;company:string;
+  publicCase:DeliveryLabCase;review:SyntheticReviewEntry;
+  history: readonly SyntheticRecipientHistory[]};
 
 function buildFixtureRecords(): FixtureRecord[] {
   return CASES.map(scenario => {
     const identity={organizationId:scenario.organizationId,
       proposalId:scenario.proposalId,revision:1,...HASHES,
-      recipient:"buyer@fictional.example"};
+      // Different fictional people unless an earlier-proposal fixture explicitly
+      // binds the SAME exact recipient. Avoid silently bypassing past bounces.
+      recipient:"buyer-"+scenario.id+"@fictional.example"};
     const intent:DeliveryIntent={...identity,idempotencyKey:deliveryIdempotencyKey(identity)};
     const events:DeliveryEvent[]=scenario.events.map((kind,index)=>({
       eventId:String(index+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -69,14 +83,33 @@ function buildFixtureRecords(): FixtureRecord[] {
       observedAt:"2026-10-20T08:"+String(index).padStart(2,"0")+":00.000Z",
     }));
     const policy={consent:scenario.consent,version:1,minimumDelayHours:24,maximumAttempts:2};
+    const history: SyntheticRecipientHistory[] = scenario.earlierOptOutProposalId
+      ? (()=>{
+        const previousIdentity={...identity,proposalId:scenario.earlierOptOutProposalId};
+        const previousIntent:DeliveryIntent={...previousIdentity,
+          idempotencyKey:deliveryIdempotencyKey(previousIdentity)};
+        const previousKinds:DeliveryEventKind[]=["reserved","provider_accepted",
+          "provider_delivered","recipient_opted_out"];
+        const previousEvents:DeliveryEvent[]=previousKinds.map((kind,index)=>({
+          eventId:String(index+101).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          organizationId:previousIntent.organizationId,
+          idempotencyKey:previousIntent.idempotencyKey,
+          recipient:previousIntent.recipient,kind,
+          observedAt:"2026-10-19T08:"+String(index).padStart(2,"0")+":00.000Z",
+        }));
+        return [{intent:previousIntent,events:previousEvents}];
+      })() : [];
+    const triage=classifySimulatedRecipientAwareTriage(intent,events,policy,[],history,NOW);
     return {
       organizationId:scenario.organizationId,
       company:scenario.company,
       review:{intent,events,policy,previousAttempts:[]},
+      history,
       publicCase:{id:scenario.id,label:scenario.label,company:scenario.company,
         projection:projectSimulatedDeliveryEvents(intent,events),
         followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW),
-        triage:classifySimulatedDeliveryTriage(intent,events,policy,[],NOW),
+        triage,
+        historicalSuppression:triage.historicalSuppression,
         contactState:scenario.consent==="confirmed"?"fictional-confirmed":"fictional-unconfirmed",
       },
     };
@@ -97,7 +130,8 @@ export function buildSyntheticDeliveryLabSummaries(): DeliveryLabSummary[] {
       throw new TypeError("Inconsistent fictional company grouping");
     return {company:scoped[0].company,
       report:summarizeSyntheticDeliveryReview(organizationId,
-        scoped.map(record=>record.review),NOW),
+        scoped.map(record=>record.review),NOW,
+        scoped.map(record=>record.history)),
     };
   });
 }

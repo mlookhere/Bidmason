@@ -26,7 +26,7 @@ LAB_IMPORTS = {
     LAB_FIXTURE: {
         "./outbound-preflight.ts", "./follow-up-assessment.ts",
         "./delivery-event-projection.ts", "./delivery-triage.ts",
-        "./delivery-review-summary.ts",
+        "./delivery-review-summary.ts", "./recipient-aware-delivery-triage.ts",
     },
 }
 LAB_IMPORT = re.compile(
@@ -81,10 +81,11 @@ def delivery_lab_findings(root: Path) -> list[str]:
             errors.append(f"Public delivery lab missing safety marker: {marker}")
     source = fixture.read_text(encoding="utf-8")
     companies = re.findall(r"\bcompany\s*:\s*['\"]([^'\"]+)['\"]", source)
-    if len(companies) != 4 or any(not c.startswith("Fictional ") for c in companies):
-        errors.append("Public delivery lab requires exactly four fictional companies")
+    if len(companies) != 5 or any(not c.startswith("Fictional ") for c in companies):
+        errors.append("Public delivery lab requires exactly five fictional scenarios")
     if ("buildSyntheticDeliveryLabCases" not in source
-            or "assessSimulatedFollowUp" not in source):
+            or "assessSimulatedFollowUp" not in source
+            or "classifySimulatedRecipientAwareTriage" not in source):
         errors.append("Public delivery lab must use reviewed offline projections")
     return errors
 
