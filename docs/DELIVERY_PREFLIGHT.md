@@ -308,3 +308,38 @@ database, background queue, customer auth or sending ability is added.
 This is not a secure real operator dashboard: counts from caller-supplied
 fixtures do not prove trusted origin, access control, durable uniqueness or
 acceptance of H01–H13.
+
+
+## Recipient-level suppression across proposal revisions (fictional evidence only)
+
+The new lib/recipient-suppression-history.ts models a critical cross-proposal
+safety boundary that a single delivery idempotency key cannot provide: a
+recipient's earlier opt-out, bounce or complaint remains a suppression signal
+when a new proposal or revision has its own clean-looking delivery history.
+reviewSimulatedRecipientContactHistory takes the proposed delivery identity,
+zero to 30 historical proposal streams for exactly the same organization and
+recipient, and a caller-supplied canonical UTC as-of instant. It validates
+every stream with the existing exact-identity CRM projector. Cross-tenant
+or cross-recipient records, historical records for the active delivery key,
+reused proposal identities, event-ID collisions across different streams,
+future-dated events, conflicting replays, and malformed/accessor-backed
+inputs all fail closed. Suppression is a monotonic union of historical
+bounce, opt-out and complaint reasons across distinct proposal identities.
+
+Both possible outputs have state review-simulation-only and the literal
+contactAuthorized: false. Even an empty history or history with no
+suppression is labeled no-suppression-seen-in-fixtures, NEVER a verified
+clearance. The function cannot authenticate a provider, establish history
+completeness, verify revocation/consent, lift suppression, reserve delivery,
+access customer data or authorize communication.
+
+The eight new adversarial groups in
+tests-web/recipient-suppression-history.test.mjs run under existing
+mandatory Linux and Windows Node suites. They explicitly demonstrate how a
+new proposal can pass its own internal follow-up timing check while still
+being suppressed by an earlier proposal, and cover history/revision and
+tenant isolation, sticky reasons, event collision and fake evidence. A live
+implementation must use authoritative tenant-and-recipient-scoped durable
+suppression data and transactional current-state checks at each send, not
+infer recipient contact clearance from proposal-scoped event histories.
+H01-H13 external go-live acceptance remain unverified.
