@@ -535,3 +535,46 @@ allowlist adds only the reviewed offline summary module; no provider,
 network, storage, server action or POST endpoint is introduced. Real
 CRM access, buyer portal and outbound sending continue to require
 all H01-H13 live tenant, provider and human release acceptance.
+
+
+## Historical recipient suppression in the public fictional lab
+
+Five strictly invented scenarios now demonstrate the cross-proposal
+contact-suppression rule in the actual public, noindex /delivery-lab,
+not just in isolated unit tests. The existing four examples remain,
+and a fifth *cleaning contractor* case has an internally due-looking
+current proposal but an earlier opt-out in a different proposal for
+the same fictional recipient. Its classification and visible follow-up
+status are STOP CONTACT / blocked, with a separate plain-language
+prior-suppression explanation. A simulated follow-up due time never
+overrides a previously recorded opt-out, bounce or complaint.
+
+Each unrelated case has its own literal .example-only fictional
+recipient, preventing the former fixtures from accidentally sharing
+contact history. Only the opt-out example reuses the exact recipient
+across its two separate proposal identities. The same exact-history
+matrix is supplied to the existing tenant-scoped CRM summary; the
+cleaning company's three cases now count two stop-contact reviews and
+one operator review, while painting retains two operator reviews.
+The page receives no recipient addresses, proposal identities or
+idempotency keys. No real recipient, consent, provider or origin
+is authenticated.
+
+Required Node and Chromium tests validate the fifth scenario, its
+prior opt-out override despite an otherwise internally eligible
+assessment, the two company-specific review totals and no live
+mutation or accessible send action at 320, 375, 768 and 1280px.
+The mandatory publication guard now permits only the reviewed
+recipient-history-aware pure helper imports, pins **exactly five**
+fictional scenario labels, and continues to reject real email
+addresses, side-effect imports and unapproved Next routes. The
+literal fictional addresses remain testable by negative source
+injection; they are not exposed through the rendered lab.
+
+This improves the correctness and observability of a synthetic
+demonstration only. Historical event origin and completeness,
+authoritative tenant/recipient DNC, actual consent, live
+reviewer identity, signed provider callbacks and atomic per-send
+suppression checks are still unverified. H01-H13 and draft PR holds
+remain unchanged. Never interpret the absence of fictional prior
+events as customer contact clearance.
