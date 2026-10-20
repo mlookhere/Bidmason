@@ -375,3 +375,39 @@ malformed arrays under existing required Linux/Windows web-test gates.
 This does NOT authenticate provider origin, maintain durable recipient
 suppression, or atomically recheck contact status before a real send.
 All H01-H13 live and human acceptance remain mandatory.
+
+
+## In-memory recipient reservation race rehearsal (not live sending)
+
+The pure lib/synthetic-dispatch-reservation.ts model addresses a
+specific acceptance-test gap: a deterministic dry-run idempotency hash
+does NOT prevent two attempts from racing to dispatch. Its fictional
+SyntheticDispatchReservationLedger records an in-process per-tenant
+and per-recipient version, simulated reservation key and sticky bounce,
+complaint and opt-out states. compareAndReserve and
+compareAndSuppress model a synchronous compare-and-swap against a
+caller's observed version; stale competing attempts fail, a second
+proposal for the same recipient cannot reserve while one is pending,
+and suppression invalidates a prior fictional reservation. A clean
+snapshot is NEVER clearance: every result retains
+contactAuthorized: false, and reservations return only
+reserved-simulation-only. There is no unsuppress or send method.
+
+Nine tests-web/synthetic-dispatch-reservation.test.mjs groups
+exercise simultaneous JavaScript callers, duplicate replay, suppression
+before/after reservation, opposite-order reservation/opt-out races,
+sticky reasons, unrelated tenants and recipients, forged identities,
+hidden accessors and invalid version evidence. They run under existing
+required Linux/Windows web suites without credentials, provider calls
+or changed CI gates. Single-process Promise scheduling does NOT prove
+database or distributed atomicity. This model uses an in-memory Map,
+does not survive a process restart, and is explicitly NOT a
+production database, lock, sender, release authorization or permission
+to contact someone.
+
+Real Item 6 completion must use authenticated Supabase tenant-and-
+recipient scoped records, atomic compare-and-swap transactions/unique
+constraints, revision and consent revalidation within the transaction,
+durable suppression/replay recovery, selected provider/domain and its
+verified signatures, race tests against that real database, and all
+H01-H13 operator, privacy, legal, security and deployment approvals.
