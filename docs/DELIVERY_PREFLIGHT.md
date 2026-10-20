@@ -343,3 +343,35 @@ implementation must use authoritative tenant-and-recipient-scoped durable
 suppression data and transactional current-state checks at each send, not
 infer recipient contact clearance from proposal-scoped event histories.
 H01-H13 external go-live acceptance remain unverified.
+
+
+## Recipient-aware CRM review integration (synthetic, no outbound action)
+
+lib/recipient-aware-delivery-triage.ts composes the validated CURRENT
+proposal's simulated CRM/follow-up review with the separate recipient-wide
+historical suppression assessment. Historical bounce, complaint or opt-out
+overrides a current proposal's clean-looking state, buyer reply, missing
+consent or cooldown state; it becomes contact-suppressed / stop-contact.
+Invalid current evidence is evaluated before historical suppression:
+neither stream may hide chronology or tenant identity failures.
+Every result remains review-simulation-only with contactAuthorized: false.
+
+lib/delivery-review-summary.ts now optionally takes an explicit complete
+historical-evidence matrix containing one history stream collection PER
+fictional review entry. When supplied, it uses the composed classifier,
+so an earlier opt-out changes the REDACTED tenant review totals instead of
+remaining a disconnected diagnostic. Missing/misaligned, sparse,
+decorated or accessor-backed matrices fail closed. Omitting this optional
+input retains the original simulation-only interface but does NOT claim
+complete contact history. An explicitly empty history is likewise not
+contact clearance. No output reveals recipient, proposal, event timeline,
+idempotency key or authorization.
+
+Nine adversarial groups in
+tests-web/recipient-aware-delivery-triage.test.mjs exercise suppression
+precedence, privacy-safe aggregated counts, compatibility, missing or
+cross-tenant history, duplicate/replayed identities, spoofed events and
+malformed arrays under existing required Linux/Windows web-test gates.
+This does NOT authenticate provider origin, maintain durable recipient
+suppression, or atomically recheck contact status before a real send.
+All H01-H13 live and human acceptance remain mandatory.
