@@ -136,4 +136,6 @@ jobs:
           directory="$(mktemp -d)"
           trap 'rm -rf "$directory"' EXIT
           python3 ci/proposal_contract_export.py "$directory"
+          node ci/export_synthetic_review.mjs "$directory" "$directory"
+          python3 ci/proposal_review_markup_qa.py "$directory"
           PROPOSAL_CONTRACT_DIR="$directory" node --test ci/proposal_artifact_contract.test.mjs

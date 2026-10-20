@@ -128,3 +128,29 @@ The cross-runtime contract test is deliberately located at
 `proposal-pdf-qa` job only after Python creates and verifies its real PDF
 artifacts. No tests are skipped or ignored; the general web and Windows jobs
 retain all their original assertions without a Python/PDF dependency.
+
+
+## Offline, read-only proposal QA workbench
+
+A new **usable offline HTML review report** is generated from the verified
+fictional painting, cleaning and accented-name PDF fixtures. It is deliberately
+not served by Next.js, does not accept customer data, and provides no routes,
+forms, approval buttons or outbound actions. To regenerate in a private
+disposable directory, run Python `ci/proposal_contract_export.py <directory>`
+followed by Node `ci/export_synthetic_review.mjs <directory> <directory>`.
+
+Reports display the company/recipient, scope, itemized fictional pricing,
+assumptions and exclusions, file and snapshot digests, and a five-check QA
+table. **Four checks explicitly remain NOT RUN** until independently authorized
+company policy, source, claims and recipient review exist. Only synthetic
+PDF-byte fingerprint consistency is marked PASSED. The report prominently
+states BLOCKED and NOT FOR DELIVERY; it never fabricates source, reviewer
+receipts or approval status.
+
+The mandatory `proposal-pdf-qa` Actions job now generates and inspects these
+three HTML reports in its auto-cleaned temporary directory. Standalone web
+unit tests verify HTML escaping for untrusted text, stale/swapped artifact
+rejection, non-indexability and absence of active controls. A Python HTML
+parser separately validates each real generated report. Production access,
+independent reviewer authentication, real accessible PDF acceptance and
+release readiness remain deferred under H01-H13.
