@@ -47,6 +47,62 @@ LAB_UNSAFE = re.compile(
 LAB_EMAIL = re.compile(r"[a-z0-9._%+\-]+@[a-z0-9.-]+\.[a-z]{2,}", re.I)
 
 
+
+# Review the COMPLETE runtime import chain reachable from the public lab.
+# Direct-only allowlisting is insufficient: a trusted helper can import an
+# unreviewed dependency or introduce a side-effect after the page is approved.
+# These exact specifiers are review checkpoints, not a proof of JS purity.
+LAB_TRANSITIVE_IMPORTS = {
+    "lib/outbound-preflight.ts": {"node:crypto"},
+    "lib/delivery-event-projection.ts": {"./outbound-preflight.ts"},
+    "lib/follow-up-assessment.ts": {
+        "./outbound-preflight.ts", "./delivery-event-projection.ts",
+    },
+    "lib/delivery-triage.ts": {
+        "./outbound-preflight.ts", "./follow-up-assessment.ts",
+        "./delivery-event-projection.ts",
+    },
+    "lib/recipient-suppression-history.ts": {
+        "./outbound-preflight.ts", "./delivery-event-projection.ts",
+    },
+    "lib/recipient-aware-delivery-triage.ts": {
+        "./outbound-preflight.ts", "./delivery-event-projection.ts",
+        "./follow-up-assessment.ts", "./delivery-triage.ts",
+        "./recipient-suppression-history.ts",
+    },
+    "lib/delivery-review-summary.ts": {
+        "./outbound-preflight.ts", "./delivery-event-projection.ts",
+        "./follow-up-assessment.ts", "./delivery-triage.ts",
+        "./recipient-aware-delivery-triage.ts",
+        "./recipient-suppression-history.ts",
+    },
+}
+LAB_REEXPORT = re.compile(r"\bexport\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s*['\"]", re.S)
+
+
+def lab_dependency_findings(root: Path) -> list[str]:
+    """Reject drift in any indirect module the public fictional lab executes."""
+    problems: list[str] = []
+    for relative, expected in LAB_TRANSITIVE_IMPORTS.items():
+        path = root / relative
+        if path.is_symlink() or not path.is_file():
+            problems.append(f"Missing or symlinked lab dependency: {relative}")
+            continue
+        source = path.read_text(encoding="utf-8", errors="replace")
+        imports = list(LAB_IMPORT.finditer(source))
+        count = len(re.findall(r"(?m)^\s*import\b", source))
+        actual = [match.group(2) for match in imports]
+        if (count != len(imports) or set(actual) != expected
+                or len(actual) != len(expected) or LAB_REEXPORT.search(source)):
+            problems.append(f"Unreviewed public lab transitive imports: {relative}")
+        if LAB_UNSAFE.search(source):
+            problems.append(f"Public lab dependency must remain offline and read-only: {relative}")
+        for address in LAB_EMAIL.findall(source):
+            if not address.lower().endswith((".example", ".test", ".invalid", ".localhost")):
+                problems.append(f"Nonfictional email in public lab dependency: {relative}")
+    return problems
+
+
 def delivery_lab_findings(root: Path) -> list[str]:
     """Require explicit review before adding dynamic inputs or actions to the lab.
 
@@ -87,6 +143,7 @@ def delivery_lab_findings(root: Path) -> list[str]:
             or "assessSimulatedFollowUp" not in source
             or "classifySimulatedRecipientAwareTriage" not in source):
         errors.append("Public delivery lab must use reviewed offline projections")
+    errors.extend(lab_dependency_findings(root))
     return errors
 
 

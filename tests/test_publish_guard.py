@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ci.publish_guard import findings, delivery_lab_findings
+from ci.publish_guard import findings, delivery_lab_findings, LAB_TRANSITIVE_IMPORTS
 
 
 class PublishGuardTests(unittest.TestCase):
@@ -26,6 +26,10 @@ class PublishGuardTests(unittest.TestCase):
         (self.root / "lib").mkdir(exist_ok=True)
         copyfile(repo / "app/delivery-lab/page.tsx", self.root / "app/delivery-lab/page.tsx")
         copyfile(repo / "lib/delivery-lab-fixtures.ts", self.root / "lib/delivery-lab-fixtures.ts")
+        for relative in LAB_TRANSITIVE_IMPORTS:
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            copyfile(repo / relative, target)
 
     def replace_lab(self, path, old, new):
         target = self.root / path
@@ -36,6 +40,57 @@ class PublishGuardTests(unittest.TestCase):
     def test_actual_public_lab_fixture_is_allowlisted(self):
         self.with_lab()
         self.assertEqual(delivery_lab_findings(self.root), [])
+        self.assertEqual(findings(self.root), [])
+
+
+    def test_indirect_helper_network_storage_and_actions_are_rejected(self):
+        for code in ("fetch('https://real.example/api')",
+                     "process.env.REAL_PROVIDER_KEY",
+                     "import('./unreviewed-backend.ts')",
+                     "localStorage.getItem('token')",
+                     "'use server'"):
+            with self.subTest(code=code):
+                self.with_lab()
+                helper = self.root / "lib/delivery-triage.ts"
+                helper.write_text(helper.read_text() + "\n// unapproved\n" + code + ";\n")
+                self.assertTrue(any("Public lab dependency must remain offline" in e
+                                    for e in findings(self.root)))
+
+    def test_indirect_helper_import_reexport_and_side_effect_drift_are_rejected(self):
+        for code in ('import {createClient} from "@supabase/supabase-js";',
+                     'import "./new-side-effect.ts";',
+                     'export {send} from "./mailer.ts";'):
+            with self.subTest(code=code):
+                self.with_lab()
+                helper = self.root / "lib/delivery-review-summary.ts"
+                helper.write_text(helper.read_text() + "\n" + code)
+                self.assertTrue(any("Unreviewed public lab transitive imports" in e
+                                    for e in findings(self.root)))
+
+    def test_missing_and_symlinked_transitive_modules_fail_closed(self):
+        self.with_lab()
+        helper = self.root / "lib/recipient-suppression-history.ts"
+        helper.unlink()
+        self.assertTrue(any("Missing or symlinked lab dependency" in e
+                            for e in findings(self.root)))
+        self.with_lab()
+        old = Path.is_symlink
+        with patch.object(Path, "is_symlink",
+                          lambda path: path == helper or old(path)):
+            self.assertTrue(any("Missing or symlinked lab dependency" in e
+                                for e in findings(self.root)))
+
+    def test_nonfictional_email_in_indirect_dependency_is_rejected(self):
+        self.with_lab()
+        helper = self.root / "lib/recipient-suppression-history.ts"
+        helper.write_text(helper.read_text() + '\nconst address="buyer@real-domain.com";\n')
+        self.assertTrue(any("Nonfictional email in public lab dependency" in e
+                            for e in findings(self.root)))
+
+    def test_unrelated_module_is_not_a_public_lab_dependency(self):
+        self.with_lab()
+        other = self.root / "lib/unrelated-private-experiment.ts"
+        other.write_text("const test = () => fetch('/unrelated');")
         self.assertEqual(findings(self.root), [])
 
     def test_missing_fixture_and_added_api_subroute_fail_closed(self):
