@@ -751,3 +751,39 @@ exposed through an API or connected to a sender. A real adapter requires
 provider-specific signature verification, server-trusted local dispatch
 lookup, RLS and durable transactional event/recipient atomicity, plus
 all outstanding H01-H13 legal/security/operations/human approvals.
+
+
+## Bounded fictional webhook contact-hold CAS recheck (never a real sender)
+
+The strict one-attempt reconcileSyntheticWebhookContactHold API deliberately
+returns blocked / stale-or-invalid-version when a simulated reservation
+changes after the caller observed its version. This is safer than silently
+claiming the fictional webhook hold was applied, but leaves the
+fictional recipient reservation intact until another caller retries.
+
+The additional reconcileSyntheticWebhookContactHoldWithRetry function
+models an *explicit*, **0–3 maximum stale-version recheck budget**, without
+changing the strict original API. It authenticates the entire fictional
+signed callback batch and validates event scope/chronology/replay once,
+BEFORE any ledger mutation, then retries only a valid stale CAS with the
+current in-memory recipient version. The final result exposes a
+staleRechecks count and unresolvedStaleVersion boolean. If budget
+exhausts or the caller supplied an invalid original version, it reports
+blocked without pretending that suppression or reply review was stored.
+A duplicate/no-op callback also reports blocked rather than acceptance.
+
+Seven required Node regression groups cover stale reservation recovery,
+explicit zero-recheck unresolved state, identical replay/no-op, combined
+opt-out+reply atomic update after a stale version, 36 competing callers,
+tampered event rejection before CAS, and malformed/out-of-range retry
+budgets. Existing test/web, Windows and synthetic-webhook suites remain
+mandatory. No CI gate is relaxed or replaced.
+
+This bounded synchronous fixture has no actual asynchronous provider,
+queue, durable replay history, process restart or distributed SQL
+transaction. It cannot authenticate customer consent or make a real
+communication decision. A real integration must retain and recover
+failed authenticated callbacks durably, protect recipient contacts with
+transactional locks and observed-version updates, and meet H01–H13
+external acceptance. Do not wire either simulation API to customer
+delivery or treat an exhausted retry budget as a successful hold.

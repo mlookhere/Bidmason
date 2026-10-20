@@ -4,7 +4,8 @@ import {createHmac,randomBytes} from "node:crypto";
 import {deliveryIdempotencyKey} from "../lib/outbound-preflight.ts";
 import {SyntheticDispatchReservationLedger}
   from "../lib/synthetic-dispatch-reservation.ts";
-import {reconcileSyntheticWebhookContactHold}
+import {reconcileSyntheticWebhookContactHold,
+  reconcileSyntheticWebhookContactHoldWithRetry}
   from "../lib/synthetic-webhook-contact-hold.ts";
 
 const BASE={
@@ -155,4 +156,103 @@ test("unrelated tenant remains isolated and permanent suppression cannot lift",(
   assert.equal(ledger.snapshot(intent).replyReviewRequired,true);
   assert.equal(ledger.compareAndReserve(intent,3).reason,"recipient-suppressed");
   assert.equal(ledger.snapshot(outside).version,0);
+});
+
+test("bounded stale recheck closes a fictional reserved-vs-reply version race",()=>{
+  const ledger=reserve();
+  const r=reconcileSyntheticWebhookContactHoldWithRetry(
+    ledger,intent,reservation,[accepted,delivered,replied],secret,0,1);
+  assert.deepEqual(r,{
+    state:"simulation-only",decision:"fictional-contact-hold-applied",
+    reason:"synthetic-contact-signals-recorded",contactHold:"reply-review",
+    reservationVersion:2,contactAuthorized:false,staleRechecks:1,
+    unresolvedStaleVersion:false,
+  });
+  assert.equal(ledger.snapshot(intent).reserved,false);
+  assert.equal(ledger.compareAndReserve(intent,2).reason,"recipient-reply-review-required");
+});
+
+test("zero-retry stale result is visibly unresolved and does not alter reservation",()=>{
+  const ledger=reserve();
+  const r=reconcileSyntheticWebhookContactHoldWithRetry(
+    ledger,intent,reservation,[accepted,delivered,replied],secret,0,0);
+  assert.equal(r.decision,"blocked");
+  assert.equal(r.reason,"stale-or-invalid-version");
+  assert.equal(r.contactHold,"none");
+  assert.equal(r.unresolvedStaleVersion,true);
+  assert.equal(r.staleRechecks,0);
+  assert.equal(ledger.snapshot(intent).version,1);
+  assert.equal(ledger.snapshot(intent).reserved,true);
+});
+
+test("replayed signed reply after refreshed-version retry remains no-op",()=>{
+  const ledger=reserve();
+  apply(ledger,[accepted,delivered,replied]);
+  const r=reconcileSyntheticWebhookContactHoldWithRetry(
+    ledger,intent,reservation,[accepted,delivered,replied,{...replied}],secret,1,2);
+  assert.equal(r.decision,"blocked");
+  assert.equal(r.reason,"duplicate-or-empty-contact-signals");
+  assert.equal(r.staleRechecks,1);
+  assert.equal(r.unresolvedStaleVersion,false);
+  assert.equal(r.contactHold,"reply-review");
+  assert.equal(ledger.snapshot(intent).version,2);
+});
+
+test("stale combined reply plus opt-out is applied in one refreshed CAS",()=>{
+  const ledger=reserve();
+  const optOut=signed(event("recipient_opted_out",4));
+  const r=reconcileSyntheticWebhookContactHoldWithRetry(
+    ledger,intent,reservation,[optOut,replied,delivered,accepted],secret,0,1);
+  assert.equal(r.decision,"fictional-contact-hold-applied");
+  assert.equal(r.contactHold,"stop-contact");
+  assert.equal(r.staleRechecks,1);
+  assert.equal(r.reservationVersion,2);
+  assert.deepEqual(ledger.snapshot(intent).suppression,["opted_out"]);
+  assert.equal(ledger.snapshot(intent).replyReviewRequired,true);
+  assert.equal(ledger.compareAndReserve(intent,2).reason,"recipient-suppressed");
+});
+
+test("many concurrent synthetic stale retries cannot duplicate holds or version bumps",async()=>{
+  const ledger=reserve();
+  const results=await Promise.all(Array.from({length:36},()=>Promise.resolve().then(()=>
+    reconcileSyntheticWebhookContactHoldWithRetry(
+      ledger,intent,reservation,[accepted,delivered,replied],secret,0,2))));
+  assert.equal(results.filter(x=>x.decision==="fictional-contact-hold-applied").length,1);
+  assert.equal(results.filter(x=>x.reason==="duplicate-or-empty-contact-signals").length,35);
+  assert.ok(results.every(x=>x.staleRechecks===1&&x.unresolvedStaleVersion===false));
+  assert.ok(results.every(x=>x.contactAuthorized===false));
+  assert.equal(ledger.snapshot(intent).version,2);
+  assert.equal(ledger.snapshot(intent).reserved,false);
+});
+
+test("bad signatures and tenant evidence fail before any retry or ledger mutation",()=>{
+  for(const envelopes of [
+    [signed(event("recipient_replied",3),randomBytes(32))],
+    [signed({...event("provider_accepted",1),
+      recipient:"different@example.test"}),delivered,replied],
+    [delivered,replied],
+  ]){
+    const ledger=reserve();
+    assert.throws(()=>reconcileSyntheticWebhookContactHoldWithRetry(
+      ledger,intent,reservation,envelopes,secret,0,3));
+    assert.equal(ledger.snapshot(intent).version,1);
+    assert.equal(ledger.snapshot(intent).reserved,true);
+  }
+});
+
+test("retry budget and invalid input cannot bypass the strict single-attempt contract",()=>{
+  for(const invalid of [-1,4,Infinity,NaN,0.5,"1",null]){
+    const ledger=reserve();
+    assert.throws(()=>reconcileSyntheticWebhookContactHoldWithRetry(
+      ledger,intent,reservation,[accepted,delivered,replied],secret,0,invalid),
+      /Invalid synthetic webhook contact-hold retry context/);
+    assert.equal(ledger.snapshot(intent).version,1);
+  }
+  const ledger=reserve();
+  const r=reconcileSyntheticWebhookContactHoldWithRetry(
+    ledger,intent,reservation,[accepted,delivered,replied],secret,-1,3);
+  assert.equal(r.reason,"stale-or-invalid-version");
+  assert.equal(r.unresolvedStaleVersion,true);
+  assert.equal(r.staleRechecks,0);
+  assert.equal(ledger.snapshot(intent).version,1);
 });
