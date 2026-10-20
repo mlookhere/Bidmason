@@ -35,7 +35,7 @@ data in an Issue, PR, screenshot, or test artifact.
 - Item 3: existing draft PR #12. Its staged CI is not proof of live PostgREST/Auth/Storage.
 - Item 4: existing draft PR #13, HEAD `7da070f04a75bba399618244401536cfde8263e2`. [Actions #39356145819](https://github.com/mlookhere/Bidmason/actions/runs/39356145819): 9/9 required jobs green at that exact HEAD; the last connected preflight was **5 of 24 passed, 19 missing**, not revalidated here.
 - Item 5: `work/6-branded-proposal-preview` from `dev`. First commit `30a9d34099d17dc23fd3e1ce5b73b72a4626794c` passed [all 8 jobs](https://github.com/mlookhere/Bidmason/actions/runs/39383012143) with the new multi-company proposal PDF gate. Later revision-QA commits require **separate exact-head CI**. Source is a synthetic internal read-only contract, not a release-approval writer.
-- PR #12, #13 remain draft and unmerged. Item 5 pull request is to be opened against `dev`; no unverified PR URL should be inferred.
+- PR #12, #13 remain draft and unmerged. Item 5 [draft PR #14](https://github.com/mlookhere/Bidmason/pull/14) targets `dev`, links existing Issue #6 and remains unmerged. Independent PR-triggered CI must also pass at its latest exact head before integration; branch workflow_dispatch alone is insufficient.
 
 ## Restart instructions after human prerequisites arrive
 
