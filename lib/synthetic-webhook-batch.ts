@@ -142,6 +142,5 @@ export function reconcileSignedSyntheticWebhookBatch(
   envelopes: readonly SyntheticSignedEnvelope[],
   secret: Buffer,
 ): ReconciledSyntheticBatch {
-  return projectBatch(intent, localReservation, envelopes, secret, true)
-    as ReconciledSyntheticBatch;
+  return projectBatch(intent, localReservation, envelopes, secret, true) as ReconciledSyntheticBatch;
 }
