@@ -126,3 +126,14 @@ jobs:
         run: python3 -m pip install --requirement requirements-pdf.txt
       - name: Multi-company PDF render, geometry, and rejection checks
         run: python3 ci/branded_pdf_qa.py
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Python PDF to TypeScript QA revision contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          python3 ci/proposal_contract_export.py "$directory"
+          PROPOSAL_CONTRACT_DIR="$directory" node --test tests-web/proposal-artifact-cross-runtime.test.mjs

@@ -103,3 +103,21 @@ is refused during new-manifest creation. All previous math, pagination,
 atomic publication, and fingerprint regression checks remain intact.
 Real branded interactive PDFs would require a separately reviewed policy;
 no live document or delivery path is enabled here.
+
+## Required cross-runtime PDF to QA conformance
+
+The mandatory `proposal-pdf-qa` job generates three real, private, synthetic
+ReportLab PDFs and Python-verified manifests (fictional painting, cleaning,
+and a painting fixture with accented characters). It passes the raw PDF files
+and manifests to Node 24. Node independently hashes the PDF bytes and
+reconstructs Python's sorted, compact, ASCII-escaped JSON SHA-256; then it
+tests `buildProposalQaReport` and
+`evaluateSyntheticArtifactQaConsistency` with two distinct fictional
+reviewer receipts. Tampered PDFs, cross-company manifests, changed recipients,
+stale revisions, and incomplete reviewer evidence are rejected.
+
+This is an actual Python-to-TypeScript **data contract test**, not a set of
+hand-authored mock digests. Files exist only in a disposable job directory
+and are removed even on failure. It does not authenticate people or grant
+the synthetic artifact permission to be sent or published. The existing
+PDF assertions and H01–H13 release constraints remain mandatory.
