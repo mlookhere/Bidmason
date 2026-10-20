@@ -411,3 +411,41 @@ constraints, revision and consent revalidation within the transaction,
 durable suppression/replay recovery, selected provider/domain and its
 verified signatures, race tests against that real database, and all
 H01-H13 operator, privacy, legal, security and deployment approvals.
+
+
+## Integrated non-sending preflight and reservation rehearsal
+
+lib/synthetic-preflight-reservation.ts connects three earlier **fictional**
+safety exercises into one reviewed sequence:
+(1) evaluateDeliveryDryRun verifies exact organization, recipient, revision,
+source/policy/content/QA hashes, a reviewed proposal, two independent actor
+receipts, current caller-provided suppression and absent dispatch evidence;
+(2) reviewSimulatedRecipientContactHistory validates the same recipient's
+prior fictional proposal streams and applies sticky bounce/complaint/opt-out;
+(3) SyntheticDispatchReservationLedger.compareAndReserve applies a fresh
+in-process version comparison and refuses existing fictional reservations or
+ledger suppressions. Both evidence streams are validated before attempting
+any ledger mutation, including when the preflight is blocked. Every outcome
+includes contactAuthorized: false; the only positive reservation state is
+reserved-simulation-only, with no email or other external side effect.
+
+tests-web/synthetic-preflight-reservation.test.mjs contains eleven
+positive/adversarial Node test groups: exact-revision consistency, changing
+reviewer receipts/revocations, current and historical opt-outs, conflicting
+recipient reservations and replays, 48 competing Promise callers, suppression
+before and after a fictional reservation, malformed history and hostile
+objects. Existing mandatory Linux and Windows test:web jobs execute it.
+No new external dependency, route, background job, data store or provider is
+introduced. Prior synthetic HMAC and browser jobs remain required.
+
+Important: this is an *in-memory rehearsal* with caller-provided records.
+It has no independent source authentication or proof of complete recipient
+history; an absence of recorded suppression is not verified consent. The
+checks and simulated compare-and-swap are not one durable transaction.
+The code must never be imported into a production send route to bypass
+tenant authorization, proof of approved revision, real provider idempotency,
+server-held credentials or SQL atomicity. Item 6 production acceptance still
+requires H01-H13 external evidence, per-recipient transactional state/consent
+recheck, a real sender and signed provider callbacks, durable event/dispatch
+uniqueness, and authenticated buyer access. All upstream Item 3-5 PRs remain
+draft/unmerged.
