@@ -716,3 +716,38 @@ transaction, distributed lock or release authorization is implied.
 Actual inbound replies must be authenticated and applied atomically
 with send reservation in a durable tenant-scoped store after H01-H13
 human/live acceptance; a synthetic concurrency test does not prove this.
+
+
+## Verified-fictional-webhook contact-hold reconciliation (non-sending)
+
+The synthetic raw-body signature + chronological CRM projector and the
+synthetic per-recipient in-memory CAS ledger previously ran independently.
+A fictional signed provider bounce, complaint, opt-out or recipient reply
+could be projected into CRM without updating the held reservation.
+
+The new reconcileSyntheticWebhookContactHold flow first validates the
+ENTIRE signed fictional batch through the existing raw-byte HMAC,
+exact tenant/recipient/revision checks, duplicate event IDs, chronological
+reconciliation and the existing CRM transition reducer. Only after
+successful validation does a single version-checked in-memory
+compareAndApplyContactSignals operation atomically union all projected
+sticky suppression reasons and reply-review state while invalidating
+any fictional reservation. Stop-contact suppression outranks reply review.
+Empty or identical replayed contact signals never advance the version;
+stale competitors cannot overwrite a newer hold.
+
+Eight new Linux/Windows Node regression groups cover late replies,
+out-of-order signed callbacks, mixed complaint+reply in a single version
+transition, idempotent duplicate replay, forged HMAC/tenant/chronology
+rejection before mutation, 32 competing CAS requests, malicious
+caller-supplied signal shapes, and unrelated tenant isolation.
+
+**This is not a trusted email integration.** The HMAC format, secret,
+reservation and envelopes are entirely fictional and caller supplied;
+the in-memory state is volatile, unsynchronized across processes and
+cannot prove genuine provider events, customer identity, consent,
+actual delivery or real contact authorization. It must never be
+exposed through an API or connected to a sender. A real adapter requires
+provider-specific signature verification, server-trusted local dispatch
+lookup, RLS and durable transactional event/recipient atomicity, plus
+all outstanding H01-H13 legal/security/operations/human approvals.

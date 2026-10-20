@@ -140,6 +140,59 @@ export class SyntheticDispatchReservationLedger {
       snapshot: this.#snapshot(updated)};
   }
 
+  /** Atomic single-process application of one FULLY VALIDATED fictional
+   * contact-state projection. Not an authenticated provider event or DB CAS.
+   * Caller-supplied signals are never a production consent decision. */
+  compareAndApplyContactSignals(
+    rawIntent: DeliveryIntent, expectedVersion: number,
+    rawSignals: {suppression: ("bounced" | "complained" | "opted_out")[]; replied: boolean},
+  ): SyntheticReservationVerdict {
+    const intent = scopedIntent(rawIntent);
+    if (!rawSignals || typeof rawSignals !== "object"
+      || Array.isArray(rawSignals)
+      || Object.getPrototypeOf(rawSignals) !== Object.prototype
+      || Reflect.ownKeys(rawSignals).length !== 2
+      || !["suppression","replied"].every(field => {
+        const descriptor = Object.getOwnPropertyDescriptor(rawSignals, field);
+        return descriptor?.enumerable === true && Object.hasOwn(descriptor,"value");
+      })) throw new TypeError("Invalid synthetic contact signals");
+    const suppression = rawSignals.suppression;
+    if (!Array.isArray(suppression)
+      || Object.getPrototypeOf(suppression) !== Array.prototype
+      || suppression.length > REASONS.length
+      || Reflect.ownKeys(suppression).length !== suppression.length + 1
+      || !suppression.every((reason,index) =>
+        Object.hasOwn(Object.getOwnPropertyDescriptor(suppression,String(index))??{},"value")
+        && REASONS.includes(reason))
+      || suppression.join(",") !== [...new Set(suppression)].sort().join(",")
+      || typeof rawSignals.replied !== "boolean") {
+      throw new TypeError("Invalid synthetic contact signals");
+    }
+    const record = this.#read(intent);
+    if (!validVersion(expectedVersion) || record.version !== expectedVersion) {
+      return {state:"blocked",reason:"stale-or-invalid-version",
+        snapshot:this.#snapshot(record)};
+    }
+    const nextReasons=suppression.filter(reason=>!record.suppressions.has(reason));
+    const newReply=rawSignals.replied && !record.replyReviewRequired;
+    if (!nextReasons.length && !newReply) {
+      return {state:"blocked",reason:"duplicate-or-empty-contact-signals",
+        snapshot:this.#snapshot(record)};
+    }
+    const updated: RecordState = {
+      version:record.version+1, reservationKey:null,
+      replyReviewRequired:record.replyReviewRequired || rawSignals.replied,
+      suppressions:new Set([...record.suppressions,...nextReasons]),
+    };
+    this.#records.set(this.#key(intent),updated);
+    return {
+      state:updated.suppressions.size
+        ? "suppressed-simulation-only" : "reply-review-simulation-only",
+      reason:"synthetic-contact-signals-recorded",
+      snapshot:this.#snapshot(updated),
+    };
+  }
+
   /** Models suppression racing a reservation. It invalidates any fictional
    * reservation and never offers a lift/unsuppress transition. */
   compareAndSuppress(rawIntent: DeliveryIntent, expectedVersion: number,
