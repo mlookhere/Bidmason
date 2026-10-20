@@ -58,3 +58,27 @@ This is **not** a provider webhook, an authenticated event store, or permission
 to send. Real use still requires raw-body signed provider webhook validation,
 durable per-tenant event IDs, atomic dispatch reservation and suppression CAS,
 out-of-order recovery, customer consent and sender/legal review.
+
+
+## Cryptographically scoped buyer-view grant (non-public, read-only)
+
+`lib/buyer-view-grant.ts` now supports *offline* issuance and validation of
+15-minute-maximum HMAC-SHA256 grants for a **single organization, proposal ID,
+revision, recipient SHA-256 and content SHA-256**, using a 32+ byte secret
+held by the caller. Each issuance has an independent random 128-bit grant ID.
+The verifier enforces an exact `buyer-readonly-proposal` audience, canonical
+base64url and signed JSON, timing-safe signature comparisons, fixed fields,
+expiration and optional caller-supplied revocations. Altered claims, wrong
+recipients or revisions, expired/future tokens and replay of a revoked grant
+are rejected. Node's required test suite includes eight adversarial groups.
+
+The only positive result is **`signed-claims-only`**, not entitlement to
+view, proof of buyer identity, ownership, consent, or permission to deliver.
+The SHA-256 recipient identifier is a supplied fingerprint, **not anonymous
+identity protection** for low-entropy email addresses. The signing key must
+be cryptographically generated, maintained and rotated securely server-side;
+key length alone does not establish its entropy. A future authenticated
+handler must check current tenant membership, current approved revision,
+actual recipient identity/consent, and **durable revocations** for the returned
+grant ID on every read before ever serving a document. There is no public
+route, portal, URL, emailing, response writer or storage added here.
