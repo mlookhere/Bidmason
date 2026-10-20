@@ -134,6 +134,32 @@ def outbound_endpoint_findings(root: Path) -> list[str]:
     return problems
 
 
+
+# Next settings can expose rewrites even when route files remain unchanged.
+# Deliberately fail closed until real Auth/RLS/provider release approval.
+REVIEWED_NEXT_CONFIG = "import type { NextConfig } from \"next\";\n\nconst config: NextConfig = {\n  reactStrictMode: true,\n};\n\nexport default config;\n"
+NEXT_CONFIG_VARIANTS = ("next.config.js", "next.config.mjs",
+                        "next.config.cjs", "next.config.mts",
+                        "next.config.cts", "next.config.ts")
+
+
+def next_config_findings(root: Path) -> list[str]:
+    """Require the exact reviewed static-preview Next config, no shadows."""
+    problems: list[str] = []
+    config = root / "next.config.ts"
+    if not config.is_file() or config.is_symlink():
+        problems.append("Missing or symlinked reviewed Next config")
+    elif config.read_text(encoding="utf-8") != REVIEWED_NEXT_CONFIG:
+        problems.append("Unreviewed Next runtime config drift")
+    for name in NEXT_CONFIG_VARIANTS:
+        if name == "next.config.ts":
+            continue
+        alternate = root / name
+        if alternate.is_symlink() or alternate.exists():
+            problems.append(f"Unreviewed alternate Next config: {name}")
+    return problems
+
+
 def findings(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for folder in PUBLISHABLE:
@@ -163,6 +189,7 @@ def findings(root: Path = ROOT) -> list[str]:
         errors.append("Development preview must disclose disabled intake")
     errors.extend(delivery_lab_findings(root))
     errors.extend(outbound_endpoint_findings(root))
+    errors.extend(next_config_findings(root))
     return errors
 
 

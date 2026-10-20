@@ -16,6 +16,8 @@ class PublishGuardTests(unittest.TestCase):
         (self.root / "app").mkdir()
         (self.root / "app/layout.tsx").write_text("robots: { index: false, follow: false }")
         (self.root / "app/page.tsx").write_text("No live lead capture")
+        copyfile(Path(__file__).resolve().parents[1] / "next.config.ts",
+                 self.root / "next.config.ts")
 
 
     def with_lab(self):
@@ -162,6 +164,50 @@ class PublishGuardTests(unittest.TestCase):
         page.write_text("export default function Demo(){return <main>Fictional preview</main>}")
         self.assertEqual(findings(self.root), [])
         self.with_lab()
+        self.assertEqual(findings(self.root), [])
+
+
+    def test_next_rewrites_and_redirects_cannot_be_enabled_silently(self):
+        config = self.root / "next.config.ts"
+        original = config.read_text(encoding="utf-8")
+        for policy in ("rewrites: async () => [{source: '/send', destination: '/api/send'}],",
+                       "redirects: async () => [{source: '/new', destination: '/external', permanent: false}],",
+                       "experimental: { serverActions: { bodySizeLimit: '10mb' } },"):
+            with self.subTest(policy=policy):
+                config.write_text(original.replace("reactStrictMode: true,",
+                                                   "reactStrictMode: true,\n  " + policy))
+                self.assertTrue(any("Unreviewed Next runtime config drift" in x
+                                    for x in findings(self.root)))
+        config.write_text(original)
+        self.assertEqual(findings(self.root), [])
+
+    def test_missing_or_symlinked_reviewed_config_fails_closed(self):
+        config = self.root / "next.config.ts"
+        config.unlink()
+        self.assertTrue(any("Missing or symlinked reviewed Next config" in x
+                            for x in findings(self.root)))
+        config.write_text("unreviewed")
+        with patch.object(Path, "is_symlink", lambda path: path == config):
+            self.assertTrue(any("Missing or symlinked reviewed Next config" in x
+                                for x in findings(self.root)))
+
+    def test_shadow_next_config_variants_are_rejected(self):
+        for name in ("next.config.js", "next.config.mjs",
+                     "next.config.cjs", "next.config.mts", "next.config.cts"):
+            with self.subTest(name=name):
+                candidate = self.root / name
+                candidate.write_text("export default { rewrites: async () => [] }")
+                self.assertTrue(any("Unreviewed alternate Next config" in x
+                                    for x in findings(self.root)))
+                candidate.unlink()
+
+    def test_even_comment_drift_requires_explicit_next_config_review(self):
+        config = self.root / "next.config.ts"
+        current = config.read_text(encoding="utf-8")
+        config.write_text(current + "\n// unreviewed deployment policy\n")
+        self.assertTrue(any("Unreviewed Next runtime config drift" in x
+                            for x in findings(self.root)))
+        config.write_text(current)
         self.assertEqual(findings(self.root), [])
 
     def test_clean_development_preview(self):
