@@ -26,6 +26,7 @@ LAB_IMPORTS = {
     LAB_FIXTURE: {
         "./outbound-preflight.ts", "./follow-up-assessment.ts",
         "./delivery-event-projection.ts", "./delivery-triage.ts",
+        "./delivery-review-summary.ts",
     },
 }
 LAB_IMPORT = re.compile(

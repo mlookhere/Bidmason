@@ -1,6 +1,7 @@
 import {deliveryIdempotencyKey, type DeliveryIntent} from "./outbound-preflight.ts";
 import {assessSimulatedFollowUp, type FollowUpAssessment} from "./follow-up-assessment.ts";
 import {classifySimulatedDeliveryTriage, type DeliveryTriage} from "./delivery-triage.ts";
+import {summarizeSyntheticDeliveryReview, type SyntheticReviewEntry, type SimulatedReviewSummary} from "./delivery-review-summary.ts";
 import {
   projectSimulatedDeliveryEvents, type DeliveryEvent, type DeliveryEventKind, type DeliveryProjection,
 } from "./delivery-event-projection.ts";
@@ -53,7 +54,9 @@ export type DeliveryLabCase = {
   contactState:"fictional-confirmed"|"fictional-unconfirmed";
 };
 
-export function buildSyntheticDeliveryLabCases(): DeliveryLabCase[] {
+type FixtureRecord = {organizationId:string;company:string;publicCase:DeliveryLabCase;review: SyntheticReviewEntry};
+
+function buildFixtureRecords(): FixtureRecord[] {
   return CASES.map(scenario => {
     const identity={organizationId:scenario.organizationId,
       proposalId:scenario.proposalId,revision:1,...HASHES,
@@ -66,11 +69,35 @@ export function buildSyntheticDeliveryLabCases(): DeliveryLabCase[] {
       observedAt:"2026-10-20T08:"+String(index).padStart(2,"0")+":00.000Z",
     }));
     const policy={consent:scenario.consent,version:1,minimumDelayHours:24,maximumAttempts:2};
-    return {id:scenario.id,label:scenario.label,company:scenario.company,
-      projection:projectSimulatedDeliveryEvents(intent,events),
-      followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW),
-      triage:classifySimulatedDeliveryTriage(intent,events,policy,[],NOW),
-      contactState:scenario.consent==="confirmed"?"fictional-confirmed":"fictional-unconfirmed",
+    return {
+      organizationId:scenario.organizationId,
+      company:scenario.company,
+      review:{intent,events,policy,previousAttempts:[]},
+      publicCase:{id:scenario.id,label:scenario.label,company:scenario.company,
+        projection:projectSimulatedDeliveryEvents(intent,events),
+        followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW),
+        triage:classifySimulatedDeliveryTriage(intent,events,policy,[],NOW),
+        contactState:scenario.consent==="confirmed"?"fictional-confirmed":"fictional-unconfirmed",
+      },
+    };
+  });
+}
+
+/** The public preview never receives organization or recipient identifiers. */
+export function buildSyntheticDeliveryLabCases(): DeliveryLabCase[] {
+  return buildFixtureRecords().map(record=>record.publicCase);
+}
+export type DeliveryLabSummary = {company:string;report:SimulatedReviewSummary};
+export function buildSyntheticDeliveryLabSummaries(): DeliveryLabSummary[] {
+  const records=buildFixtureRecords();
+  const tenants=[...new Set(records.map(record=>record.organizationId))];
+  return tenants.map(organizationId=>{
+    const scoped=records.filter(record=>record.organizationId===organizationId);
+    if (!scoped.length || scoped.some(record=>record.company!==scoped[0].company))
+      throw new TypeError("Inconsistent fictional company grouping");
+    return {company:scoped[0].company,
+      report:summarizeSyntheticDeliveryReview(organizationId,
+        scoped.map(record=>record.review),NOW),
     };
   });
 }

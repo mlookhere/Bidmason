@@ -1,5 +1,5 @@
 import type {Metadata} from "next";
-import {buildSyntheticDeliveryLabCases} from "../../lib/delivery-lab-fixtures.ts";
+import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../../lib/delivery-lab-fixtures.ts";
 
 export const metadata: Metadata = {
   title: "Delivery Safety Lab | BidMason Internal Preview",
@@ -18,6 +18,7 @@ const EVENT_NAMES: Record<string,string> = {
 
 export default function DeliveryLab() {
   const scenarios=buildSyntheticDeliveryLabCases();
+  const summaries=buildSyntheticDeliveryLabSummaries();
   return (
     <>
       <a className="skip-link" href="#main-content">Skip to main content</a>
@@ -43,6 +44,25 @@ export default function DeliveryLab() {
           human approvals, and security review. This page is not access controlled
           and contains no real customer or contractor information.
         </p>
+        <section className="lab-summary-section" aria-labelledby="review-summary-heading">
+          <h2 id="review-summary-heading">Fictional CRM review overview</h2>
+          <p className="lab-lede">Only invented companies and aggregated counts are displayed. Each company is calculated independently; no recipient list, approval or send queue exists.</p>
+          <div className="lab-summary-grid">
+            {summaries.map(item=>(
+              <article className="lab-summary" key={item.company} data-review-company={item.company}>
+                <h3>{item.company}</h3>
+                <p className="lab-summary-caption">Synthetic review totals · No customer records</p>
+                <dl className="lab-summary-counts">
+                  <div><dt>Cases reviewed</dt><dd>{item.report.reviewedCases}</dd></div>
+                  <div><dt>Stop-contact review</dt><dd>{item.report.attention.stopContact}</dd></div>
+                  <div><dt>Operator review</dt><dd>{item.report.attention.operatorReview}</dd></div>
+                  <div><dt>Deferred</dt><dd>{item.report.attention.deferred}</dd></div>
+                </dl>
+                <p className="lab-summary-caption">Simulation only. No contact authorization or live tenant access.</p>
+              </article>
+            ))}
+          </div>
+        </section>
         <section aria-labelledby="cases-heading">
           <h2 id="cases-heading">Fictional delivery cases</h2>
           <div className="lab-grid">

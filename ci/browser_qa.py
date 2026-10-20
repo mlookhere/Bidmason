@@ -132,6 +132,19 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
     robots = page.locator("meta[name=robots]").get_attribute("content")
     assert robots is not None and "noindex" in robots
     assert page.locator("article[data-scenario]").count() == 4
+    assert page.get_by_role("heading", name="Fictional CRM review overview").count() == 1
+    summaries = page.locator("article[data-review-company]")
+    assert summaries.count() == 2, "Missing or mixed fictional tenant totals"
+    for company, stops, reviews in (
+        ("Fictional painting contractor", "0", "2"),
+        ("Fictional cleaning contractor", "1", "1"),
+    ):
+        summary = page.locator("article[data-review-company]").filter(has=page.get_by_role("heading", name=company))
+        assert summary.count() == 1, f"Missing fictional company summary: {company}"
+        for key, expected in (("Cases reviewed", "2"), ("Stop-contact review", stops), ("Operator review", reviews), ("Deferred", "0")):
+            count = summary.locator("dl > div").filter(has=page.locator("dt", has_text=key))
+            assert count.count() == 1 and count.locator("dd").inner_text() == expected, f"Wrong {key}: {company}"
+    assert page.get_by_text("No contact authorization or live tenant access.", exact=False).count() == 2
     assert page.get_by_text("Internal candidate only — not send approval").count() == 1
     assert page.get_by_text("Blocked", exact=True).count() == 3
     assert page.get_by_text("Synthetic scenario · Not a customer record").count() == 4

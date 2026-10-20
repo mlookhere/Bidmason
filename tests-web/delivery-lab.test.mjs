@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {buildSyntheticDeliveryLabCases} from "../lib/delivery-lab-fixtures.ts";
+import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../lib/delivery-lab-fixtures.ts";
 const page=readFileSync(new URL("../app/delivery-lab/page.tsx",import.meta.url),"utf8");
 
 test("four invented cases are derived from actual offline CRM and follow-up logic",()=>{
@@ -12,6 +12,26 @@ test("four invented cases are derived from actual offline CRM and follow-up logi
   assert.ok(cases.every(x=>x.projection.state==="simulation-only"));
   assert.ok(cases.every(x=>x.triage.state==="review-simulation-only"));
   assert.ok(cases.every(x=>x.projection.eventCount>=3&&x.company.startsWith("Fictional")));
+});
+test("redacted CRM summaries stay tenant-scoped and never imply send authority",()=>{
+  const reports=buildSyntheticDeliveryLabSummaries();
+  assert.equal(reports.length,2);
+  const grouped=Object.fromEntries(reports.map(x=>[x.company,x.report]));
+  const painting=grouped["Fictional painting contractor"];
+  const cleaning=grouped["Fictional cleaning contractor"];
+  assert.deepEqual(painting.attention,{stopContact:0,operatorReview:2,deferred:0});
+  assert.deepEqual(cleaning.attention,{stopContact:1,operatorReview:1,deferred:0});
+  assert.equal(painting.reviewedCases,2);
+  assert.equal(cleaning.reviewedCases,2);
+  for(const {company,report} of reports){
+    assert.ok(company.startsWith("Fictional "));
+    assert.equal(report.state,"review-simulation-only");
+    assert.equal(report.categories.reduce((sum,c)=>sum+c.count,0),report.reviewedCases);
+    const serialized=JSON.stringify(report);
+    for(const forbidden of ["buyer@", "dryrun_", "organizationId", "proposalId", "recipient", "contactAuthorized", "sendAllowed"])
+      assert.ok(!serialized.includes(forbidden),forbidden);
+    assert.deepEqual(Object.keys(report).sort(),["attention","categories","reviewedCases","state"]);
+  }
 });
 test("reply, bounce and unknown consent each block follow-up",()=>{
   const byId=Object.fromEntries(buildSyntheticDeliveryLabCases().map(x=>[x.id,x]));
@@ -43,6 +63,9 @@ test("static route discloses limits and remains noindex, no input or mutation",(
   assert.match(page,/aria-labelledby="cases-heading"/);
   assert.match(page,/Delivery remains disabled/);
   assert.match(page,/Operator review category/);
+  assert.match(page,/Fictional CRM review overview/);
+  assert.match(page,/Stop-contact review/);
+  assert.match(page,/No contact authorization or live tenant access/);
   assert.match(page,/What an operator would review/);
   assert.doesNotMatch(page,/fetch\(|submit\(|localStorage|sessionStorage|use client/i);
 });
