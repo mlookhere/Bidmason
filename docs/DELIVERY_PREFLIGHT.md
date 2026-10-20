@@ -82,3 +82,30 @@ handler must check current tenant membership, current approved revision,
 actual recipient identity/consent, and **durable revocations** for the returned
 grant ID on every read before ever serving a document. There is no public
 route, portal, URL, emailing, response writer or storage added here.
+
+
+## Provider-free follow-up assessment (simulation only)
+
+`lib/follow-up-assessment.ts` evaluates an explicitly timestamped fictional
+delivery event stream, consent policy and previously recorded follow-up
+attempts. It returns either `blocked` with specific reasons or
+`candidate-internal-only` with a computed earliest due time. The latter
+**does not authorize, queue, reserve, schedule or send a follow-up**.
+
+A candidate requires a simulated reported delivery, confirmed fictional
+contact consent, no reply or bounce, no complaint/opt-out suppression,
+an elapsed company-configured delay, and remaining allowed attempts.
+The policy must explicitly specify version, consent state, delay (1–720
+hours) and attempt limit (1–3); no company cadence is assumed. A bounded
+chronological attempt history is strictly tied to the exact tenant,
+recipient and dry-run idempotency key. Identical attempt-ID replays count
+once; conflicting reuse, malformed times and out-of-order or cross-tenant
+records fail closed. No implicit use of system time or real provider data.
+
+The unchanged mandatory web and Windows test gates run seven adversarial
+regression groups covering timing boundaries, opted-out/complained/bounced
+recipients, replies, history exhaustion, replay and malformed input.
+For real delivery, all source events and consent/attempt records must be
+authenticated, tenant-isolated, and committed transactionally with current
+suppression and revision checks. Neither a supplied `confirmed` flag nor
+a simulated provider event is independently verified consent.
