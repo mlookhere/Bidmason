@@ -139,7 +139,7 @@ export function evaluateProposalReceiptConsistency(
       || item.qaSha256 !== verified.qaSha256
       || ["organizationId", "proposalId", "revision", "sourceSha256",
         "policySha256", "contentSha256"].some(key =>
-        item[key] !== verified.identity[key as keyof ProposalRevisionIdentity])) {
+        item[key as keyof ProposalRevisionIdentity] !== verified.identity[key as keyof ProposalRevisionIdentity])) {
       return {state:"blocked",reason:"Receipt does not match exact proposal revision"};
     }
     roles.add(item.role);
