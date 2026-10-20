@@ -169,3 +169,29 @@ subscription, out-of-order recovery and suppression updates must be
 implemented and tested separately. This code does not expose an HTTP
 handler, persist any receipt, send email, authenticate a user, authorize a
 buyer, prove delivery, or replace the H01–H13 release holds.
+
+## End-to-end synthetic webhook → CRM projection (no provider)
+
+`lib/synthetic-webhook-batch.ts` joins the existing **fictional** HMAC
+raw-body verifier and event-state CRM projection. It accepts one local
+synthetic reservation and a bounded list of signed synthetic envelopes.
+Every envelope must pass timestamp, signature, canonical-byte and tenant
+checks **before** it is interpreted as an event. Each new signed event is
+reprojected immediately to fail closed on out-of-order or impossible
+transitions; identical event ID/body replays are counted but not replayed
+into the CRM, while conflicting replays block the **whole calculation**.
+Both inputs and outputs remain disposable, nonpersisted, and
+`simulation-only`. Bounce, complaint and opt-out states remain sticky.
+The verifier never permits a provider to invent a local reservation.
+
+The existing mandatory `synthetic-webhook-qa` job now runs **both**
+`synthetic-webhook-verification.test.mjs` and
+`synthetic-webhook-batch.test.mjs` (8 additional integration regression
+tests); unchanged Linux/Windows `test:web` also exercises both. No
+existing CI job is bypassed. This **does not authenticate a real provider**:
+the signature/key scheme is only a fictional fixture, an in-memory replay
+ledger does not atomically persist event IDs, and a claimed delivered
+event is not proof of delivery. Implement actual provider-specific
+raw-body verification, trusted tenant dispatch lookup, durable
+transactional uniqueness and out-of-order reconciliation only after
+provider, consent and authorized Supabase dependencies are resolved.

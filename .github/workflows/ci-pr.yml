@@ -51,7 +51,7 @@ jobs:
         with:
           node-version: "24"
       - name: Strict synthetic webhook signature and replay tests
-        run: node --test tests-web/synthetic-webhook-verification.test.mjs
+        run: node --test tests-web/synthetic-webhook-*.test.mjs
 
   web-build:
     name: web-build
