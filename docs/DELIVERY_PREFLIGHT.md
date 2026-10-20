@@ -482,3 +482,25 @@ These source checks do not constitute a formal code audit or a
 guarantee that all indirect network behavior is impossible. Item 6
 is still unmerged and non-sending; production H01-H13 acceptance and
 human signoff remain mandatory.
+
+
+## Reviewed Next runtime configuration is pinned
+
+The mandatory fast/PR/security publication guard now requires the exact
+preview-only Next runtime configuration and rejects missing, symlinked,
+edited, or shadow configuration variants. This closes a separate source
+release-boundary gap: App/Pages route-file checks alone would not detect
+a Next configuration that added redirects, rewrites, or new server
+behaviors while leaving existing pages unchanged. Four new adversarial
+Python regression methods check rewrites, redirects, server-action
+configuration, alternate config files, missing/symlinked files, and
+unreviewed comment edits. Static-preview settings remain unchanged.
+
+This deliberately conservative source drift tripwire is not a
+comprehensive Next build or network security proof. When authenticated
+production endpoints are explicitly approved, any change to the Next
+config requires conscious security review and new negative tests, not
+simply removing the guard. Outstanding H01-H13 real Auth/RLS, approved
+proposals, provider/domain/consent, signed callback and durable atomic
+dispatch requirements remain blocking. No live API, customer data,
+provider connection, email or deployment has been introduced.
