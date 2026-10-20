@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {buildProposalQaReport, evaluateProposalReceiptConsistency}
+import {buildProposalQaReport, evaluateProposalReceiptConsistency, evaluateSyntheticArtifactQaConsistency}
   from "../lib/proposal-revision-qa.ts";
 
 const A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -102,4 +102,43 @@ test("QA observations reject sparse or decorated arrays, symbols and hidden fiel
   const rows=observations();mutate(rows);
   assert.throws(()=>buildProposalQaReport(base,rows),/Invalid proposal QA observations/);
  }
+});
+
+
+test("synthetic PDF digest must agree with exact internal QA and review receipts",()=>{
+ const pdfSha=SHA("e");
+ const checks=observations().map(x=>x.check==="pdf-layout"
+  ? {...x,evidenceSha256:pdfSha}:x);
+ const report=buildProposalQaReport(base,checks);
+ const manifest={
+  format:"synthetic-proposal-integrity-v1",
+  disposition:"INTERNAL ONLY - NOT FOR DELIVERY",reference:"SYN-PAINT-001",
+  revision:3,snapshotSha256:base.contentSha256,pdfSha256:pdfSha,
+  pdfBytes:14000,pageCount:5,
+ };
+ assert.equal(evaluateSyntheticArtifactQaConsistency(report,receipts(report),manifest).state,
+  "consistent-internal-only");
+ assert.equal(Object.hasOwn(evaluateSyntheticArtifactQaConsistency(report,receipts(report),manifest),"approved"),false);
+ for(const partial of [
+  {revision:4},{snapshotSha256:SHA("f")},{pdfSha256:SHA("f")},
+  {pdfBytes:0},{pdfBytes:true},{pageCount:0},{pageCount:9},
+  {pageCount:5.5},{format:"approved"},{disposition:"DELIVERABLE"},
+  {reference:"CUSTOMER-001"},{approved:true},
+ ]) {
+  assert.equal(evaluateSyntheticArtifactQaConsistency(report,receipts(report),
+   {...manifest,...partial}).state,"blocked");
+ }
+ const stale={...base,revision:4};
+ const newer=buildProposalQaReport(stale,checks);
+ assert.equal(evaluateSyntheticArtifactQaConsistency(newer,receipts(report),manifest).state,"blocked");
+ assert.equal(evaluateSyntheticArtifactQaConsistency(report,receipts(report).slice(0,1),manifest).state,"blocked");
+ const missing=buildProposalQaReport(base,checks.filter(x=>x.check!=="pdf-layout"));
+ assert.equal(evaluateSyntheticArtifactQaConsistency(missing,receipts(missing),manifest).state,"blocked");
+ let called=0;
+ const hostile={...manifest};
+ Object.defineProperty(hostile,"pdfSha256",{enumerable:true,get(){called++;throw Error("executed");}});
+ assert.equal(evaluateSyntheticArtifactQaConsistency(report,receipts(report),hostile).state,"blocked");
+ assert.equal(called,0);
+ const symbol={...manifest}; symbol[Symbol("publish")]=true;
+ assert.equal(evaluateSyntheticArtifactQaConsistency(report,receipts(report),symbol).state,"blocked");
 });

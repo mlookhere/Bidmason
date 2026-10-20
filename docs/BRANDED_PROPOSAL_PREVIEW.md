@@ -63,3 +63,26 @@ consistent set. No live tenant records, customer routes, signoff, or outbound
 permission are introduced. Future real approval must bind authenticated actors
 and an immutable server-owned artifact revision via the Item 3/4 authority
 model and real-environment H01-H13 evidence.
+
+## Internal QA to synthetic artifact fingerprint consistency
+
+`evaluateSyntheticArtifactQaConsistency` in `lib/proposal-revision-qa.ts`
+connects the **separately verified** Python integrity manifest to the internal
+five-check QA report and two synthetic review receipts. It requires the exact
+revision, the PDF's SHA-256 as the `pdf-layout` check evidence, and the
+canonical synthetic snapshot SHA-256 as the report's `contentSha256`.
+The report independently continues binding the source and policy hashes,
+organization/proposal identifiers, and separate role/actor receipts.
+Missing/failed/not-run checks, old receipts, wrong content/revision, malformed
+manifests, added publication flags, hidden properties and getter-backed digests
+all fail closed. The positive result is **`consistent-internal-only`**.
+
+The Python manifest verifier **must independently check the actual PDF bytes**
+against a trusted manifest before this consistency assessment. TypeScript's
+pure assessment never opens a PDF, validates a tenant, checks an external
+signature, authenticates a reviewer, or proves a company approved pricing.
+The Python canonical JSON SHA uses sorted keys and compact separators; any
+future authenticated adapter must explicitly maintain this digest contract
+rather than assuming a different proposal serialization is equivalent.
+The product still has **no release, publication, signature, or send path**.
+Real approvals/storage remain blocked by H01–H13.

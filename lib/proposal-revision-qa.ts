@@ -151,3 +151,58 @@ export function evaluateProposalReceiptConsistency(
   return {state:"consistent-internal-only",reason:
     "Receipts match the internal snapshot; real independent authorization remains required"};
 }
+
+
+/** Synthetic Python PDF manifest. Its fields are only consistency evidence;
+ * this function does not verify the actual PDF bytes or authorize delivery. */
+export type SyntheticPdfManifest = {
+  format: "synthetic-proposal-integrity-v1";
+  disposition: "INTERNAL ONLY - NOT FOR DELIVERY";
+  reference: string;
+  revision: number;
+  snapshotSha256: string;
+  pdfSha256: string;
+  pdfBytes: number;
+  pageCount: number;
+};
+
+/** Tie the separately verified PDF fingerprint to the exact internal QA
+ * revision and its two receipts. The caller must independently validate the
+ * original PDF bytes against the manifest, and authenticate all reviewers. */
+export function evaluateSyntheticArtifactQaConsistency(
+  report: ProposalQaReport,
+  receipts: readonly ProposalReviewReceipt[],
+  artifact: SyntheticPdfManifest,
+): { state: "consistent-internal-only" | "blocked"; reason: string } {
+  const review = evaluateProposalReceiptConsistency(report, receipts);
+  if (review.state === "blocked") return review;
+  if (!ownData(artifact, ["format", "disposition", "reference", "revision",
+    "snapshotSha256", "pdfSha256", "pdfBytes", "pageCount"])
+    || artifact.format !== "synthetic-proposal-integrity-v1"
+    || artifact.disposition !== "INTERNAL ONLY - NOT FOR DELIVERY"
+    || typeof artifact.reference !== "string"
+    || !/^SYN-[A-Z0-9-]{3,35}$/.test(artifact.reference)
+    || !Number.isSafeInteger(artifact.revision)
+    || (artifact.revision as number) < 1
+    || typeof artifact.snapshotSha256 !== "string"
+    || !SHA.test(artifact.snapshotSha256)
+    || typeof artifact.pdfSha256 !== "string"
+    || !SHA.test(artifact.pdfSha256)
+    || !Number.isSafeInteger(artifact.pdfBytes)
+    || (artifact.pdfBytes as number) < 2500
+    || (artifact.pdfBytes as number) > 16 * 1024 * 1024
+    || !Number.isSafeInteger(artifact.pageCount)
+    || (artifact.pageCount as number) < 1
+    || (artifact.pageCount as number) > 8) {
+    return {state: "blocked", reason: "Invalid synthetic artifact manifest"};
+  }
+  const pdfCheck = report.checks.find(check => check.check === "pdf-layout");
+  if (artifact.revision !== report.identity.revision
+    || artifact.snapshotSha256 !== report.identity.contentSha256
+    || pdfCheck?.state !== "passed"
+    || pdfCheck.evidenceSha256 !== artifact.pdfSha256) {
+    return {state: "blocked", reason: "PDF evidence does not match proposal QA revision"};
+  }
+  return {state: "consistent-internal-only", reason:
+    "Internal artifact and QA fingerprints agree; independent authorization remains required"};
+}
