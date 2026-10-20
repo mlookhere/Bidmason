@@ -226,17 +226,17 @@ human/live acceptance is unchanged.
 
 The Next development preview includes the route /delivery-lab, a clearly
 labeled *fictional, read-only example*. It is NOT access-controlled, and
-has no real user, contractor, proposal, recipient or provider data. Four
-deterministic examples (reply, bounce, unknown contact consent and an
-internally due-but-not-authorized case) are computed using the existing
+has no real user, contractor, proposal, recipient or provider data. Five
+deterministic examples (reply, bounce, unknown contact consent,
+internally due-but-not-authorized, and a prior-proposal opt-out) are computed using the existing
 projectSimulatedDeliveryEvents and assessSimulatedFollowUp functions.
 Only invented companies, event labels, blockers and explicit warnings
 that no one may send or approve anything are shown. There are no forms,
 send controls, mutation endpoints, credential checks or external requests.
 
-The delivery-lab web tests verify the four scenario outcomes and static
+The delivery-lab web tests verify the five scenario outcomes and static
 no-send boundaries. The mandatory Chromium E2E visits /delivery-lab
-at 320, 375, 768 and 1280px; checks noindex, correct blockers, four
+at 320, 375, 768 and 1280px; checks noindex, correct blockers, five
 fictional cards, native event-history disclosure, zero form controls,
 no mutation requests, browser errors or overflow. Noindex is NOT access
 control: never feed real data into this page. A true operator dashboard
@@ -248,7 +248,7 @@ provider evidence, security review and H01-H13 acceptance.
 
 The mandatory fast/PR/security publication guard now validates the openly
 reachable /delivery-lab and its single fixture module. It requires the
-allowlisted local imports, exactly four fictional company labels, reserved
+allowlisted local imports, exactly five fictional scenario labels, reserved
 test/example email domains, its own noindex and preview warnings, and no
 other subroute or asset. It blocks added API/POST routes, live data sources,
 environment/secret access, dynamic imports, remote resources, form/input/send
@@ -278,7 +278,7 @@ follow-up becomes *external-authorization-required*, never "send ready".
 All outcomes have a permanent review-simulation-only state and no action.
 
 The public /delivery-lab displays the resulting explanation beside each
-of its four fictional examples, computed from the actual pure domain
+of its five fictional examples, computed from the actual pure domain
 functions. Eight adversarial Node regression groups in the required web
 and Windows checks cover precedence, fabricated approval prevention,
 replay, chronology, tenant mismatch, consent and incomplete delivery.
@@ -509,12 +509,12 @@ provider connection, email or deployment has been introduced.
 ## Tenant-scoped CRM summaries in the public fictional lab
 
 The static /delivery-lab now includes an accessible, noninteractive CRM
-review overview above its four existing fictional case histories. It
+review overview above its five fictional case histories. It
 reuses the pure summarizeSyntheticDeliveryReview engine rather than
 hardcoded counts, and groups source fixtures by the *exact* fictional
 organization ID before aggregation. These two organizations must never
 be merged: the fictional painting company has two operator-review cases,
-while the fictional cleaning company has one stop-contact case and one
+while the fictional cleaning company has two stop-contact cases and one
 operator-review case. Both have zero deferred cases in these fixtures.
 
 The public summary returns only the invented company display label,
@@ -578,3 +578,43 @@ reviewer identity, signed provider callbacks and atomic per-send
 suppression checks are still unverified. H01-H13 and draft PR holds
 remain unchanged. Never interpret the absence of fictional prior
 events as customer contact clearance.
+
+
+## Transitive import guard for the fictional public lab
+
+The earlier mandatory publication guard checked the public Next
+/delivery-lab page and its fixture module but did not inspect the
+runtime modules they imported transitively. This left a source-only
+release boundary gap: an otherwise-approved pure helper could later
+import an unreviewed provider/client or gain an outbound side-effect
+without modifying the page or fixture's direct imports.
+
+The required fast/PR/security publication check now inspects all
+seven known reachable offline domain helpers. It enforces exactly
+reviewed import specifiers for every helper, disallows new import
+side effects and module re-exports, rejects missing or symlinked helper
+files, and applies the lab's conservative no-network/no-storage/no-
+environment/no-server-action source patterns to these modules too.
+Unapproved real email literals are also forbidden anywhere in this
+reviewed dependency chain. The sole reviewed built-in dependency is
+node:crypto for deterministic local SHA-256 hashing; no network or
+customer credentials are used.
+
+Five additional negative regression methods inject unsafe indirect
+fetch/env/dynamic-import/client storage/server-action code, unapproved
+external/side-effect imports or re-exports, missing/symlinked files,
+nonfictional email, and an unrelated helper that should NOT be
+mistaken for a reachable public module. The tests execute as part of
+the existing mandatory Python suite; no required job was disabled,
+skipped or softened. Adding a genuinely needed helper requires
+explicitly reviewing and testing its transitive effects before
+updating the pinned import contracts.
+
+This remains a deliberately conservative **source-level drift
+tripwire**, not a complete JavaScript parser, bundle analysis,
+information-flow verification, or production RLS proof. Dynamic and
+indirect effects outside the guarded known import tree cannot be
+declared impossible solely from these checks. The public lab still
+contains only deterministic fictional records, no sender, API,
+real buyer credentials or personal data. H01-H13 and the unmerged
+upstream authentication/provider acceptance gates stay blocking.
