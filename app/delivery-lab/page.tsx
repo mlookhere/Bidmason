@@ -90,7 +90,7 @@ export default function DeliveryLab() {
                       ?<li>Earlier recipient suppression overrides this proposal&apos;s internal timing assessment. Contact remains blocked.</li>
                       :scenario.triage.historicalReplyObserved
                         ?<li>Earlier recipient reply requires manual review before a new follow-up. Contact remains blocked.</li>
-                        :<li>No internal timing blocker in fixture. External authorization and real consent remain unverified.</li>
+                        :<li>No internal timing blocker in fixture. External authorization and real consent remain unverified.</li>}
                 </ul>
                 <details className="lab-history">
                   <summary>Inspect fictional event history ({scenario.projection.eventCount})</summary>
