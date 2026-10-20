@@ -1,0 +1,56 @@
+{
+  "kind": "synthetic-branded-proposal-preview",
+  "brand": {
+    "businessName": "Seaward Painting - Fictional Company",
+    "primaryHex": "#153e51",
+    "accentHex": "#d79a49"
+  },
+  "proposal": {
+    "reference": "SYN-PAINT-001",
+    "recipient": "Fictional Harbor Apartments",
+    "title": "Vacant apartment unit painting",
+    "overview": "An illustrative interior repaint of vacant apartment units with preparation, application and final walkthrough.",
+    "scope": [
+      {
+        "area": "Vacant units",
+        "work": "Protect floors and fixtures, prepare walls, apply paint",
+        "completion": "Even coverage and clean edges subject to site walkthrough"
+      },
+      {
+        "area": "Common hallway",
+        "work": "Touch up marked surfaces",
+        "completion": "Confirm final areas and colors before scheduling"
+      }
+    ],
+    "lines": [
+      {
+        "serviceCode": "interior_repaint",
+        "label": "Interior repaint",
+        "unit": "unit",
+        "units": 2,
+        "unitPriceCents": 45000,
+        "lineTotalCents": 90000
+      },
+      {
+        "serviceCode": "prep_work",
+        "label": "Surface preparation",
+        "unit": "job",
+        "units": 1,
+        "unitPriceCents": 12000,
+        "lineTotalCents": 12000
+      }
+    ],
+    "subtotalCents": 102000,
+    "taxCents": 0,
+    "totalCents": 102000,
+    "assumptions": [
+      "Site access and paint colors confirmed before scheduling",
+      "Electrical and lighting access arranged by property management"
+    ],
+    "exclusions": [
+      "Structural repairs and concealed damage",
+      "Areas outside the agreed walkthrough scope"
+    ],
+    "timeline": "Schedule to be determined after the site walkthrough. No completion date is promised."
+  }
+}

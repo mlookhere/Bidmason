@@ -114,3 +114,28 @@ jobs:
         run: python3 -m playwright install --with-deps chromium
       - name: Chromium mobile, keyboard and disabled-intake E2E
         run: python3 ci/browser_qa.py
+
+  proposal-pdf-qa:
+    name: proposal-pdf-qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PDF QA dependencies
+        run: python3 -m pip install --requirement requirements-pdf.txt
+      - name: Multi-company PDF render, geometry, and rejection checks
+        run: python3 ci/branded_pdf_qa.py
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Python PDF to TypeScript QA revision contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          directory="$(mktemp -d)"
+          trap 'rm -rf "$directory"' EXIT
+          python3 ci/proposal_contract_export.py "$directory"
+          node ci/export_synthetic_review.mjs "$directory" "$directory"
+          python3 ci/proposal_review_markup_qa.py "$directory"
+          PROPOSAL_CONTRACT_DIR="$directory" node --test ci/proposal_artifact_contract.test.mjs
