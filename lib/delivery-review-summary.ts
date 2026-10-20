@@ -2,6 +2,8 @@ import type {DeliveryIntent} from "./outbound-preflight.ts";
 import type {DeliveryEvent} from "./delivery-event-projection.ts";
 import type {FollowUpPolicy, FollowUpRecord} from "./follow-up-assessment.ts";
 import {classifySimulatedDeliveryTriage, type DeliveryTriage} from "./delivery-triage.ts";
+import {classifySimulatedRecipientAwareTriage} from "./recipient-aware-delivery-triage.ts";
+import type {SyntheticRecipientHistory} from "./recipient-suppression-history.ts";
 
 export type SyntheticReviewEntry = {
   intent: DeliveryIntent;
@@ -59,7 +61,21 @@ export function summarizeSyntheticDeliveryReview(
   organizationId: string,
   entries: readonly SyntheticReviewEntry[],
   nowUtc: string,
+  historicalStreams?: readonly (readonly SyntheticRecipientHistory[])[],
 ): SimulatedReviewSummary {
+  // An explicit history matrix must cover *each* case. Silent partial
+  // history would conceal prior recipient suppression in the aggregate.
+  if (historicalStreams !== undefined &&
+    (!Array.isArray(historicalStreams)
+      || Object.getPrototypeOf(historicalStreams) !== Array.prototype
+      || historicalStreams.length !== entries.length
+      || Reflect.ownKeys(historicalStreams).length !== historicalStreams.length + 1
+      || !Array.from({length: historicalStreams.length}, (_,i) => {
+        const item = Object.getOwnPropertyDescriptor(historicalStreams, String(i));
+        return item?.enumerable === true && Object.hasOwn(item, "value");
+      }).every(Boolean))) {
+    throw new TypeError("Invalid recipient history matrix");
+  }
   if (typeof organizationId !== "string" || !UUID.test(organizationId)
     || !denseArray(entries)) {
     throw new TypeError("Invalid simulated review batch");
@@ -75,9 +91,14 @@ export function summarizeSyntheticDeliveryReview(
     }
     // The underlying evaluators reject untrusted shapes, impossible timelines,
     // replay conflicts and invalid timestamps/consent/attempt histories.
-    const result = classifySimulatedDeliveryTriage(
-      entry.intent, entry.events, entry.policy, entry.previousAttempts, nowUtc,
-    );
+    const result = historicalStreams === undefined
+      ? classifySimulatedDeliveryTriage(
+        entry.intent, entry.events, entry.policy, entry.previousAttempts, nowUtc,
+      )
+      : classifySimulatedRecipientAwareTriage(
+        entry.intent, entry.events, entry.policy, entry.previousAttempts,
+        historicalStreams[seen.size], nowUtc,
+      );
     if (entry.intent.organizationId !== organizationId) {
       throw new TypeError("Cross-tenant simulated review entry");
     }
