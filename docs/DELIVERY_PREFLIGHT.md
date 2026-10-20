@@ -504,3 +504,34 @@ simply removing the guard. Outstanding H01-H13 real Auth/RLS, approved
 proposals, provider/domain/consent, signed callback and durable atomic
 dispatch requirements remain blocking. No live API, customer data,
 provider connection, email or deployment has been introduced.
+
+
+## Tenant-scoped CRM summaries in the public fictional lab
+
+The static /delivery-lab now includes an accessible, noninteractive CRM
+review overview above its four existing fictional case histories. It
+reuses the pure summarizeSyntheticDeliveryReview engine rather than
+hardcoded counts, and groups source fixtures by the *exact* fictional
+organization ID before aggregation. These two organizations must never
+be merged: the fictional painting company has two operator-review cases,
+while the fictional cleaning company has one stop-contact case and one
+operator-review case. Both have zero deferred cases in these fixtures.
+
+The public summary returns only the invented company display label,
+reviewed-case count and three attention-band totals. Organization IDs,
+proposal IDs, recipient addresses and delivery idempotency keys are not
+returned to the page. Its shared builder checks that records inside
+each tenant group use a consistent fictional company label. Tests
+assert the real underlying calculation, group boundaries, lack of
+identifiers in serialized results, and explicit simulation-only state.
+The mandatory Chromium browser test verifies both visible summaries,
+their counts, no extra interactive controls or mutation requests, and
+responsive layout at 320, 375, 768 and 1280 pixels.
+
+This is a *public, static fictional demo* and not a CRM populated with
+customer data, authenticated operator access, verified consent, a
+work queue, or a delivery permission. The existing publication guard
+allowlist adds only the reviewed offline summary module; no provider,
+network, storage, server action or POST endpoint is introduced. Real
+CRM access, buyer portal and outbound sending continue to require
+all H01-H13 live tenant, provider and human release acceptance.
