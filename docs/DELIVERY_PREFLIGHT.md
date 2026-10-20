@@ -220,3 +220,25 @@ a real provider adapter requires authenticated durable event history,
 concurrency-safe event-ID uniqueness, out-of-order buffering policy,
 reconciliation alerts and transactional current-state checks. H01-H13
 human/live acceptance is unchanged.
+
+
+## Static synthetic delivery review lab (not a live portal)
+
+The Next development preview includes the route /delivery-lab, a clearly
+labeled *fictional, read-only example*. It is NOT access-controlled, and
+has no real user, contractor, proposal, recipient or provider data. Four
+deterministic examples (reply, bounce, unknown contact consent and an
+internally due-but-not-authorized case) are computed using the existing
+projectSimulatedDeliveryEvents and assessSimulatedFollowUp functions.
+Only invented companies, event labels, blockers and explicit warnings
+that no one may send or approve anything are shown. There are no forms,
+send controls, mutation endpoints, credential checks or external requests.
+
+The delivery-lab web tests verify the four scenario outcomes and static
+no-send boundaries. The mandatory Chromium E2E visits /delivery-lab
+at 320, 375, 768 and 1280px; checks noindex, correct blockers, four
+fictional cards, native event-history disclosure, zero form controls,
+no mutation requests, browser errors or overflow. Noindex is NOT access
+control: never feed real data into this page. A true operator dashboard
+and buyer portal remain blocked on live tenant authentication, consent,
+provider evidence, security review and H01-H13 acceptance.
