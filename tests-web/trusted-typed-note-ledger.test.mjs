@@ -1,0 +1,370 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { createTrustedTypedNoteLedger }
+  from "../lib/trusted-typed-note-ledger.ts";
+import { reconcileAuthorizedTypedNote }
+  from "../lib/typed-note-reconciliation.ts";
+
+const ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const OTHER_ORG = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ACTOR = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const OTHER_ACTOR = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const REQUEST = "11111111-1111-4111-8111-111111111111";
+const SOURCE = "22222222-2222-4222-8222-222222222222";
+const request = { organizationId: ORG, requestId: REQUEST,
+  text: "Clean 2 rooms. No subcontractor." };
+const digest = createHash("sha256").update(request.text).digest("hex");
+const record = { organizationId: ORG, sourceId: SOURCE, revision: 1,
+  original: {kind: "typed-note", text: request.text}, review: null,
+  extractionAudit: [], scopeReview: null,
+  creationAudit: {actorId: ACTOR, requestId: REQUEST, textSha256: digest} };
+
+function fixture() {
+  let active = true;
+  const authCalls = [], sqlCalls = [];
+  const auth = {
+    async verifyActiveSession(session) {
+      authCalls.push(session);
+      if (!active || session !== "real-session") {
+        throw new Error("Auth session invalid or revoked");
+      }
+      return { userId: ACTOR };
+    },
+  };
+  const database = {
+    async query(sql, params) {
+      sqlCalls.push({ sql, params });
+      if (params[0] !== ORG || params[1] !== ACTOR) {
+        throw new Error("Current tenant membership required");
+      }
+      if (params[2] !== REQUEST) return { rows: [] };
+      return { rows: [{authenticated_actor_id: ACTOR, text_sha256: digest,
+        record: structuredClone(record)}] };
+    },
+  };
+  return { auth, database, authCalls, sqlCalls, revoke: () => {active = false;} };
+}
+
+test("pre- and post-query Auth checks on both primary reads confirm original receipt", async () => {
+  const f = fixture();
+  const ledger = createTrustedTypedNoteLedger(f.auth, f.database);
+  const result = await reconcileAuthorizedTypedNote(ledger, "real-session", request);
+  assert.deepEqual(result, { state: "confirmed-unprocessed",
+    organizationId: ORG, sourceId: SOURCE, revision: 1, textSha256: digest });
+  assert.deepEqual(f.authCalls, Array(4).fill("real-session"));
+  assert.equal(f.sqlCalls.length, 2);
+  for (const call of f.sqlCalls) {
+    assert.match(call.sql, /bm_intake_private\.lookup_typed_note\(\$1::uuid, \$2::uuid, \$3::uuid\)/);
+    assert.deepEqual(call.params, [ORG, ACTOR, REQUEST]);
+    assert.doesNotMatch(call.sql, /insert|update|delete/i);
+  }
+});
+
+test("absent authorized ledger key remains read-only and not proof of rollback", async () => {
+  const f = fixture();
+  const result = await reconcileAuthorizedTypedNote(
+    createTrustedTypedNoteLedger(f.auth, f.database), "real-session",
+    {...request, requestId:"33333333-3333-4333-8333-333333333333"});
+  assert.equal(result.state, "not-found-at-read");
+  assert.equal(f.sqlCalls.length, 2);
+  assert.equal(f.authCalls.length, 4);
+});
+
+test("caller cannot declare or override authenticated actor or authorization", async () => {
+  const f = fixture(), ledger = createTrustedTypedNoteLedger(f.auth, f.database);
+  await assert.rejects(ledger.lookupAuthorized({
+    organizationId: ORG, requestId: REQUEST, session: "real-session",
+    permission: "create-intake", actorId: OTHER_ACTOR,
+  }), /Invalid private/);
+  await assert.rejects(ledger.lookupAuthorized({
+    organizationId: ORG, requestId: REQUEST, session: {userId: ACTOR},
+    permission: "create-intake",
+  }), /Auth session/);
+  await assert.rejects(ledger.lookupAuthorized({
+    organizationId: OTHER_ORG, requestId: REQUEST,
+    session: "real-session", permission: "create-intake",
+  }), /Current tenant membership/);
+  assert.equal(f.sqlCalls.length, 1);
+  assert.deepEqual(f.sqlCalls[0].params, [OTHER_ORG, ACTOR, REQUEST]);
+});
+
+test("revocation during a primary receipt read denies even the first result", async () => {
+  const f = fixture(), original = f.database.query;
+  f.database.query = async (...args) => {
+    const response = await original(...args);
+    f.revoke();
+    return response;
+  };
+  await assert.rejects(reconcileAuthorizedTypedNote(
+    createTrustedTypedNoteLedger(f.auth, f.database),
+    "real-session", request), /revoked/);
+  assert.equal(f.sqlCalls.length, 1);
+  assert.equal(f.authCalls.length, 2);
+});
+
+test("revocation during a primary lookup denies both a receipt and a missing-key result", async () => {
+  for (const requestId of [REQUEST, "33333333-3333-4333-8333-333333333333"]) {
+    const f = fixture(), original = f.database.query;
+    f.database.query = async (...args) => {
+      const response = await original(...args);
+      f.revoke();
+      return response;
+    };
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized({organizationId: ORG, requestId,
+        session:"real-session", permission:"create-intake"}), /revoked/);
+    assert.equal(f.sqlCalls.length, 1);
+    assert.equal(f.authCalls.length, 2);
+  }
+});
+
+test("actor switching while a primary lookup is in flight fails closed", async () => {
+  for (const requestId of [REQUEST, "33333333-3333-4333-8333-333333333333"]) {
+    const f = fixture(), original = f.database.query;
+    let identity = ACTOR, checks = 0;
+    f.auth.verifyActiveSession = async () => {
+      checks++;
+      return {userId: identity};
+    };
+    f.database.query = async (...args) => {
+      const response = await original(...args);
+      identity = OTHER_ACTOR;
+      return response;
+    };
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized({organizationId: ORG, requestId,
+        session:"real-session", permission:"create-intake"}), /actor changed/);
+    assert.equal(checks, 2);
+    assert.equal(f.sqlCalls.length, 1);
+  }
+});
+
+test("caller mutation during Auth cannot change the validated tenant, key or session", async () => {
+  const f = fixture(), originalVerify = f.auth.verifyActiveSession;
+  const input = {organizationId: ORG, requestId: REQUEST, session: "real-session",
+    permission:"create-intake"};
+  let changed = false;
+  f.auth.verifyActiveSession = async session => {
+    if (!changed) {
+      changed = true;
+      input.organizationId = OTHER_ORG;
+      input.requestId = "33333333-3333-4333-8333-333333333333";
+      input.session = "forged-session";
+    }
+    return originalVerify(session);
+  };
+  const receipt = await createTrustedTypedNoteLedger(f.auth, f.database)
+    .lookupAuthorized(input);
+  assert.equal(receipt.record.sourceId, SOURCE);
+  assert.deepEqual(f.sqlCalls[0].params, [ORG, ACTOR, REQUEST]);
+  assert.deepEqual(f.authCalls, ["real-session", "real-session"]);
+});
+
+test("caller mutation during SQL cannot switch the session used for post-query Auth", async () => {
+  const f = fixture(), originalQuery = f.database.query;
+  const input = {organizationId: ORG, requestId: REQUEST, session: "real-session",
+    permission:"create-intake"};
+  f.database.query = async (...args) => {
+    input.session = "forged-session";
+    input.organizationId = OTHER_ORG;
+    return originalQuery(...args);
+  };
+  const receipt = await createTrustedTypedNoteLedger(f.auth, f.database)
+    .lookupAuthorized(input);
+  assert.equal(receipt.record.sourceId, SOURCE);
+  assert.deepEqual(f.sqlCalls[0].params, [ORG, ACTOR, REQUEST]);
+  assert.deepEqual(f.authCalls, ["real-session", "real-session"]);
+});
+
+test("accessor and hidden selectors, identities and SQL fields fail closed without evaluation", async () => {
+  const selector = {organizationId:ORG, requestId:REQUEST,
+    session:"real-session", permission:"create-intake"};
+  const hidden = {...selector};
+  Object.defineProperty(hidden, "actorId", {value: ACTOR});
+  const accessor = {...selector};
+  let invocations = 0;
+  Object.defineProperty(accessor, "requestId", {
+    enumerable:true, get(){ invocations++; return REQUEST; },
+  });
+  for (const invalid of [hidden, accessor]) {
+    const f = fixture();
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized(invalid), /Invalid private/);
+    assert.equal(f.authCalls.length, 0);
+    assert.equal(f.sqlCalls.length, 0);
+  }
+  const f = fixture();
+  f.auth.verifyActiveSession = async () => {
+    const identity = {};
+    Object.defineProperty(identity, "userId", {
+      enumerable:true, get(){ invocations++; return ACTOR; },
+    });
+    return identity;
+  };
+  await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+    .lookupAuthorized(selector), /Verified active Auth/);
+  assert.equal(f.sqlCalls.length, 0);
+  const g = fixture();
+  g.database.query = async () => {
+    const row = {authenticated_actor_id:ACTOR, text_sha256:digest};
+    Object.defineProperty(row, "record", {
+      enumerable:true, get(){ invocations++; return structuredClone(record); },
+    });
+    return {rows:[row]};
+  };
+  await assert.rejects(createTrustedTypedNoteLedger(g.auth, g.database)
+    .lookupAuthorized(selector), /Private intake ledger/);
+  assert.equal(invocations, 0);
+});
+
+test("invalid selector or permission never invokes Auth or SQL", async () => {
+  const f = fixture(), ledger = createTrustedTypedNoteLedger(f.auth, f.database);
+  for (const overrides of [
+    {organizationId: "invalid"}, {requestId: "../other"},
+    {permission: "read-all"}, {sourceId: SOURCE},
+    {requestId: null},
+  ]) {
+    await assert.rejects(ledger.lookupAuthorized({
+      organizationId: ORG, requestId: REQUEST,
+      session: "real-session", permission: "create-intake", ...overrides,
+    }), /Invalid private/);
+  }
+  assert.equal(f.authCalls.length, 0);
+  assert.equal(f.sqlCalls.length, 0);
+});
+
+test("missing or forged verified Auth identity rejects before SQL", async () => {
+  for (const identity of [null, undefined, {}, {userId: "invalid"},
+    {userId: ACTOR, role: "admin"}, {userId: OTHER_ACTOR.toUpperCase()}]) {
+    const f = fixture();
+    f.auth.verifyActiveSession = async () => identity;
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized({organizationId:ORG, requestId:REQUEST,
+        session:"real-session", permission:"create-intake"}), /Verified active Auth/);
+    assert.equal(f.sqlCalls.length, 0);
+  }
+});
+
+test("database actor, digest, shape and cardinality mismatches fail closed", async () => {
+  const base = {authenticated_actor_id: ACTOR, text_sha256: digest,
+    record: structuredClone(record)};
+  const invalid = [
+    null, {}, {rows: null}, {rows: [base, base]}, {rows: [null]},
+    {rows: [{...base, authenticated_actor_id: OTHER_ACTOR}]},
+    {rows: [{...base, text_sha256: "bad"}]},
+    {rows: [{...base, record: null}]},
+    {rows: [{...base, record: JSON.stringify(record)}]},
+    {rows: [{...base, approved: true}]},
+  ];
+  for (const response of invalid) {
+    const f = fixture();
+    f.database.query = async () => response;
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth, f.database)
+      .lookupAuthorized({organizationId:ORG, requestId:REQUEST,
+        session:"real-session", permission:"create-intake"}));
+  }
+});
+
+test("tampered source cannot be confirmed by apparently valid private receipt", async () => {
+  const f = fixture();
+  f.database.query = async () => ({rows: [{
+    authenticated_actor_id:ACTOR, text_sha256:digest,
+    record:{...record, original:{kind:"typed-note", text:"forged"}},
+  }]});
+  assert.equal((await reconcileAuthorizedTypedNote(
+    createTrustedTypedNoteLedger(f.auth,f.database),
+    "real-session",request)).state, "conflict");
+});
+
+test("database outages propagate, never become a valid absent ledger", async () => {
+  const f = fixture();
+  f.database.query = async () => {throw new Error("primary database unavailable");};
+  await assert.rejects(reconcileAuthorizedTypedNote(
+    createTrustedTypedNoteLedger(f.auth, f.database),
+    "real-session", request), /primary database unavailable/);
+});
+
+
+test("private ledger rejects a forged empty array instead of reporting an absent idempotency key", async () => {
+  for (const corrupt of [
+    rows => {rows[Symbol("approved")]=true;},
+    rows => Object.defineProperty(rows,"send",{value:true}),
+    rows => Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  ]) {
+    const f=fixture(),original=f.database.query.bind(f.database);
+    f.database.query=async(...args)=>{
+      await original(...args);
+      const rows=[];
+      corrupt(rows);
+      return {rows};
+    };
+    const ledger=createTrustedTypedNoteLedger(f.auth,f.database);
+    await assert.rejects(ledger.lookupAuthorized({
+      organizationId:ORG,requestId:REQUEST,session:"real-session",
+      permission:"create-intake",
+    }), /Invalid primary intake lookup result/);
+    assert.equal(f.sqlCalls.length,1);
+    assert.deepEqual(f.authCalls,["real-session"]);
+    await assert.rejects(reconcileAuthorizedTypedNote(
+      ledger,"real-session",request),/Invalid primary intake lookup result/);
+    assert.equal(f.sqlCalls.length,2);
+  }
+});
+
+test("ledger rejects an accessor-backed or sparse SQL index without triggering it",async()=>{
+  let triggered=0;
+  for(const corrupt of [
+    rows => Object.defineProperty(rows,"0",{enumerable:true,
+      get(){triggered++;throw Error("untrusted SQL row getter");}}),
+    rows => {delete rows[0];},
+    rows => Object.defineProperty(rows,"0",{enumerable:false,
+      configurable:true,writable:true,value:rows[0]}),
+    rows => Object.defineProperty(rows,"send",{value:true}),
+    rows => {rows[Symbol("authorized")]=true;},
+    rows => Object.setPrototypeOf(rows,Object.create(Array.prototype)),
+  ]){
+    const f=fixture(),original=f.database.query.bind(f.database);
+    f.database.query=async(...args)=>{
+      const response=await original(...args);
+      corrupt(response.rows);
+      return response;
+    };
+    await assert.rejects(createTrustedTypedNoteLedger(f.auth,f.database)
+      .lookupAuthorized({organizationId:ORG,requestId:REQUEST,
+        session:"real-session",permission:"create-intake"}),
+      /Invalid primary intake lookup result/);
+    assert.deepEqual(f.authCalls,["real-session"]);
+    assert.equal(f.sqlCalls.length,1);
+  }
+  assert.equal(triggered,0);
+});
+
+test("the primary DB rows getter cannot execute or fabricate an absent key",async()=>{
+  const f=fixture();let triggered=0;
+  f.database.query=async()=>Object.defineProperty({},"rows",{enumerable:true,
+    get(){triggered++;return [];}});
+  await assert.rejects(createTrustedTypedNoteLedger(f.auth,f.database)
+    .lookupAuthorized({organizationId:ORG,requestId:REQUEST,
+      session:"real-session",permission:"create-intake"}),
+    /Invalid primary intake lookup result/);
+  assert.equal(triggered,0);
+  assert.deepEqual(f.authCalls,["real-session"]);
+});
+
+test("normal PostgreSQL result metadata remains compatible with authenticated empty and present receipts",async()=>{
+  for(const found of [true,false]){
+    const f=fixture(),original=f.database.query.bind(f.database);
+    f.database.query=async(...args)=>{
+      const result=await original(...args);
+      return {rows:found?result.rows:[],rowCount:found?1:0,
+        command:"SELECT",fields:[]};
+    };
+    const received=await createTrustedTypedNoteLedger(f.auth,f.database)
+      .lookupAuthorized({organizationId:ORG,requestId:REQUEST,
+        session:"real-session",permission:"create-intake"});
+    assert.equal(received===null,!found);
+    if(found)assert.equal(received.record.sourceId,SOURCE);
+    assert.deepEqual(f.authCalls,["real-session","real-session"]);
+  }
+});

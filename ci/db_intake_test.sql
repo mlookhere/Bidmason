@@ -1,0 +1,252 @@
+-- This MUST run against the disposable CI database only. No real user data.
+insert into public.bm_organizations(id,slug,name) values
+ ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','tenant-a','Synthetic A'),
+ ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','tenant-b','Synthetic B');
+insert into public.bm_memberships(organization_id,user_id,member_role) values
+ ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  'cccccccc-cccc-4ccc-8ccc-cccccccccccc','operator');
+
+do $test$
+begin
+ if not (select relrowsecurity and relforcerowsecurity
+    from pg_class where oid='public.bm_intake_sources'::regclass)
+ or not (select relrowsecurity and relforcerowsecurity
+    from pg_class where oid='public.bm_typed_note_requests'::regclass) then
+  raise exception 'RLS must be enabled and forced for BOTH intake tables';
+ end if;
+ if has_table_privilege('anon','public.bm_intake_sources','SELECT')
+ or has_table_privilege('authenticated','public.bm_intake_sources','SELECT')
+ or has_table_privilege('authenticated','public.bm_intake_sources','INSERT')
+ or has_table_privilege('authenticated','public.bm_intake_sources','UPDATE')
+ or has_table_privilege('authenticated','public.bm_typed_note_requests','SELECT')
+ or has_table_privilege('authenticated','public.bm_typed_note_requests','INSERT')
+ or has_schema_privilege('authenticated','bm_intake_private','USAGE')
+ or has_function_privilege('authenticated',
+   'bm_intake_private.create_typed_note(uuid,uuid,uuid,text)','EXECUTE')
+ or has_function_privilege('anon',
+   'bm_intake_private.create_typed_note(uuid,uuid,uuid,text)','EXECUTE') then
+  raise exception 'Client/anonymous privileges expose private intake data';
+ end if;
+end;
+$test$;
+
+set role service_role;
+do $test$
+declare
+ v_org uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ v_other uuid:='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ v_actor uuid:='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ v_request uuid:='11111111-1111-4111-8111-111111111111';
+ v_source uuid;
+ v_replay uuid;
+ v_sha text;
+begin
+ select source_id,original_sha256 into v_source,v_sha
+  from bm_intake_private.create_typed_note(v_org,v_actor,v_request,'Paint 2 rooms');
+ if v_source is null or v_sha<>
+  encode(sha256(convert_to('Paint 2 rooms','UTF8')),'hex') then
+  raise exception 'First create returned wrong source/digest';
+ end if;
+ select source_id into v_replay
+  from bm_intake_private.create_typed_note(v_org,v_actor,v_request,'Paint 2 rooms');
+ if v_source<>v_replay
+  or (select count(*) from public.bm_intake_sources
+    where organization_id=v_org)<>1
+  or (select count(*) from public.bm_typed_note_requests
+    where organization_id=v_org)<>1 then
+  raise exception 'Duplicate request created duplicate source or ledger';
+ end if;
+ begin
+  perform 1 from bm_intake_private.create_typed_note(
+   v_org,v_actor,v_request,'Paint 20 rooms');
+  raise exception 'Different payload was accepted';
+ exception when unique_violation then null;
+ end;
+ begin
+  perform 1 from bm_intake_private.create_typed_note(
+   v_other,v_actor,v_request,'Paint 2 rooms');
+  raise exception 'Cross-tenant actor was accepted';
+ exception when insufficient_privilege then null;
+ end;
+ begin
+  perform 1 from bm_intake_private.create_typed_note(
+   v_org,v_actor,'22222222-2222-4222-8222-222222222222',repeat('A',65537));
+  raise exception 'Unbounded text accepted';
+ exception when invalid_parameter_value then null;
+ end;
+ begin
+  insert into public.bm_typed_note_requests(
+   organization_id,actor_id,request_id,source_id,text_sha256)
+  values(v_org,v_actor,'33333333-3333-4333-8333-333333333333',
+   v_source,repeat('0',64));
+  raise exception 'Forged source/request/digest link accepted';
+ exception when unique_violation or foreign_key_violation then null;
+ end;
+ begin
+  insert into public.bm_typed_note_requests(
+   organization_id,actor_id,request_id,source_id,text_sha256)
+  values(v_org,v_actor,'77777777-7777-4777-8777-777777777777',
+   gen_random_uuid(),repeat('0',64));
+  raise exception 'Dangling source foreign key accepted';
+ exception when foreign_key_violation then null;
+ end;
+ begin
+  insert into public.bm_intake_sources(
+   organization_id,created_by,request_id,original_text,text_sha256)
+  values(v_org,v_actor,'44444444-4444-4444-8444-444444444444',
+    'text',repeat('0',64));
+  raise exception 'Forged digest accepted';
+ exception when check_violation then null;
+ end;
+end;
+$test$;
+reset role;
+
+-- Revoking membership blocks even a replay against a still-present ledger.
+delete from public.bm_memberships where
+ organization_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+ and user_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+set role service_role;
+do $test$
+begin
+ begin
+  perform 1 from bm_intake_private.create_typed_note(
+   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+   'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+   '11111111-1111-4111-8111-111111111111','Paint 2 rooms');
+  raise exception 'Revoked member can still replay note';
+ exception when insufficient_privilege then null;
+ end;
+end;
+$test$;
+reset role;
+select 'PASS: isolated intake DB tenant identity, original SHA, FK, RLS, idempotency and revoked membership';
+
+-- Ensure SQL CHECK does NOT accidentally accept NULL-valued boolean logic.
+set role service_role;
+do $test$
+declare
+  v_org uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  v_actor uuid:='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  v_sha text:=encode(sha256(convert_to('Separate note','UTF8')),'hex');
+begin
+  begin
+    insert into public.bm_intake_sources(
+      organization_id,created_by,request_id,original_text,text_sha256,
+      revision,review,extraction_audit,scope_review)
+    values(v_org,v_actor,'55555555-5555-4555-8555-555555555555',
+      'Separate note',v_sha,2,null,'[{"sourceRevision":2}]',null);
+    raise exception 'Revision two without review was accepted';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.bm_intake_sources(
+      organization_id,created_by,request_id,original_text,text_sha256,
+      revision,review,extraction_audit,scope_review)
+    values(v_org,v_actor,'66666666-6666-4666-8666-666666666666',
+      'Separate note',v_sha,3,'{}','[{"sourceRevision":2}]',null);
+    raise exception 'Revision three without scope review was accepted';
+  exception when check_violation then null;
+  end;
+end;
+$test$;
+reset role;
+
+-- New isolated workstream acceptance: immutable originals and append-only
+-- ledger survive an accidentally overprivileged trusted SQL worker.
+insert into public.bm_memberships(organization_id,user_id,member_role)
+values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+       'cccccccc-cccc-4ccc-8ccc-cccccccccccc','operator');
+set role service_role;
+do $test$
+declare
+ v_org uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ v_actor uuid:='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ v_req uuid:='99999999-9999-4999-8999-999999999999';
+ v_id uuid;
+begin
+ select source_id into v_id from bm_intake_private.create_typed_note(
+  v_org,v_actor,v_req,'Clean 2 rooms');
+
+ -- A valid extract audit transition still works; security changes must not
+ -- break the core revision progression needed by human review.
+ update public.bm_intake_sources
+  set revision=2,review='{"state":"needs-human-review"}'::jsonb,
+      extraction_audit='[{"sourceRevision":2}]'::jsonb
+  where organization_id=v_org and id=v_id;
+ if (select revision from public.bm_intake_sources
+     where organization_id=v_org and id=v_id)<>2 then
+   raise exception 'Legitimate extraction transition failed';
+ end if;
+
+ begin
+  update public.bm_intake_sources set original_text='Forgeries'
+   where organization_id=v_org and id=v_id;
+  raise exception 'Original text rewrite accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set text_sha256=repeat('0',64)
+   where organization_id=v_org and id=v_id;
+  raise exception 'Original hash rewrite accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set created_by=
+   'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+   where organization_id=v_org and id=v_id;
+  raise exception 'Original creator reassignment accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set revision=2
+   where organization_id=v_org and id=v_id;
+  raise exception 'Same-revision source rewrite accepted';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_intake_sources set revision=3,
+   review='{"state":"tampered"}'::jsonb,
+   scope_review='{"state":"reviewed-for-proposal-draft"}'::jsonb
+   where organization_id=v_org and id=v_id;
+  raise exception 'Extraction review rewrite accepted during scope change';
+ exception when insufficient_privilege then null; end;
+ begin
+  update public.bm_typed_note_requests set text_sha256=repeat('0',64)
+   where organization_id=v_org and actor_id=v_actor and request_id=v_req;
+  raise exception 'Request ledger rewrite accepted';
+ exception when insufficient_privilege then null; end;
+
+ -- The legitimate 2->3 scope transition must retain extraction provenance.
+ update public.bm_intake_sources
+  set revision=3,scope_review='{"state":"reviewed-for-proposal-draft"}'::jsonb
+  where organization_id=v_org and id=v_id;
+ if (select revision from public.bm_intake_sources
+     where organization_id=v_org and id=v_id)<>3 then
+   raise exception 'Legitimate reviewed-scope transition failed';
+ end if;
+ begin
+  update public.bm_intake_sources set revision=3
+   where organization_id=v_org and id=v_id;
+  raise exception 'Reviewed source rewrite accepted';
+ exception when insufficient_privilege then null; end;
+
+ -- Even a correct later replay must resolve the original UUID at revision 3.
+ if (select source_id from bm_intake_private.create_typed_note(
+  v_org,v_actor,v_req,'Clean 2 rooms'))<>v_id then
+  raise exception 'Processed typed-note replay did not retain source UUID';
+ end if;
+end;
+$test$;
+reset role;
+
+-- The DELETE denial is checked at the privilege boundary, since service_role
+-- intentionally receives no DELETE grant. Database owner bypass is excluded.
+do $test$
+begin
+ if has_table_privilege('service_role','public.bm_intake_sources','DELETE')
+ or has_table_privilege('service_role','public.bm_typed_note_requests','DELETE')
+ or has_table_privilege('authenticated','public.bm_intake_sources','DELETE')
+ or has_table_privilege('authenticated','public.bm_typed_note_requests','DELETE')
+ or has_table_privilege('authenticated','public.bm_typed_note_requests','UPDATE') then
+  raise exception 'Intake deletion or browser ledger mutation privilege exposed';
+ end if;
+end;
+$test$;
+select 'PASS: staged immutable intake originals, monotonic source revisions and append-only ledger';

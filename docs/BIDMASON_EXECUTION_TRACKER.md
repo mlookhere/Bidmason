@@ -8,6 +8,28 @@
 
 > **Tracker truth rule:** An unchecked item means **not yet verified**, NOT necessarily unimplemented. On the first implementation session, inspect the live repository and mark genuinely completed items only with matching code, tests, and deployment evidence. Do not recreate existing work. Do not infer proof from mockups, prompts or prior narratives.
 
+## LIVE GITHUB / SUPABASE CHECKPOINT — 2026-10-19
+
+This dated checkpoint supersedes **unknown** entries in the historical source-inventory baseline below **only for the specific facts verified here**. Do not turn historic unchecked BM-001..BM-055 tasks into complete without each one's own acceptance evidence.
+
+| Durable object or gate | Current verified status |
+| --- | --- |
+| Source repository | [`mlookhere/Bidmason`](https://github.com/mlookhere/Bidmason) |
+| Current delivery slice | **Item 4/8** — [Issue #5](https://github.com/mlookhere/Bidmason/issues/5), `work/5-intake-pricing`, existing [draft PR #13](https://github.com/mlookhere/Bidmason/pull/13) into `dev` |
+| Required upstream dependency | **Item 3/8** — [Issue #4](https://github.com/mlookhere/Bidmason/issues/4), existing unmerged [draft PR #12](https://github.com/mlookhere/Bidmason/pull/12) from `work/4-tenant-rls` into `dev` |
+| GitHub refs inspected | Item4 [`796d5b4a69f50fe42eb8cd114aa50ac5589ccc3a`](https://github.com/mlookhere/Bidmason/commit/796d5b4a69f50fe42eb8cd114aa50ac5589ccc3a) verified at the start of this tracker update; Item3 dependency `d17844b6387ffe9b5970dda1350a871276b38f7a` remains draft/unmerged. Previously recorded `dev=08e40794829b92e910af1432fd3c2bf7c8cf502e`, `main=a3225039bb5415aad2e6c950e9d11c1a2842bdd2`; do not infer fresh base-ref verification from this row |
+| Required Item4 CI | At `796d5b4a69f50fe42eb8cd114aa50ac5589ccc3a`, [Actions #39309071402](https://github.com/mlookhere/Bidmason/actions/runs/39309071402) **completed/success: 9/9 required jobs, 141/141 job steps**, none skipped, missing, pending or failed. These results apply only to that SHA; verify all jobs/steps again after this tracker commit before any CI-green claim |
+| Connected backend | Supabase project **BidMason**: `ACTIVE_HEALTHY` at verification; **nine recorded Item3/evidence migrations**, **zero development DB branches**. No Item4 schema deployment was inferred or performed |
+| Connected backend catalog report | Exact committed read-only `db/corrected_pricing_schema_preflight.sql`: **5/24 passed, 19 missing**, `staged_schema_ready=false`. See [deployment preflight and each missing check](STAGED_CORRECTED_PRICING_DEPLOYMENT_PREFLIGHT.md) |
+| Live upload quota access | `public.bm_upload_quota` has RLS enabled, no policies, and **no direct `anon`/`authenticated` read or DML grants**. Informational security advisor is consistent with intended server-only browser-deny-all usage; do not weaken it just to clear the notice |
+| Recent Item4 implementation | Private corrected-pricing session selectors now fail before Auth or SQL unless a nonempty primitive ASCII bearer of at most 16,384 bytes (`A-Z a-z 0-9 . _ ~ -`). Both legacy disposable and session-locked paths have positive/negative automated regressions. Syntax is never Auth proof |
+| Quotation authorization | **Blocked**: corrected source revision 5 remains `scope_review=NULL` and nonquotable. Company-specific approval and separate proposal signoffs not proven |
+| Live external readiness | **Blocked**: genuine distinct signed users, cross-tenant RLS/PostgREST and private Storage negative/positive HTTP tests, scanner authenticity, retention/quotas/recovery and privacy/security/legal/ops approvals remain unverified; no live upload, send, charge, or production deployment performed |
+
+**Evidence and next execution:** The [control Issue #1](https://github.com/mlookhere/Bidmason/issues/1) and Item4 Issue #5 track the precise new HEAD and its latest Actions run. Independently validate all nine jobs after each change. Resolve source/tenant dependency, separately review staged SQL deployment order, verify 24/24 catalog gates **and** genuinely signed two-tenant/Auth/Storage/scanner negative tests before requesting human production decisions. Real project queries here were strictly read-only. The historic plan below is retained, not retroactively rewritten.
+
+---
+
 ## 1. Baseline record — fill this out first
 
 | Field | Current value |
@@ -353,3 +375,13 @@ Issue [#3](https://github.com/mlookhere/Bidmason/issues/3), draft [PR #11](https
 - Implemented `lib/company-pricing.ts` as a pure company-configurable evaluator and `tests-web/company-pricing.test.mjs` using separate synthetic painting and cleaning configurations, distinct minima, optional included work, discount/surcharge orders, numerical validation and reject-on-pending behavior. This is a stepping stone, **not** the production pricing backend.
 - The general platform architecture is captured in `docs/COMPANY_POLICY_ARCHITECTURE.md`. Tax, legal/regulatory, company-specific source authorization, persisted policy versioning and role-based commercial approvals remain scheduled for later implementation slices.
 - Do not mark original 2026 Harbor Coast PDF as approved or overwrite source evidence. Step 2 may proceed to internal QA/review without an arbitrary fictional $475 business choice once new CI checks succeed; this does **not** loosen any approval/claim/security gate.
+
+---
+
+## 24. Staged tenant-authorized intake and canonical scope parity — October 19, 2026
+
+- **Tracked Item:** [Issue #5 — PLAN 4/8](https://github.com/mlookhere/Bidmason/issues/5), existing `work/5-intake-pricing` / [draft PR #13](https://github.com/mlookhere/Bidmason/pull/13). This is not a new Issue, PR, merger, or deployed backend.
+- **Implemented in staged code:** creator-scoped immutable typed-note intake, extraction provenance and human selection CAS against private PostgreSQL, company-owned versioned policy submission and distinct reviewer approval evidence, approved-policy activation, deterministic company-priced review workbench, preview, one-shot stored scope CAS, ambiguous-write read-only reconciliation and internally authorized post-review draft handoff. All are **server-only staging contracts**, not a public customer service.
+- **New Item4 invariant:** all four scope operations (`preview`, `commit`, `reconcile`, `readReviewedDraft`) recompute canonical service eligibility, selections, explicit optional-service acknowledgements, company economics, approved-policy SHA and reviewed-selection SHA through one validator. The stored reviewed scope must be strictly canonical; stale policy and revoked identity must fail closed. No amount, actor, original bytes, approval, or ratecard can be supplied by an untrusted caller.
+- **Tests:** unit/adversarial `tests-web/trusted-typed-note-scope-commit.test.mjs` plus mandatory real isolated PostgreSQL `ci/intake_scope_commit_bridge.test.mjs` compare precommit preview to the one CAS result, read-only recovery, and draft handoff, including failure scenarios. Required CI workflows retain `fast`, `pr`, `security`, `web-build`, `win-fast`, `pdf-qa`, `browser-e2e`, `intake-db`. Verify the **exact latest branch SHA** in the control Issue/PR before asserting any current green status. No earlier CI success transfers to later commits.
+- **Cannot yet mark live done:** genuine independently approved company pricing and two-user real Supabase Auth/PostgREST/RLS/private Storage/source bytes, maintained signed AV, upload/transcription provider safety, ingress quotas/abuse limits, audit recovery/retention, privacy/security/legal signoff, and any approved proposal/send/billing. These remain [Issue #4](https://github.com/mlookhere/Bidmason/issues/4) / [draft PR #12](https://github.com/mlookhere/Bidmason/pull/12) hard gates. No live route, merge, deployment, or customer communications.

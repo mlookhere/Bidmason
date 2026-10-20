@@ -1,3 +1,5 @@
+import { canonicalCompanyPolicyText } from "./company-policy-fingerprint.ts";
+
 /**
  * Draft company-configurable pricing prototype.
  *
@@ -16,6 +18,8 @@ export type ServicePriceRule = {
   billing: Billing;
   surchargeBps?: number;
   discountBps?: number;
+  /** Optional work is never auto-included by extractor suggestions. */
+  optionalAddon?: boolean;
 };
 
 export type CompanyPricePolicy = {
@@ -26,7 +30,11 @@ export type CompanyPricePolicy = {
   services: Record<string, ServicePriceRule>;
 };
 
-export type QuoteLineInput = { serviceCode: string; units: number };
+export type QuoteLineInput = {
+  serviceCode: string; units: number;
+  /** Set only after a human explicitly accepts this optional line. */
+  addonAccepted?: true;
+};
 
 export type QuotedLine = {
   serviceCode: string;
@@ -70,8 +78,13 @@ function safeMultiply(a: number, b: number, label: string): number {
 }
 
 function percent(amount: number, basisPoints: number): number {
-  const scaled = safeMultiply(amount, basisPoints, "percentage intermediate");
-  return cents(Math.floor(safeAdd(scaled, 5000, "rounding intermediate") / 10000), "percentage");
+  // Use exact intermediates: amount * bps can exceed MAX_SAFE_INTEGER
+  // even when the final rounded number of cents is representable.
+  const scaled = (BigInt(amount) * BigInt(basisPoints) + 5000n) / 10000n;
+  if (scaled > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new RangeError("percentage exceeds safe integer cents");
+  }
+  return Number(scaled);
 }
 
 function priceOne(rule: ServicePriceRule, order: CalculationOrder): number {
@@ -86,6 +99,51 @@ function priceOne(rule: ServicePriceRule, order: CalculationOrder): number {
   return safeAdd(discounted, percent(discounted, surcharge), "surcharged rate");
 }
 
+/** A caller-supplied quote line is plain, enumerable data without hidden keys. */
+function canonicalQuoteLine(input: unknown): input is QuoteLineInput {
+  if (!input || typeof input !== "object" || Array.isArray(input)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(input))) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(input);
+  if (keys.length < 2 || keys.length > 3
+    || !Object.hasOwn(input, "serviceCode") || !Object.hasOwn(input, "units")
+    || keys.some(key => typeof key !== "string"
+      || !["serviceCode", "units", "addonAccepted"].includes(key))) {
+    return false;
+  }
+  return keys.every(key => {
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+  });
+}
+
+/** Reject accessor indices and decorated arrays before iterating any quote lines.
+ * Return detached, whitelisted source data so later arithmetic cannot observe
+ * mutable caller-owned fields or execute custom serializers. */
+export function snapshotQuoteInputs(requested: QuoteLineInput[]): QuoteLineInput[] {
+  if (!Array.isArray(requested) || requested.length < 1 || requested.length > 50
+    || Object.getPrototypeOf(requested) !== Array.prototype
+    || Reflect.ownKeys(requested).length !== requested.length + 1) {
+    throw new TypeError("One to 50 services are required");
+  }
+  const snapshot: QuoteLineInput[] = [];
+  for (let i = 0; i < requested.length; i++) {
+    const element = Object.getOwnPropertyDescriptor(requested, String(i));
+    if (element?.enumerable !== true || !Object.hasOwn(element, "value")
+      || !canonicalQuoteLine(element.value)) {
+      throw new TypeError("Quote line contains unsupported fields");
+    }
+    const row = element.value;
+    snapshot.push({
+      serviceCode: row.serviceCode, units: row.units,
+      ...(Object.hasOwn(row, "addonAccepted")
+        ? { addonAccepted: row.addonAccepted } : {}),
+    });
+  }
+  return snapshot;
+}
+
 /**
  * Evaluates approved *inputs*, without guessing company-specific contracts.
  * Pricing-policy authorization and quote approval happen outside this engine.
@@ -94,6 +152,13 @@ export function quoteFromPolicy(
   policy: CompanyPricePolicy,
   requested: QuoteLineInput[],
 ): QuoteResult {
+  // Canonicalize the entire company-supplied ratecard BEFORE accessing any
+  // field. This shares the versioned policy fingerprint's inert-data rules
+  // and prevents optional rate/discount getters or custom serializers.
+  const safePolicy = JSON.parse(canonicalCompanyPolicyText({
+    revision: 1, pricing: policy, tax: {method:"none",bps:0},
+  })) as {pricing: CompanyPricePolicy};
+  policy = safePolicy.pricing;
   if (policy.currency !== "USD") throw new RangeError("Unsupported currency");
   if (!policy.policyId?.trim()) throw new TypeError("A policy identifier is required");
   if (!["none", "per-line", "quote"].includes(policy.minimum.rule)) {
@@ -106,13 +171,18 @@ export function quoteFromPolicy(
   if (policy.minimum.rule === "none" && floor !== 0) {
     throw new TypeError("A disabled minimum cannot have a charge");
   }
-  if (!Array.isArray(requested) || requested.length === 0) {
-    throw new TypeError("At least one service is required");
-  }
+  const safeRequested = snapshotQuoteInputs(requested);
   const seen = new Set<string>();
   let subtotal = 0;
   let chargeableLines = 0;
-  const lines = requested.map(({ serviceCode, units }) => {
+  const lines = safeRequested.map(input => {
+    // The calculator is also exported independently of the trusted review
+    // workflow. Never silently tolerate caller-provided prices, approval,
+    // recipient or send directives, even if the arithmetic ignores them.
+    if (!canonicalQuoteLine(input)) {
+      throw new TypeError("Quote line contains unsupported fields");
+    }
+    const { serviceCode, units, addonAccepted } = input;
     if (typeof serviceCode !== "string" || !Object.prototype.hasOwnProperty.call(policy.services, serviceCode)
         || seen.has(serviceCode)) {
       throw new TypeError("Unknown or duplicated service code");
@@ -122,6 +192,16 @@ export function quoteFromPolicy(
     const service = policy.services[serviceCode];
     if (!service || !service.label?.trim() || !service.unit?.trim()) {
       throw new TypeError("Service definition is incomplete");
+    }
+    if (service.optionalAddon !== undefined
+      && typeof service.optionalAddon !== "boolean") {
+      throw new TypeError("Invalid optional add-on policy");
+    }
+    if (service.optionalAddon && addonAccepted !== true) {
+      throw new Error("Optional add-on requires explicit human acceptance");
+    }
+    if (!service.optionalAddon && Object.hasOwn(input, "addonAccepted")) {
+      throw new TypeError("Cannot accept a non-optional service as an add-on");
     }
     // Rates must be valid even for included services. Avoid masking corrupt
     // configurations that might later become billable.

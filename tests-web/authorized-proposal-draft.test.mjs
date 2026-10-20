@@ -1,0 +1,401 @@
+import {readAuthorizedProposalDraftPreview} from '../lib/authorized-proposal-draft.ts';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {prepareExtractionReview} from '../lib/intake-review.ts';
+import {submitPolicyDraft,reviewPolicyDraft} from '../lib/company-policy-revisions.ts';
+import {readServiceReviewContext,commitAuthorizedServiceReview} from '../lib/tenant-service-review.ts';
+
+const ORG='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const OTHER='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const SOURCE='11111111-1111-4111-8111-111111111111';
+const AUTHOR='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const REVIEWER='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const ORIGINAL={kind:'typed-note',text:'Clean office, add carpet'};
+const candidates=[
+ {serviceCode:'office',units:1,excerpt:'Clean office',start:0,end:12},
+ {serviceCode:'carpet',units:1,excerpt:'add carpet',start:14,end:24},
+];
+const policy=(revision=1)=>({revision,pricing:{policyId:'clean-'+revision,currency:'USD',
+ minimum:{rule:'quote',cents:12000},calculationOrder:'discount-then-surcharge',
+ services:{office:{label:'Office',unit:'job',rateCents:7000,billing:'charged'},
+ carpet:{label:'Carpet',unit:'job',rateCents:4000,billing:'charged',optionalAddon:true}}},
+ tax:{method:'none',bps:0}});
+function approved(revision=1) {
+ let history=null;
+ for(let n=1;n<=revision;n++){
+  const prior=history?.revisions.at(-1);
+  history=submitPolicyDraft(history,{organizationId:ORG,submittedBy:AUTHOR,policy:policy(n),
+    expectedRevision:n-1,expectedSha256:prior?.policySha256??null});
+  history=reviewPolicyDraft(history,{organizationId:ORG,reviewedBy:REVIEWER,
+    decision:'approve',expectedRevision:n,expectedSha256:history.revisions.at(-1).policySha256});
+ }
+ return history;
+}
+function fixture(){
+ const review=prepareExtractionReview(ORIGINAL,candidates);
+ let current={organizationId:ORG,sourceId:SOURCE,revision:2,original:ORIGINAL,
+   review,extractionAudit:[{sourceRevision:2,actorId:AUTHOR,
+     sourceSha256:review.sourceSha256,candidatesSha256:review.candidatesSha256}],
+   scopeReview:null};
+ let history=approved(), reads=0,mutations=0;
+ const memberships=new Map([['reviewer',{org:ORG,actor:REVIEWER,review:true}],
+  ['viewer',{org:ORG,actor:AUTHOR,review:false}],['foreign',{org:OTHER,actor:REVIEWER,review:true}]]);
+ let beforeMutate=()=>{},afterMutate=()=>{},beforePolicyRead=()=>{};
+ function auth(session,org,write=false){const m=memberships.get(session);
+  if(!m||m.org!==org||(write&&!m.review))throw Error('Unauthorized scope review');return m.actor;}
+ let queue=Promise.resolve();
+ const sourceStore={
+   async readAuthorized({session,organizationId,sourceId}){reads++;auth(session,organizationId);
+     return sourceId===SOURCE?structuredClone(current):null;},
+   mutateAuthorized({session,organizationId,sourceId,permission,transform}){
+     const task=queue.catch(()=>{}).then(()=>{mutations++;beforeMutate();
+      if(permission!=='review-extraction')throw Error('Unauthorized scope permission');
+      const actor=auth(session,organizationId,true);
+      const result=transform(sourceId===SOURCE?structuredClone(current):null,actor);
+      current=structuredClone(result);afterMutate();return structuredClone(result);
+     });queue=task.then(()=>{},()=>{});return task;
+   }
+ };
+ const policyStore={async readAuthorized({session,organizationId}){
+   beforePolicyRead();auth(session,organizationId);return structuredClone(history);}};
+ return {sourceStore,policyStore,memberships,get:()=>structuredClone(current),
+   put:x=>current=structuredClone(x),setHistory:x=>history=structuredClone(x),
+   hooks:(a=()=>{},b=()=>{},c=()=>{})=>{beforeMutate=a;afterMutate=b;beforePolicyRead=c},
+   counts:()=>({reads,mutations})};
+}
+const selector={organizationId:ORG,sourceId:SOURCE};
+async function request(f,extra={}){const ctx=await readServiceReviewContext(f.sourceStore,f.policyStore,'reviewer',selector);
+ return {...selector,expectedRevision:ctx.expectedRevision,expectedSnapshotSha256:ctx.expectedSnapshotSha256,
+ reviewKey:ctx.model.key,selectedIndices:[0],acceptedAddonCodes:[],...extra};}
+
+
+
+async function committed(f, opts={}) {
+ const req=await request(f,opts);
+ await commitAuthorizedServiceReview(f.sourceStore,f.policyStore,'reviewer',req);
+ return req;
+}
+const readDraft=(f,session='reviewer',key=selector)=>readAuthorizedProposalDraftPreview(
+ f.sourceStore,f.policyStore,session,key);
+
+test('committed scope yields a deterministic internal-only pricing draft preview',async()=>{
+ const f=fixture();await committed(f);
+ const result=await readDraft(f);
+ assert.equal(result.state,'preview-only');
+ assert.equal(result.purpose,'internal-proposal-draft');
+ assert.equal(result.sourceRevision,3);
+ assert.equal(result.reviewedBy,REVIEWER);
+ assert.equal(result.preview.state,'preview-only');
+ assert.equal(result.preview.economics.quote.totalCents,12000);
+ assert.deepEqual(result.preview.selectedServices.map(x=>x.serviceCode),['office']);
+ assert.match(result.draftSnapshotSha256,/^[a-f0-9]{64}$/);
+ assert.equal(Object.hasOwn(result,'approved'),false);
+ assert.equal(Object.hasOwn(result,'send'),false);
+ assert.equal(Object.hasOwn(result,'publish'),false);
+ assert.equal(f.counts().mutations,1);
+});
+test('human-accepted add-on alone enters preview, with exact company minimum',async()=>{
+ const f=fixture();await committed(f,{selectedIndices:[0,1],acceptedAddonCodes:['carpet']});
+ const result=await readDraft(f);
+ assert.deepEqual(result.preview.selectedServices.map(x=>x.serviceCode),['office','carpet']);
+ assert.equal(result.preview.selectedServices[1].addonAccepted,true);
+ assert.equal(result.preview.economics.quote.totalCents,12000);
+});
+test('draft preview requires a durably committed review',async()=>{
+ const f=fixture();
+ await assert.rejects(readDraft(f),/No valid committed human service review/);
+});
+test('new approved pricing revision invalidates the earlier reviewed selection',async()=>{
+ const f=fixture();await committed(f);f.setHistory(approved(2));
+ await assert.rejects(readDraft(f),/stale company ratecard/);
+});
+test('mutating reviewed selection, reviewer, policy hashes or adding send fields fails',async()=>{
+ for(const mutate of [
+  x=>{x.scopeReview.reviewedBy='fake'},
+  x=>{x.scopeReview.selectedIndices=[1]},
+  x=>{x.scopeReview.acceptedAddonCodes=['carpet']},
+  x=>{x.scopeReview.reviewedSelectionSha256='0'.repeat(64)},
+  x=>{x.scopeReview.policySha256='0'.repeat(64)},
+  x=>{x.scopeReview.reviewKey='0'.repeat(64)},
+  x=>{x.scopeReview.quoteTotalCents=1},
+  x=>{x.scopeReview.send=true},
+ ]){
+  const f=fixture();await committed(f);
+  const row=f.get();mutate(row);f.put(row);
+  await assert.rejects(readDraft(f));
+ }
+});
+test('forged original, candidate and extraction audit cannot enter internal draft',async()=>{
+ for(const mutate of [
+  x=>{x.original.text+=' changed'},
+  x=>{x.review.candidates[0].units=999},
+  x=>{x.extractionAudit[0].sourceSha256='0'.repeat(64)},
+  x=>{x.extractionAudit[0].sourceRevision=3},
+  x=>{x.revision+=1},
+  x=>{x.extractionAudit[0].actorId='impostor'},
+ ]){
+  const f=fixture();await committed(f);
+  const row=f.get();mutate(row);f.put(row);
+  await assert.rejects(readDraft(f));
+ }
+});
+test('cross-tenant, lost access, or invalid selector never returns customer scope',async()=>{
+ const f=fixture();await committed(f);
+ await assert.rejects(readDraft(f,'foreign'),/Unauthorized/);
+ await assert.rejects(readDraft(f,'none'),/Unauthorized/);
+ for(const key of [
+  {organizationId:'bad',sourceId:SOURCE},
+  {organizationId:ORG,sourceId:'../other'},
+  {...selector,send:true},
+  {...selector,approved:true},
+ ]){
+  await assert.rejects(readDraft(f,'reviewer',key),/Invalid internal proposal draft selector/);
+ }
+});
+test('source altered between first and second authorized reads fails closed',async()=>{
+ const f=fixture();await committed(f);
+ let n=0;
+ const source={async readAuthorized(input){
+  const snapshot=await f.sourceStore.readAuthorized(input);
+  if(++n===1){const r=f.get();r.original.text+=' late edit';f.put(r);}
+  return snapshot;
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(source,f.policyStore,'reviewer',selector),
+  /evidence changed/);
+});
+test('membership revoked between source reads never confirms a preview',async()=>{
+ const f=fixture();await committed(f);
+ let n=0;
+ const source={async readAuthorized(input){
+  const snapshot=await f.sourceStore.readAuthorized(input);
+  if(++n===1)f.memberships.delete('reviewer');
+  return snapshot;
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(source,f.policyStore,'reviewer',selector),
+  /Unauthorized/);
+});
+test('mid-read activation of a new ratecard never returns an old pricing preview',async()=>{
+ const f=fixture();await committed(f);
+ let n=0;
+ const policies={async readAuthorized(input){
+  const snapshot=await f.policyStore.readAuthorized(input);
+  if(++n===1)f.setHistory(approved(2));
+  return snapshot;
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(f.sourceStore,policies,'reviewer',selector),
+  /ratecard changed during draft/);
+});
+test('missing or unapproved company policy cannot produce a pricing draft',async()=>{
+ const f=fixture();await committed(f);
+ await assert.rejects(readAuthorizedProposalDraftPreview(f.sourceStore,
+  {readAuthorized:async()=>null},'reviewer',selector),/policy is unavailable/);
+ await assert.rejects(readAuthorizedProposalDraftPreview(f.sourceStore,
+  {readAuthorized:async()=>({organizationId:ORG,activeRevision:null,revisions:[]})},
+  'reviewer',selector),/Policy history|approved/);
+});
+test('same unchanged evidence and policy produce the same snapshot fingerprint',async()=>{
+ const f=fixture();await committed(f);
+ const first=await readDraft(f),second=await readDraft(f);
+ assert.equal(first.draftSnapshotSha256,second.draftSnapshotSha256);
+ assert.deepEqual(first.preview,second.preview);
+});
+
+test('original draft refuses restored legacy scope when a correction lifecycle exists',async()=>{
+ for(const field of ['pendingCorrection','activatedCorrection','correctedScopeReview']){
+  const f=fixture();await committed(f);
+  const current=f.get();current[field]={state:'forged-current-correction'};f.put(current);
+  await assert.rejects(readDraft(f),/No valid committed human service review/);
+ }
+});
+test('original draft refuses correction state that appears between authorized source reads',async()=>{
+ const f=fixture();await committed(f);
+ let count=0;
+ const source={readAuthorized:async input=>{
+  const before=await f.sourceStore.readAuthorized(input);
+  if(++count===1){
+   const current=f.get();current.activatedCorrection={state:'awaiting-renewed-human-scope-review'};
+   f.put(current);
+  }
+  return before;
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(
+  source,f.policyStore,'reviewer',selector),/No valid committed human service review/);
+});
+test('original draft permits explicitly null lifecycle columns on uncorrected rows',async()=>{
+ const f=fixture();await committed(f);
+ const current=f.get();
+ current.pendingCorrection=null;current.activatedCorrection=null;
+ current.correctedScopeReview=null;
+ f.put(current);
+ const result=await readDraft(f);
+ assert.equal(result.state,'preview-only');
+ assert.equal(result.preview.selectedServices[0].serviceCode,'office');
+});
+
+
+test('internal draft selector rejects hidden, symbol, inherited and accessor authority fields',async()=>{
+ const f=fixture();await committed(f);
+ const before=f.counts().reads;
+ let getterCalls=0;
+ const hidden={...selector};
+ Object.defineProperty(hidden,'send',{value:true});
+ const symbolic={...selector};
+ symbolic[Symbol('approved')]=true;
+ const inherited=Object.assign(Object.create({approved:true}),selector);
+ const getter={...selector};
+ Object.defineProperty(getter,'organizationId',{enumerable:true,
+  get(){getterCalls++;throw Error('untrusted selector getter executed');}});
+ for(const wrong of [hidden,symbolic,inherited,getter]){
+  await assert.rejects(readDraft(f,'reviewer',wrong),
+   /Invalid internal proposal draft selector/);
+ }
+ assert.equal(getterCalls,0);
+ assert.equal(f.counts().reads,before);
+});
+
+test('internal draft preview retains original tenant and source across authorization awaits',async()=>{
+ const f=fixture();await committed(f);
+ const before=await readDraft(f);
+ const mutable={...selector};
+ let reads=0;
+ const sourceStore={async readAuthorized(input){
+  const row=await f.sourceStore.readAuthorized(input);
+  if(++reads===1){
+   mutable.organizationId=OTHER;
+   mutable.sourceId='22222222-2222-4222-8222-222222222222';
+  }
+  return row;
+ }};
+ const confirmed=await readAuthorizedProposalDraftPreview(
+  sourceStore,f.policyStore,'reviewer',mutable);
+ assert.equal(reads,2);
+ assert.equal(confirmed.organizationId,ORG);
+ assert.equal(confirmed.sourceId,SOURCE);
+ assert.equal(confirmed.draftSnapshotSha256,before.draftSnapshotSha256);
+ assert.deepEqual(confirmed.preview,before.preview);
+ const canonical=Object.assign(Object.create(null),selector);
+ assert.equal((await readDraft(f,'reviewer',canonical)).sourceId,SOURCE);
+});
+
+
+test("original proposal read-back cannot execute malicious stored getters or serializers",async()=>{
+ const f=fixture();await committed(f);
+ const baseline=f.get();
+ let getters=0,sourceReads=0,policyReads=0;
+ const policies={readAuthorized:async()=>{policyReads++;
+  throw Error("Unexpected approved policy lookup");}};
+ const changes=[
+  row=>Object.defineProperty(row,"organizationId",{enumerable:true,
+   get(){getters++;throw Error("Unsafe tenant getter");}}),
+  row=>Object.defineProperty(row.original,"text",{enumerable:true,
+   get(){getters++;throw Error("Unsafe original text getter");}}),
+  row=>Object.defineProperty(row.review.candidates,"0",{enumerable:true,
+   get(){getters++;throw Error("Unsafe candidate index getter");}}),
+  row=>Object.defineProperty(row.review.candidates[0],"units",{enumerable:true,
+   get(){getters++;throw Error("Unsafe quantity getter");}}),
+  row=>{delete row.review.candidates[0];},
+  row=>{row.review.candidates[Symbol("send")]=true;},
+  row=>Object.defineProperty(row.extractionAudit[0],"actorId",{enumerable:true,
+   get(){getters++;throw Error("Unsafe extraction actor getter");}}),
+  row=>Object.defineProperty(row.extractionAudit[0],"toJSON",{
+   enumerable:true,value(){getters++;throw Error("Unsafe audit serializer");}}),
+  row=>Object.defineProperty(row.scopeReview,"reviewedBy",{enumerable:true,
+   get(){getters++;throw Error("Unsafe scope reviewer getter");}}),
+  row=>Object.defineProperty(row.scopeReview.selectedIndices,"0",{enumerable:true,
+   get(){getters++;throw Error("Unsafe selected index getter");}}),
+  row=>{row.scopeReview.selectedIndices[Symbol("approved")]=true;},
+  row=>Object.defineProperty(row.scopeReview,"hiddenApproved",{value:true}),
+  row=>Object.setPrototypeOf(row.scopeReview,{approved:true}),
+  row=>{row.scopeReview.self=row.scopeReview;},
+  row=>{row.scopeReview.policyRevision=Number.NaN;},
+ ];
+ for(const change of changes){
+  const stored=structuredClone(baseline);change(stored);
+  const source={readAuthorized:async()=>{sourceReads++;return stored;}};
+  await assert.rejects(readAuthorizedProposalDraftPreview(
+   source,policies,"reviewer",selector),/Unsafe original proposal evidence/);
+ }
+ assert.equal(sourceReads,changes.length);
+ assert.equal(policyReads,0);
+ assert.equal(getters,0);
+});
+
+test("malicious evidence on second original proposal read never confirms a draft",async()=>{
+ const f=fixture();await committed(f);
+ let reads=0,policies=0,getters=0;
+ const source={readAuthorized:async input=>{
+  const row=await f.sourceStore.readAuthorized(input);
+  if(++reads===2){
+   Object.defineProperty(row.scopeReview,"toJSON",{
+    enumerable:true,value(){getters++;throw Error("Unsafe late serializer");}});
+  }
+  return row;
+ }};
+ const policyStore={readAuthorized:async input=>{
+  policies++;return f.policyStore.readAuthorized(input);
+ }};
+ await assert.rejects(readAuthorizedProposalDraftPreview(
+  source,policyStore,"reviewer",selector),/Unsafe original proposal evidence/);
+ assert.equal(reads,2);
+ assert.equal(policies,1);
+ assert.equal(getters,0);
+});
+
+test("original draft snapshots each source read before its asynchronous policy lookup",async()=>{
+ for(const phase of [1,2]) {
+  const f=fixture();await committed(f);
+  let reads=0,policyReads=0,getters=0,mutable;
+  const source={readAuthorized:async input=>{
+   const current=await f.sourceStore.readAuthorized(input);
+   if(++reads===phase)mutable=current;
+   return current;
+  }};
+  const policies={readAuthorized:async input=>{
+   if(++policyReads===phase){
+    if(phase===1){
+     Object.defineProperty(mutable.scopeReview,"reviewedBy",{
+      enumerable:true,get(){getters++;throw Error("async mutation getter");}
+     });
+    }else{
+     Object.defineProperty(mutable.original,"text",{
+      enumerable:true,get(){getters++;throw Error("late source getter");}
+     });
+    }
+   }
+   return f.policyStore.readAuthorized(input);
+  }};
+  const result=await readAuthorizedProposalDraftPreview(source,policies,'reviewer',selector);
+  assert.equal(result.purpose,"internal-proposal-draft");
+  assert.equal(reads,2);
+  assert.equal(policyReads,2);
+  assert.equal(getters,0);
+ }
+});
+
+test("original proposal draft rejects unsafe company history on either authorized read",async()=>{
+ const tamper=[
+  (history,hit)=>Object.defineProperty(history,"activeRevision",{
+   enumerable:true,get(){hit();throw Error("Executed company history getter");}}),
+  (history,hit)=>Object.defineProperty(
+   history.revisions[0].policy.pricing.services.office,"rateCents",{
+   enumerable:true,get(){hit();throw Error("Executed company rate getter");}}),
+  (history,hit)=>Object.defineProperty(history.revisions[0].policy,"toJSON",{
+   enumerable:true,value(){hit();throw Error("Executed company serializer");}}),
+  history=>{history.revisions[Symbol("release")]=true;},
+  history=>{Object.defineProperty(history.revisions[0],"hiddenApproval",{value:true});},
+ ];
+ for(const phase of [1,2]){
+  for(const mutate of tamper){
+   const f=fixture();await committed(f);
+   let reads=0,executions=0;
+   const policies={readAuthorized:async input=>{
+    const record=await f.policyStore.readAuthorized(input);
+    if(++reads===phase)mutate(record,()=>{executions++;});
+    return record;
+   }};
+   await assert.rejects(readAuthorizedProposalDraftPreview(f.sourceStore,policies,'reviewer',selector),/Unsafe company policy history/);
+   assert.equal(reads,phase);
+   assert.equal(executions,0);
+  }
+ }
+});

@@ -114,3 +114,216 @@ jobs:
         run: python3 -m playwright install --with-deps chromium
       - name: Chromium mobile, keyboard and disabled-intake E2E
         run: python3 ci/browser_qa.py
+
+  intake-db:
+    name: intake-db
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: isolated-intake-db-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-intake-db-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Provision isolated minimum tenant and auth roles
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_stub.sql
+      - name: Install staged locked-down intake tables and ledger
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql
+      - name: Test tenant membership, duplicates, payload conflicts, RLS and FK
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
+      - name: Install tenant-authorized read-only request ledger lookup
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_lookup.sql
+      - name: Prove authorized recovery, actor isolation and revocation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_lookup_test.sql
+      - name: Install private canonical candidate digest
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_candidates_digest.sql
+      - name: Install staged creator-locked extraction CAS
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_commit.sql
+      - name: Prove cross-language candidate SHA-256 and digest tamper denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_digest_test.sql
+      - name: Test extraction transitions, forged evidence and revocation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_test.sql
+      - name: Prove independent UTF-16 excerpts including emoji and wrong offsets
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_utf16_provenance_test.sql
+      - name: Install private creator-scoped extraction source read
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_extraction_read.sql
+      - name: Prove original projection and revoked creator isolation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_extraction_read_test.sql
+      - name: Prove correction preflight against real source, Auth, membership and write denial
+        run: node --test ci/intake_correction_preflight_bridge.test.mjs
+      - name: Prove real JS extraction bridge against disposable PostgreSQL
+        run: node --test ci/intake_extraction_bridge.test.mjs
+      - name: Prove concurrent private extraction CAS and singular durable audit
+        run: node --test ci/intake_extraction_concurrency.test.mjs
+      - name: Install staged two-actor approved company policy heads
+        run: psql -X -v ON_ERROR_STOP=1 -f db/staged_policy_activation.sql
+      - name: Install staged durable two-actor policy draft and review ledger
+        run: psql -X -v ON_ERROR_STOP=1 -f db/staged_policy_review_history.sql
+      - name: Install isolated synthetic two-actor policy approval fixture
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_policy_approved_fixture.sql
+      - name: Deny all unreviewed initial and adjacent policy activations and direct head forgery
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_policy_activation_requires_review_test.sql
+      - name: Install private review selection fingerprint validators
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_review_fingerprint.sql
+      - name: Install narrow private human scope-draft CAS
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_scope_review_commit.sql
+      - name: Verify human draft CAS, denied tenants, tampering and replay
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_scope_review_test.sql
+      - name: Verify active two-actor company ratecard and stale-policy denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_active_policy_test.sql
+      - name: Prove immutable policy review decisions and concurrent durable CAS
+        run: node --test ci/intake_policy_durable_history.test.mjs
+      - name: Prove trusted policy store and real PostgreSQL approval activation bridge
+        run: node --test ci/intake_policy_store_bridge.test.mjs
+      - name: Verify commercial policy economics fail closed in PostgreSQL
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_policy_economics_test.sql
+      - name: Prove durable reviewed-policy activation adapter against real PostgreSQL
+        run: node --test ci/intake_policy_activation_bridge.test.mjs
+      - name: Install creator-owned read-only reviewed scope reconciliation
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_scope_inspect.sql
+      - name: Prove actual TypeScript policy fingerprints agree with PostgreSQL CAS
+        run: node --test ci/intake_policy_fingerprint_bridge.test.mjs
+      - name: Prove authenticated TypeScript human scope commit against PostgreSQL
+        run: node --test ci/intake_scope_commit_bridge.test.mjs
+      - name: Prove concurrent review CAS and approved-policy activation lock order
+        run: node --test ci/intake_scope_concurrency.test.mjs
+      - name: Install staged correction quarantine and immutable ledger
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_quarantine.sql
+      - name: Prove correction quarantine CAS, foreign-actor denial and legacy scope invalidation
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_quarantine_test.sql
+      - name: Install private append-only correction candidate draft
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_draft.sql
+      - name: Prove source-bound corrected candidates and denial of quote/replay
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_draft_test.sql
+      - name: Install independent private correction evidence review receipt
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_evidence_review.sql
+      - name: Verify two-actor correction evidence and prevent approval or scope bypass
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_evidence_review_test.sql
+      - name: Install review-bound correction activation into nonquotable revision 5
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_correction_activation.sql
+      - name: Prove revision 5 CAS, accepted evidence and denial of quote or replay
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_correction_activation_test.sql
+      - name: Install private pending corrected-scope review against active tenant policy
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_scope_review.sql
+      - name: Verify renewed human policy selection and continued quotation denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_scope_review_test.sql
+      - name: Install private third-party commercial decision receipt for corrected scope
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_commercial_decision.sql
+      - name: Prove commercial three-person review, stale policy and nonquotable state
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_commercial_decision_test.sql
+      - name: Install private read-only corrected internal pricing inputs
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_corrected_internal_preview.sql
+      - name: Prove approved internal preview is tenant-private and never a quote
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_corrected_internal_preview_test.sql
+      - name: Prove Auth-bound corrected economics adapter against real PostgreSQL
+        run: node --test ci/intake_corrected_preview_bridge.test.mjs
+      - name: Prove fresh Supabase Auth verification and revocation denial
+        run: node --test tests-web/supabase-active-session-verifier.test.mjs
+      - name: Prove current Supabase session row isolation and revoked-signout denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_auth_session_revocation_test.sql
+      - name: Prove verified JWT session binding before private pricing
+        run: node --test tests-web/supabase-session-bound-verifier.test.mjs
+      - name: Install session-locked internal corrected preview projection
+        run: psql -X -v ON_ERROR_STOP=1 -f db/staged_corrected_preview_session_lock.sql
+      - name: Prove session-scoped private preview and post-signout denial
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_corrected_preview_session_lock_test.sql
+      - name: Prove trusted session-locked corrected pricing against real PostgreSQL
+        run: node --test ci/intake_corrected_session_lock_bridge.test.mjs
+      - name: Revoke service-role access to unsafe legacy internal pricing reader
+        run: psql -X -v ON_ERROR_STOP=1 -f db/staged_seal_legacy_corrected_preview.sql
+      - name: Prove direct legacy SQL execution denied but locked pricing still works
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_sealed_legacy_corrected_preview_test.sql
+      - name: Prove concurrent signout cannot delete a locked pricing session
+        env:
+          BIDMASON_CI_DISPOSABLE_POSTGRES: "1"
+        run: node --test ci/intake_session_lock_concurrency.test.mjs
+      - name: Prove deployment schema preflight is complete and service-private in CI
+        run: node --test ci/corrected_pricing_schema_preflight.test.mjs
+
+
+  item3-intake-compat:
+    name: item3-intake-compat
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: isolated-item3-item4-compat-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: isolated-item3-item4-compat-only
+    steps:
+      - name: Checkout Item 4 current PR branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout existing Item 3 dependency without executing its workflows
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mlookhere/Bidmason
+          ref: work/4-tenant-rls
+          path: item3-dependency
+          persist-credentials: false
+      - name: Reject silent Item 3 dependency drift
+        run: |
+          test "$(git -C item3-dependency rev-parse HEAD)" = "d17844b6387ffe9b5970dda1350a871276b38f7a"
+      - name: Pin Node runtime for migration parity regression tests
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Detect cross-PR SQL migration manifest drift before database mutations
+        run: node --test ci/item3_item4_migration_parity.test.mjs
+      - name: Install isolated PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install real Item 3 Auth roles and tenant schema
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f item3-dependency/ci/db_auth_stub.sql
+          psql -X -v ON_ERROR_STOP=1 -f item3-dependency/db/schema.sql
+      - name: Install Item 4 private typed-note foundation onto real Item 3 schema
+        run: psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql
+      - name: Prove Item 3 membership policies and Item 4 private grants coexist
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_real_tenant_compat_test.sql
+      - name: Prove original Item 3 RLS and independent human approvals with Item 4 schema installed
+        run: psql -X -v ON_ERROR_STOP=1 -f item3-dependency/ci/db_rls_test.sql
+      - name: Run Item 4 two-tenant CAS and immutability tests against real Item 3
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_intake_test.sql
+      - name: Prove post-intake tenant isolation with overlapping legitimate memberships
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_post_intake_rls_audit.sql
+      - name: Install complete staged Item 4 schema on real Item 3 tenant RLS
+        env:
+          BIDMASON_CI_DISPOSABLE_POSTGRES: "1"
+        run: bash ci/install_item4_on_item3_disposable.sh
+      - name: Prove all 24 private-schema and Auth-session grants on combined Item 3 and 4
+        run: node --test ci/corrected_pricing_schema_preflight.test.mjs
+      - name: Reprove Item 3 tenant read isolation after complete Item 4 schema
+        run: psql -X -v ON_ERROR_STOP=1 -f ci/db_item3_post_intake_rls_audit.sql
