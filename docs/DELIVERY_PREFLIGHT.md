@@ -242,3 +242,25 @@ no mutation requests, browser errors or overflow. Noindex is NOT access
 control: never feed real data into this page. A true operator dashboard
 and buyer portal remain blocked on live tenant authentication, consent,
 provider evidence, security review and H01-H13 acceptance.
+
+
+## Publication drift protection for the public synthetic lab
+
+The mandatory fast/PR/security publication guard now validates the openly
+reachable /delivery-lab and its single fixture module. It requires the
+allowlisted local imports, exactly four fictional company labels, reserved
+test/example email domains, its own noindex and preview warnings, and no
+other subroute or asset. It blocks added API/POST routes, live data sources,
+environment/secret access, dynamic imports, remote resources, form/input/send
+controls or browser storage. Regression tests in tests/test_publish_guard.py
+inject these regressions deliberately and require rejection; existing CI
+gates remain enabled and unchanged.
+
+This source-level guard is deliberately conservative defense in depth.
+It is not a JavaScript parser, a complete information-flow proof, RLS,
+authentication, or a release approval. The page remains publicly
+accessible and must contain only invented records. Any real customer
+portal or operator dashboard requires a separately reviewed authenticated
+route, source-authorized records, consent/legal/security review, and
+resolution of H01-H13. Do not bypass this tripwire for a dynamic feature
+without implementing those requirements.
