@@ -1,0 +1,104 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {deliveryIdempotencyKey} from "../lib/outbound-preflight.ts";
+import {summarizeSyntheticDeliveryReview} from "../lib/delivery-review-summary.ts";
+
+const org="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const proposalIds=[
+  "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  "ffffffff-ffff-4fff-8fff-ffffffffffff",
+  "11111111-1111-4111-8111-111111111111",
+];
+const now="2026-10-22T10:00:00.000Z";
+const policy={consent:"confirmed",version:1,minimumDelayHours:24,maximumAttempts:2};
+const make=(index,kinds=["reserved","provider_accepted","provider_delivered"],consent="confirmed",organizationId=org)=>{
+  const identity={organizationId,proposalId:proposalIds[index],revision:1,
+    sourceSha256:"a".repeat(64),policySha256:"b".repeat(64),
+    contentSha256:"c".repeat(64),qaSha256:"d".repeat(64),
+    recipient:"buyer@fictional.example"};
+  const intent={...identity,idempotencyKey:deliveryIdempotencyKey(identity)};
+  const events=kinds.map((kind,j)=>({eventId:String(j+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    organizationId,recipient:intent.recipient,idempotencyKey:intent.idempotencyKey,
+    kind,observedAt:"2026-10-20T08:"+String(j).padStart(2,"0")+":00.000Z"}));
+  return {intent,events,policy:{...policy,consent},previousAttempts:[]};
+};
+const summary=(records,time=now)=>summarizeSyntheticDeliveryReview(org,records,time);
+const count=(s,kind)=>s.categories.find(x=>x.category===kind).count;
+
+test("multiple fictional deliveries aggregate non-authoritative priorities without identifiers",()=>{
+  const data=[make(0),make(1,["reserved","provider_accepted","provider_bounced"]),
+    make(2,["reserved","provider_accepted","provider_delivered","recipient_replied"]),
+    make(3,["reserved","provider_accepted","provider_delivered"],"unknown")];
+  const result=summary(data);
+  assert.equal(result.state,"review-simulation-only");
+  assert.equal(result.reviewedCases,4);
+  assert.deepEqual(result.attention,{stopContact:1,operatorReview:3,deferred:0});
+  assert.equal(count(result,"contact-suppressed"),1);
+  assert.equal(count(result,"reply-needs-review"),1);
+  assert.equal(count(result,"consent-needs-verification"),1);
+  assert.equal(count(result,"external-authorization-required"),1);
+  assert.equal(result.categories.reduce((n,c)=>n+c.count,0),4);
+  const json=JSON.stringify(result);
+  for(const forbidden of ["fictional.example","dryrun_","organizationId","recipient","proposalId","approved","sendAllowed"])
+    assert.equal(json.includes(forbidden),false,forbidden);
+});
+test("category order and totals are stable under permutations",()=>{
+  const cases=[make(0),make(1,["reserved","provider_accepted","provider_bounced"]),
+    make(2,["reserved","provider_accepted","provider_delivered","recipient_replied"])];
+  const a=summary(cases);
+  const b=summary([...cases].reverse());
+  assert.deepEqual(a,b);
+  assert.deepEqual(a.categories.map(c=>c.category),[
+    "contact-suppressed","reply-needs-review","consent-needs-verification",
+    "delivery-needs-verification","waiting-for-cooldown",
+    "external-authorization-required"]);
+});
+test("cross-tenant cases fail even when internally consistent",()=>{
+  const external=make(0,["reserved"],"confirmed",
+    "99999999-9999-4999-8999-999999999999");
+  assert.throws(()=>summary([external]),/Cross-tenant/);
+  assert.throws(()=>summarizeSyntheticDeliveryReview("invalid",[make(0)],now),/Invalid simulated review batch/);
+});
+test("duplicate delivery identity rejects both identical and conflicting entries",()=>{
+  const valid=make(0);
+  assert.throws(()=>summary([valid,{...valid}]),/Duplicate simulated review identity/);
+  assert.throws(()=>summary([valid,{...valid,policy:{...valid.policy,consent:"revoked"}}]),
+    /Duplicate simulated review identity/);
+});
+test("empty, oversized, sparse and decorated collections are rejected",()=>{
+  for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
+    assert.throws(()=>summary(entries),/Invalid simulated review batch/);
+  }
+  const marked=[make(0)];
+  marked[Symbol("hidden")]="approve";
+  assert.throws(()=>summary(marked),/Invalid simulated review batch/);
+});
+test("hidden entry flags, unusual prototypes and accessors fail before reading getters",()=>{
+  const extra={...make(0),send:true};
+  assert.throws(()=>summary([extra]),/Invalid simulated review entry/);
+  assert.throws(()=>summary([Object.assign(Object.create(null),make(0))]),/Invalid simulated review entry/);
+  let called=0;const accessor={...make(0)};
+  Object.defineProperty(accessor,"intent",{enumerable:true,get(){called++;throw Error("getter");}});
+  assert.throws(()=>summary([accessor]),/Invalid simulated review entry/);
+  assert.equal(called,0);
+});
+test("invalid timeline, consent, history, and timestamp cannot become counts",()=>{
+  assert.throws(()=>summary([make(0,["provider_delivered"])]),/Unexpected provider delivery/);
+  const bad=make(0);
+  assert.throws(()=>summary([{...bad,policy:{...policy,maximumAttempts:7}}]),
+    /Invalid simulated follow-up inputs/);
+  assert.throws(()=>summary([bad],"2026-10-22"),/Invalid simulated follow-up inputs/);
+  assert.throws(()=>summary([{...bad,events:[{...bad.events[0],
+    organizationId:"99999999-9999-4999-8999-999999999999"}]}]),/cross-tenant/);
+});
+test("cooldown and incomplete fictional delivery are counted but never marked actionable",()=>{
+  const result=summary([make(0),make(1,["reserved"]),make(2)],"2026-10-20T09:00:00.000Z");
+  assert.equal(count(result,"waiting-for-cooldown"),2);
+  assert.equal(count(result,"delivery-needs-verification"),1);
+  assert.deepEqual(result.attention,{stopContact:0,operatorReview:1,deferred:2});
+  assert.ok(!Object.hasOwn(result,"send"));
+  assert.ok(!Object.hasOwn(result,"queue"));
+});
