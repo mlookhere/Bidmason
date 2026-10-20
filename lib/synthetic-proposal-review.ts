@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import type {SyntheticPdfManifest} from "./proposal-revision-qa.ts";
 
-type Line = {label:string;unit:string;units:number;unitPriceCents:number;lineTotalCents:number};
+type Line = {serviceCode:string;label:string;unit:string;units:number;unitPriceCents:number;lineTotalCents:number};
 type Scope = {area:string;work:string;completion:string};
 export type SyntheticReviewSnapshot = {
   kind:"synthetic-branded-proposal-preview";
@@ -64,6 +64,56 @@ function verified(snapshot:SyntheticReviewSnapshot, manifest:SyntheticPdfManifes
     throw new TypeError("Invalid synthetic review data");
 }
 
+
+export type SyntheticReviewArtifact = {
+  snapshot:SyntheticReviewSnapshot;
+  manifest:SyntheticPdfManifest;
+  pdfBytes:Uint8Array;
+};
+
+/** A revision is always a new unapproved review, even if content stays unchanged. */
+export function compareSyntheticProposalRevisions(
+  previous:SyntheticReviewArtifact, current:SyntheticReviewArtifact,
+):{from:number;to:number;changes:{field:string;before:string;after:string}[]} {
+  verified(previous.snapshot,previous.manifest,previous.pdfBytes);
+  verified(current.snapshot,current.manifest,current.pdfBytes);
+  if(previous.snapshot.brand.businessName!==current.snapshot.brand.businessName
+    ||previous.manifest.reference!==current.manifest.reference
+    ||current.manifest.revision!==previous.manifest.revision+1)
+    throw new TypeError("Nonconsecutive or unrelated synthetic proposal revisions");
+
+  const old=previous.snapshot.proposal, next=current.snapshot.proposal;
+  const changes:{field:string;before:string;after:string}[]=[];
+  const change=(field:string,before:string,after:string):void=>{
+    if(before!==after) changes.push({field,before,after});
+  };
+  change("Total",money(old.totalCents),money(next.totalCents));
+  change("Subtotal",money(old.subtotalCents),money(next.subtotalCents));
+  change("Tax",money(old.taxCents),money(next.taxCents));
+  for(const field of ["recipient","title","overview","timeline"] as const)
+    change(field,old[field],next[field]);
+  for(const field of ["assumptions","exclusions"] as const)
+    change(field,old[field].join(" | "),next[field].join(" | "));
+  for(let i=0;i<Math.max(old.scope.length,next.scope.length);i++){
+    const describe=(item:Scope|undefined):string=>
+      item?item.area+": "+item.work+" / "+item.completion:"(not included)";
+    change("Scope "+(i+1),describe(old.scope[i]),describe(next.scope[i]));
+  }
+  const oldLines=new Map(old.lines.map(x=>[x.serviceCode,x]));
+  const nextLines=new Map(next.lines.map(x=>[x.serviceCode,x]));
+  if(oldLines.size!==old.lines.length||nextLines.size!==next.lines.length)
+    throw new TypeError("Duplicate synthetic service code");
+  for(const code of new Set([...oldLines.keys(),...nextLines.keys()])){
+    const describe=(item:Line|undefined):string=>
+      item?item.label+": "+item.units+" "+item.unit+" x "+money(item.unitPriceCents)
+        +" = "+money(item.lineTotalCents):"(not included)";
+    change("Service "+code,describe(oldLines.get(code)),describe(nextLines.get(code)));
+  }
+  change("Brand palette",previous.snapshot.brand.primaryHex+"/"+previous.snapshot.brand.accentHex,
+    current.snapshot.brand.primaryHex+"/"+current.snapshot.brand.accentHex);
+  return {from:previous.manifest.revision,to:current.manifest.revision,changes};
+}
+
 const css=[
   ":root{font-family:system-ui,Arial,sans-serif;color:#1b3045}",
   "*{box-sizing:border-box}body{margin:0;background:#f1f4f6}",
@@ -88,8 +138,19 @@ const list=(items:string[]):string =>
 /** Offline synthetic report. The only "passed" observation is PDF fingerprint
  * consistency; commercial approval and delivery remain blocked unconditionally. */
 export function renderSyntheticProposalReview(snapshot:SyntheticReviewSnapshot,
-  manifest:SyntheticPdfManifest,pdfBytes:Uint8Array):string {
+  manifest:SyntheticPdfManifest,pdfBytes:Uint8Array,
+  previous?:SyntheticReviewArtifact):string {
   verified(snapshot,manifest,pdfBytes);
+  const revision=previous?compareSyntheticProposalRevisions(previous,
+    {snapshot,manifest,pdfBytes}):null;
+  const changeSection=revision?
+    "<article><h2>Changes since revision "+escape(revision.from)+"</h2>"+
+    "<p>Prior revision receipts and QA evidence are stale. Independent reviews must be repeated.</p>"+
+    (revision.changes.length
+      ? table(["Field","Previous","Current"],revision.changes.map(x=>[x.field,x.before,x.after]))
+      : "<p>No content differences. The new revision still invalidates prior signoff.</p>")+
+    "</article>":"";
+
   const p=snapshot.proposal;
   const checks=[
     ["Pricing policy","NOT RUN","No authorized company ratecard or tax decision"],
@@ -109,7 +170,7 @@ export function renderSyntheticProposalReview(snapshot:SyntheticReviewSnapshot,
     "<article><h2>Proposal</h2><p><strong>"+escape(p.title)+"</strong></p><p>Recipient: "+
     escape(p.recipient)+"</p><p>"+escape(p.overview)+"</p><p>Timeline: "+
     escape(p.timeline)+"</p></article>"+
-    "<article><h2>Required QA</h2>"+table(["Check","State","Explanation"],checks)+
+    changeSection+"<article><h2>Required QA</h2>"+table(["Check","State","Explanation"],checks)+
     "<p>No authenticated operator or contractor approval exists. This report has no signing, publishing or sending controls.</p></article>"+
     "<article><h2>Scope</h2>"+table(["Area","Work","Completion"],p.scope.map(x=>
       [x.area,x.work,x.completion]))+"</article>"+
