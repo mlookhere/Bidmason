@@ -59,7 +59,7 @@ function exact(value: unknown, keys: readonly string[]): value is Record<string,
   });
 }
 
-function validRevision(value: unknown, additional: readonly string[]): value is DeliveryRevision {
+function validRevision(value: unknown, additional: readonly string[]): value is DeliveryRevision & Record<string, unknown> {
   if (!exact(value, [...REVISION_KEYS, ...additional])) return false;
   const record = value as unknown as Record<string, unknown>;
   return typeof record.organizationId === "string" && UUID.test(record.organizationId)
@@ -117,7 +117,7 @@ export function evaluateDeliveryDryRun(
     || ![0, 1].every(i => Object.hasOwn(
       Object.getOwnPropertyDescriptor(receipts, String(i)) ?? {}, "value"))
     || !receipts.every(item => validRevision(item, ["role", "actorId"])
-      && ["operator", "contractor"].includes(item.role)
+      && typeof item.role === "string" && ["operator", "contractor"].includes(item.role)
       && typeof item.actorId === "string" && UUID.test(item.actorId))
     || !exact(suppression, ["organizationId", "recipient", "state", "version"])
     || !exact(dispatch, ["idempotencyKey", "state"])
