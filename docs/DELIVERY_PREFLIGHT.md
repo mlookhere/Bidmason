@@ -137,3 +137,35 @@ sanitized server-side persistence with text escaping on all views;
 appropriate retention, audit logging and commercial/legal review. All
 these are deferred rather than assumed passed. Eight positive/adversarial
 Node test groups run under the existing required web/Windows gates.
+
+## Synthetic webhook integrity and replay contract (provider NOT selected)
+
+The dedicated **required** `synthetic-webhook-qa` GitHub job tests
+`lib/synthetic-webhook-verification.ts` on Node 24. The same tests are
+also included in the existing Linux/Windows `test:web` glob, so the new
+job does **not** replace, relax or omit any prior gate. Eight positive
+and adversarial test groups operate on fictional JSON and disposable
+in-memory signing secrets; no externally provided key is used.
+
+The pure verifier accepts exact raw UTF-8 JSON bytes and an HMAC-SHA256
+fixture signature of those bytes and a timestamp with an explicit
+`bidmason:synthetic-webhook:v1` domain separator. It enforces 5-minute
+signed timestamp tolerance, canonical JSON without duplicate keys,
+a 4 KiB input bound, one exact organization/recipient/revision-scoped
+idempotency key, allowed fictional provider event kinds, and an event
+timestamp consistent with the signed time. It rejects wrong keys,
+modified bodies, malformed signatures, unsupported events, conflicting
+event IDs and malformed or cross-tenant replay evidence. Exact event
+ID/body-hash replays yield `fixture-duplicate-only`, not an accepted
+second event; first-pass signatures yield `fixture-verified-only`.
+Neither result is proof of provider origin or permission to execute an
+event.
+
+**Never reuse this fixture signature format for real email providers.**
+The actual email provider and domain still require a user-authorized
+choice; its documented raw-body verification scheme, timestamp policy,
+key rotation, source-to-tenant mapping, durable uniqueness, signed event
+subscription, out-of-order recovery and suppression updates must be
+implemented and tested separately. This code does not expose an HTTP
+handler, persist any receipt, send email, authenticate a user, authorize a
+buyer, prove delivery, or replace the H01–H13 release holds.
