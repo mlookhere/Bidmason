@@ -43,3 +43,23 @@ five-page worst-schema-size document (20 scope rows, 30 prices, 12 assumptions,
 headers, and every expected item. The original small-fixture 4-page bound and
 all 28 rejection tests remain unchanged. A separate real-customer accessible
 PDF review is still deferred under H11.
+
+## Synthetic artifact integrity (no approval authority)
+
+`scripts/proposal_artifact_integrity.py` calculates a deterministic SHA-256 of
+validated canonical synthetic snapshot JSON and a separate SHA-256 of the exact
+rendered PDF bytes, together with the reference, explicit revision, byte count,
+and page count. Verification re-opens the PDF, checks visible reference, company,
+recipient, grand total and every-page synthetic warning, then checks all manifest
+fields. A stale revision, substituted company, altered input/price, modified PDF,
+or extra approval flag fails closed. The required `proposal-pdf-qa` executes
+positive and adversarial tests for this manifest on both fictional companies.
+
+**Security boundary:** SHA-256 hashes detect mismatches only when their expected
+manifest is already trusted. They are **not signatures**, independently verified
+source/provenance, authorization, or proof that pricing was owner approved. An
+attacker able to replace the snapshot, PDF and manifest together can forge a
+consistent set. No live tenant records, customer routes, signoff, or outbound
+permission are introduced. Future real approval must bind authenticated actors
+and an immutable server-owned artifact revision via the Item 3/4 authority
+model and real-environment H01-H13 evidence.

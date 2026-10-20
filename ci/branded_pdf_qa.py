@@ -144,6 +144,65 @@ def check_long_pdf(snapshot, directory):
     return pages
 
 
+
+def check_integrity_manifest(directory):
+    from scripts.proposal_artifact_integrity import (
+        build_integrity_manifest, verify_integrity_manifest,
+    )
+
+    snapshots = [
+        json.loads((ROOT / "fixtures" / f"synthetic_{company}_proposal.json").read_text())
+        for company in ("painting", "cleaning")
+    ]
+    pdfs = []
+    manifests = []
+    for index, snapshot in enumerate(snapshots):
+        path = directory / f"manifest-fixture-{index}.pdf"
+        render(snapshot, path)
+        pdf = path.read_bytes()
+        manifest = build_integrity_manifest(snapshot, pdf, revision=3)
+        if not verify_integrity_manifest(snapshot, pdf, manifest, revision=3):
+            raise AssertionError("Untampered manifest did not verify")
+        pdfs.append(pdf)
+        manifests.append(manifest)
+
+    denied = [
+        (snapshots[0], pdfs[1], manifests[0], 3),  # Foreign company PDF
+        (snapshots[1], pdfs[0], manifests[0], 3),  # Foreign company input
+        (snapshots[0], pdfs[0] + b"tail", manifests[0], 3),
+        (snapshots[0], pdfs[0][:-1], manifests[0], 3),
+        (snapshots[0], pdfs[0], manifests[0], 4),  # Stale exact revision
+        (snapshots[0], pdfs[0], {**manifests[0], "approved": True}, 3),
+        (snapshots[0], pdfs[0], {**manifests[0], "pdfSha256": "0"*64}, 3),
+        (snapshots[0], pdfs[0], {**manifests[0], "pageCount": True}, 3),
+        (snapshots[0], pdfs[0], {**manifests[0], "revision": "3"}, 3),
+        (snapshots[0], b"", manifests[0], 3),
+    ]
+    renamed = copy.deepcopy(snapshots[0])
+    renamed["proposal"]["recipient"] = "Another Fictional Recipient"
+    denied.append((renamed, pdfs[0], manifests[0], 3))
+    repriced = copy.deepcopy(snapshots[0])
+    repriced["proposal"]["lines"][0]["unitPriceCents"] += 1
+    repriced["proposal"]["lines"][0]["lineTotalCents"] += 2
+    repriced["proposal"]["subtotalCents"] += 2
+    repriced["proposal"]["totalCents"] += 2
+    denied.append((repriced, pdfs[0], manifests[0], 3))
+    for index, (snapshot, pdf, manifest, revision) in enumerate(denied):
+        try:
+            verify_integrity_manifest(snapshot, pdf, manifest, revision)
+        except ValueError:
+            continue
+        raise AssertionError(f"Stale or swapped synthetic PDF accepted: {index}")
+    for revision in (True, 0, -1, 1000001, 1.5):
+        try:
+            build_integrity_manifest(snapshots[0], pdfs[0], revision)
+        except ValueError:
+            continue
+        raise AssertionError(f"Invalid synthetic revision accepted: {revision}")
+    print(f"PASS: 2 PDF integrity manifests; {len(denied)} altered/stale cases denied; 5 invalid revisions")
+
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp)
@@ -174,6 +233,7 @@ def main():
         sample = json.loads((ROOT / "fixtures/synthetic_painting_proposal.json").read_text())
         check_atomic_output(sample, directory)
         pages = check_long_pdf(sample, directory)
+        check_integrity_manifest(directory)
         print(f"PASS: 2 company PDFs; 28 denied inputs; {pages}-page stress PDF; atomic writes")
 
 
