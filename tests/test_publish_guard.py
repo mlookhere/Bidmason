@@ -89,6 +89,80 @@ class PublishGuardTests(unittest.TestCase):
                          "buyer@fictional.example", "buyer@customer-company.com")
         self.assertTrue(any("Nonfictional email" in x for x in findings(self.root)))
 
+
+    def test_new_app_api_and_route_group_endpoints_are_blocked(self):
+        for path in ("app/api/send/route.ts", "src/app/api/webhooks/route.js",
+                     "app/(operator)/dispatch/route.ts",
+                     "src/app/(buyer)/reply/route.ts"):
+            with self.subTest(path=path):
+                route = self.root / path
+                route.parent.mkdir(parents=True, exist_ok=True)
+                route.write_text("export async function POST() { return new Response('ok') }")
+                self.assertTrue(any("Unapproved live Next endpoint" in x
+                                    for x in findings(self.root)))
+                route.unlink()
+
+    def test_pages_api_endpoints_are_blocked(self):
+        for path in ("pages/api/send.ts", "src/pages/api/notify.js"):
+            with self.subTest(path=path):
+                route = self.root / path
+                route.parent.mkdir(parents=True, exist_ok=True)
+                route.write_text("export default function handler() {}")
+                self.assertTrue(any("Unapproved live Next endpoint" in x
+                                    for x in findings(self.root)))
+                route.unlink()
+
+    def test_next_server_actions_outside_fictional_lab_are_blocked(self):
+        for code in ('"use server"; export async function dispatch() {}',
+                     "async function save(){ 'use server'; return 1; }"):
+            with self.subTest(code=code):
+                route = self.root / "app/operator/page.tsx"
+                route.parent.mkdir(exist_ok=True)
+                route.write_text(code)
+                self.assertTrue(any("Unapproved Next server action" in x
+                                    for x in findings(self.root)))
+                route.unlink()
+
+    def test_form_action_and_react_form_action_are_blocked(self):
+        for code in ('<form action="/api/deliver"><button>Send</button></form>',
+                     "<button formAction={send}>Send</button>"):
+            with self.subTest(code=code):
+                route = self.root / "app/operator/page.tsx"
+                route.parent.mkdir(exist_ok=True)
+                route.write_text(code)
+                self.assertTrue(any("Unapproved mutating form action" in x
+                                    for x in findings(self.root)))
+                route.unlink()
+
+    def test_middleware_proxy_and_instrumentation_entrypoints_are_blocked(self):
+        for path in ("middleware.ts", "src/proxy.ts", "src/instrumentation.js"):
+            with self.subTest(path=path):
+                route = self.root / path
+                route.parent.mkdir(parents=True, exist_ok=True)
+                route.write_text("export default function handler() {}")
+                self.assertTrue(any("Unapproved Next request handler" in x
+                                    for x in findings(self.root)))
+                route.unlink()
+
+    def test_symlink_under_publishable_next_code_is_rejected(self):
+        target = self.root / "private.ts"
+        target.write_text("export const secret = true")
+        shortcut = self.root / "app/shortcut.ts"
+        try:
+            shortcut.symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symlink creation not supported")
+        self.assertTrue(any("Symlink in publishable Next tree" in x
+                            for x in findings(self.root)))
+
+    def test_static_public_pages_remain_permitted(self):
+        page = self.root / "app/operator/page.tsx"
+        page.parent.mkdir(exist_ok=True)
+        page.write_text("export default function Demo(){return <main>Fictional preview</main>}")
+        self.assertEqual(findings(self.root), [])
+        self.with_lab()
+        self.assertEqual(findings(self.root), [])
+
     def test_clean_development_preview(self):
         self.assertEqual(findings(self.root), [])
 

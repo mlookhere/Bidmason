@@ -88,6 +88,52 @@ def delivery_lab_findings(root: Path) -> list[str]:
     return errors
 
 
+# No authenticated live backend is approved for the Item 6 development preview.
+# Conservative CI drift protection; this is not proof of tenant security.
+NEXT_SOURCE_ROOTS = ("app", "src/app", "pages", "src/pages")
+ROUTE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
+SERVER_ENTRYPOINTS = ("middleware", "proxy", "instrumentation")
+SERVER_ACTION_MARKER = re.compile(r"""['"]use server['"]""")
+FORM_ACTION_MARKER = re.compile(r"<\s*form\b[^>]*\baction\s*=|\bformAction\s*=", re.I | re.S)
+
+
+def outbound_endpoint_findings(root: Path) -> list[str]:
+    """Fail closed on unreviewed Next HTTP routes, actions and request hooks."""
+    problems: list[str] = []
+    for folder in NEXT_SOURCE_ROOTS:
+        base = root / folder
+        if not base.exists():
+            continue
+        if base.is_symlink():
+            problems.append(f"Symlinked publishable Next root: {folder}")
+            continue
+        if not base.is_dir():
+            continue
+        for item in base.rglob("*"):
+            relative = item.relative_to(root)
+            if item.is_symlink():
+                problems.append(f"Symlink in publishable Next tree: {relative}")
+                continue
+            if not item.is_file() or item.suffix.lower() not in ROUTE_EXTENSIONS:
+                continue
+            parts = item.relative_to(base).parts
+            if (folder.endswith("app") and item.stem.lower() == "route"
+                    or folder.endswith("pages") and parts[0].lower() == "api"):
+                problems.append(f"Unapproved live Next endpoint: {relative}")
+            content = item.read_text(encoding="utf-8", errors="replace")
+            if SERVER_ACTION_MARKER.search(content):
+                problems.append(f"Unapproved Next server action: {relative}")
+            if FORM_ACTION_MARKER.search(content):
+                problems.append(f"Unapproved mutating form action: {relative}")
+    for base in (root, root / "src"):
+        for basename in SERVER_ENTRYPOINTS:
+            for suffix in ROUTE_EXTENSIONS:
+                entry = base / (basename + suffix)
+                if entry.is_symlink() or entry.is_file():
+                    problems.append(f"Unapproved Next request handler: {entry.relative_to(root)}")
+    return problems
+
+
 def findings(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     for folder in PUBLISHABLE:
@@ -116,6 +162,7 @@ def findings(root: Path = ROOT) -> list[str]:
     if not page.is_file() or "No live lead capture" not in page.read_text(encoding="utf-8"):
         errors.append("Development preview must disclose disabled intake")
     errors.extend(delivery_lab_findings(root))
+    errors.extend(outbound_endpoint_findings(root))
     return errors
 
 
