@@ -449,3 +449,36 @@ requires H01-H13 external evidence, per-recipient transactional state/consent
 recheck, a real sender and signed provider callbacks, durable event/dispatch
 uniqueness, and authenticated buyer access. All upstream Item 3-5 PRs remain
 draft/unmerged.
+
+
+## Release-boundary guard for Next HTTP endpoints and server actions
+
+The mandatory fast/PR/security publication gate now calls
+outbound_endpoint_findings from ci/publish_guard.py across App Router
+and Pages Router source trees (including src/app and src/pages).
+Until H01-H13 genuinely clear for a real tenant, company and provider,
+the guard rejects any newly introduced app route handler, pages/api
+endpoint, Next server action directive, form write action, or
+middleware/proxy/instrumentation request entrypoint. Symlinks in
+publishable Next source directories are also flagged to prevent
+unreviewed asset aliases from bypassing source quarantine.
+Seven adversarial Python tests cover representative direct and nested
+API endpoints, server actions, form submissions, request hooks,
+symlinks, and a permitted ordinary static page. They run inside the
+existing required tests on fast, PR and security Actions jobs.
+
+This prevents a common release-boundary error: wiring the offline
+simulated dispatch reservation and fictional approval inputs to a
+public POST endpoint while leaving the synthetic delivery lab read-only.
+The restriction is intentionally stricter than ordinary production
+Next application architecture while actual authorization, provider
+consent, domain ownership, durable Supabase RLS/Storage and atomic
+dispatch verification remain unavailable. Removing the categorical
+block without replacing it with live route-specific RLS, CSRF,
+idempotency, transactional suppression, signed webhook and
+independent negative authorization tests is not acceptance.
+
+These source checks do not constitute a formal code audit or a
+guarantee that all indirect network behavior is impossible. Item 6
+is still unmerged and non-sending; production H01-H13 acceptance and
+human signoff remain mandatory.
