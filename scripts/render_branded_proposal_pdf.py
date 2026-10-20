@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -179,11 +181,20 @@ def render(snapshot, destination: Path) -> None:
         canvas.drawRightString(567, 27, "Page " + str(doc.page))
         canvas.restoreState()
 
-    pdf = SimpleDocTemplate(str(destination), pagesize=letter,
-                            leftMargin=45, rightMargin=45, topMargin=40, bottomMargin=53,
-                            title="Synthetic " + proposal["reference"] + " - NOT FOR DELIVERY",
-                            author="BidMason Internal Fixture QA")
-    pdf.build(story, onFirstPage=footer, onLaterPages=footer)
+    # Render privately first; only create the destination after a complete build.
+    # Hard-link publication is exclusive even if the destination is a symlink.
+    fd, temporary_path = tempfile.mkstemp(prefix=".bidmason-preview-", suffix=".pdf",
+                                          dir=destination.parent)
+    os.close(fd)
+    try:
+        pdf = SimpleDocTemplate(temporary_path, pagesize=letter,
+                                leftMargin=45, rightMargin=45, topMargin=40, bottomMargin=53,
+                                title="Synthetic " + proposal["reference"] + " - NOT FOR DELIVERY",
+                                author="BidMason Internal Fixture QA")
+        pdf.build(story, onFirstPage=footer, onLaterPages=footer)
+        os.link(temporary_path, destination)
+    finally:
+        os.unlink(temporary_path)
 
 
 def main():

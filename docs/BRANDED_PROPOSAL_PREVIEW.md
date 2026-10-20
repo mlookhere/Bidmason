@@ -26,3 +26,20 @@ These typed structs are not independently authenticated or transactionally
 persisted. A real tenant-authorized server writer, independent actor evidence,
 immutable event history and exact-revision CAS must precede any commercial
 approval or send. No live route is enabled.
+
+## Atomic PDF publication and full-length regression
+
+The fixture renderer writes into a random, private, same-directory temporary PDF;
+only a **fully built** artifact can be published through an exclusive hard link.
+Preexisting outputs (including symlink destinations) are refused instead of
+silently replaced; build errors remove the temporary file and leave no partial
+output. Unique per-revision filenames are still required upstream, and this
+file operation alone is not authorized document storage or approval.
+
+Required `proposal-pdf-qa` additionally tests interrupted ReportLab builds,
+existing-output/symlink denial, temporary-file cleanup, and a synthetic
+five-page worst-schema-size document (20 scope rows, 30 prices, 12 assumptions,
+12 exclusions), checking **all** page bounds/footer markings, split-table
+headers, and every expected item. The original small-fixture 4-page bound and
+all 28 rejection tests remain unchanged. A separate real-customer accessible
+PDF review is still deferred under H11.

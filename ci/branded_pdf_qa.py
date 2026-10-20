@@ -2,6 +2,7 @@
 import copy
 import json
 import sys
+from unittest.mock import patch
 import tempfile
 from pathlib import Path
 
@@ -25,9 +26,9 @@ def reject(snapshot, change, directory, name):
         raise AssertionError("Unsafe proposal accepted: " + name)
 
 
-def check(path, snapshot):
+def check(path, snapshot, max_pages=4):
     pdf = fitz.open(path)
-    if not 1 <= pdf.page_count <= 4 or path.stat().st_size < 2500:
+    if not 1 <= pdf.page_count <= max_pages or path.stat().st_size < 2500:
         raise AssertionError("No substantive proposal pages")
     full = "\n".join(page.get_text() for page in pdf)
     required = (snapshot["brand"]["businessName"], snapshot["proposal"]["recipient"],
@@ -52,6 +53,95 @@ def check(path, snapshot):
         if raster.width < 800 or raster.height < 1100:
             raise AssertionError("Failed to rasterize the whole PDF page")
     return pdf.page_count
+
+
+
+def check_atomic_output(snapshot, directory):
+    # A previous PDF or symlink must never be replaced by a revised preview.
+    existing = directory / "existing.pdf"
+    existing.write_bytes(b"prior stable PDF bytes")
+    try:
+        render(snapshot, existing)
+    except FileExistsError:
+        pass
+    else:
+        raise AssertionError("A previous preview was silently overwritten")
+    if existing.read_bytes() != b"prior stable PDF bytes":
+        raise AssertionError("Existing preview was corrupted")
+
+    alias = directory / "preview-alias.pdf"
+    alias.symlink_to(existing)
+    try:
+        render(snapshot, alias)
+    except FileExistsError:
+        pass
+    else:
+        raise AssertionError("A preview symlink was accepted")
+    if not alias.is_symlink() or existing.read_bytes() != b"prior stable PDF bytes":
+        raise AssertionError("Symlink target or entry was modified")
+
+    # Failed ReportLab rendering must not publish a partial destination.
+    target = directory / "partial.pdf"
+    def fail_build(*args, **kwargs):
+        raise RuntimeError("Synthetic render interruption")
+    with patch("scripts.render_branded_proposal_pdf.SimpleDocTemplate.build", fail_build):
+        try:
+            render(snapshot, target)
+        except RuntimeError as exc:
+            if str(exc) != "Synthetic render interruption":
+                raise
+        else:
+            raise AssertionError("Expected synthetic write failure")
+    if target.exists() or list(directory.glob(".bidmason-preview-*.pdf")):
+        raise AssertionError("Interrupted render left temporary or published PDF")
+
+
+def check_long_pdf(snapshot, directory):
+    # Maximal schema-sized source: 20 scope rows, 30 lines, 12 assumptions
+    # and 12 exclusions. Exercise repeated headers and all-page geometry.
+    large = copy.deepcopy(snapshot)
+    proposal = large["proposal"]
+    proposal["reference"] = "SYN-LONG-FORM-001"
+    proposal["scope"] = [
+        {"area": f"Zone {i:02}",
+         "work": ("Surface preparation and cleaning " * 6).strip(),
+         "completion": ("Visual walkthrough and checklist " * 5).strip()}
+        for i in range(1, 21)
+    ]
+    proposal["lines"] = [
+        {"serviceCode": f"service_{i:02}",
+         "label": f"Service line item {i:02} " + "expanded display " * 4,
+         "unit": "visit", "units": 1,
+         "unitPriceCents": 1234, "lineTotalCents": 1234}
+        for i in range(1, 31)
+    ]
+    proposal["subtotalCents"] = 30 * 1234
+    proposal["taxCents"] = 0
+    proposal["totalCents"] = 30 * 1234
+    proposal["assumptions"] = [
+        "Worksite access and staging " + "subject to site review " * 5
+        for _ in range(12)
+    ]
+    proposal["exclusions"] = [
+        "Unlisted equipment and site remediation " + "excluded from scope " * 5
+        for _ in range(12)
+    ]
+    target = directory / "max-input-size.pdf"
+    render(large, target)
+    pages = check(target, large, max_pages=8)
+    if pages < 3:
+        raise AssertionError("Expected a genuine multipage stress fixture")
+    with fitz.open(target) as pdf:
+        text = "\n".join(page.get_text() for page in pdf)
+        for index in range(1, 31):
+            if f"Service line item {index:02}" not in text:
+                raise AssertionError(f"Long-form service {index:02} disappeared")
+        for index in range(1, 21):
+            if f"Zone {index:02}" not in text:
+                raise AssertionError(f"Long-form scope area {index:02} disappeared")
+        if "Service" not in pdf[2].get_text() or "Amount" not in pdf[2].get_text():
+            raise AssertionError("Split pricing table lost its repeated header")
+    return pages
 
 
 def main():
@@ -81,7 +171,10 @@ def main():
             ]
             for name, mutation in mutations:
                 reject(snapshot, mutation, directory, company + "-" + name)
-        print("PASS: 2 company PDFs; 28 denied inputs; all pages inspected")
+        sample = json.loads((ROOT / "fixtures/synthetic_painting_proposal.json").read_text())
+        check_atomic_output(sample, directory)
+        pages = check_long_pdf(sample, directory)
+        print(f"PASS: 2 company PDFs; 28 denied inputs; {pages}-page stress PDF; atomic writes")
 
 
 if __name__ == "__main__":
