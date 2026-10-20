@@ -135,6 +135,18 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
     assert page.get_by_text("Internal candidate only — not send approval").count() == 1
     assert page.get_by_text("Blocked", exact=True).count() == 3
     assert page.get_by_text("Synthetic scenario · Not a customer record").count() == 4
+    assert page.get_by_text("Operator review category", exact=True).count() == 4
+    for case_id, label in (
+        ("painting-reply", "reply needs review (simulation only)"),
+        ("cleaning-bounce", "contact suppressed (simulation only)"),
+        ("painting-consent-unknown", "consent needs verification (simulation only)"),
+        ("cleaning-internal-candidate", "external authorization required (simulation only)"),
+    ):
+        card = page.locator(f"[data-scenario='{case_id}']")
+        assert card.get_by_text(label, exact=True).count() == 1, f"Incorrect review category: {case_id}"
+        assert card.locator(".lab-review-rationale").count() == 1
+        assert card.locator(".lab-review-rationale").inner_text().strip(), f"Missing reason: {case_id}"
+    assert page.get_by_text("What an operator would review", exact=True).count() == 4
     assert page.locator("form, input, textarea, select, button").count() == 0
     assert page.get_by_text("Delivery remains disabled").count() == 1
     assert not mutations and not errors, f"Unexpected requests/errors: {mutations}, {errors}"
