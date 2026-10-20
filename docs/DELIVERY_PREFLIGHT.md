@@ -618,3 +618,33 @@ declared impossible solely from these checks. The public lab still
 contains only deterministic fictional records, no sender, API,
 real buyer credentials or personal data. H01-H13 and the unmerged
 upstream authentication/provider acceptance gates stay blocking.
+
+
+## Cross-proposal historical reply manual-review hold (fictional only)
+
+The earlier recipient-wide history review retained bounce, complaint and
+opt-out but discarded a past recipient reply on a DIFFERENT proposal.
+This could leave a new proposal with a due-looking follow-up even though
+the same recipient had already engaged and an operator should review
+that exchange before another automated reminder.
+
+The pure review now exposes only a boolean repliedInHistory, derived from
+previously validated per-proposal fictional event projections. The
+recipient-aware triage also reports historicalReplyObserved. A prior
+reply alone moves a new proposal into reply-needs-review / operator-review
+instead of external-authorization-required, with explicit manual-review
+copy; it does **not** create a permanent recipient opt-out. Prior bounce,
+complaint or opt-out always outranks any reply and remains stop-contact.
+Event identity, tenant/recipient matching, chronology and replay
+validation remain mandatory even for a suppressing or replied history.
+
+Six additional Node regression groups under existing required Linux and
+Windows web-test gates cover historical reply precedence, privacy-safe
+redacted CRM category totals, independent sticky bounce+reply handling,
+order independence, and fail-closed corrupted or future event evidence.
+Neither fictional engagement nor absence of it proves a real reply or
+permission to contact. Real communication still requires authenticated
+tenant-scoped reply ownership, trustworthy event origin, customer consent,
+verified suppression, human review and transactional dispatch constraints.
+No response endpoint, automatic follow-up, schedule, database mutation,
+provider, or email is added. H01-H13 and draft PR holds remain unchanged.

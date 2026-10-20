@@ -46,6 +46,37 @@ test("historic opt-out prevents a clean new proposal from establishing contact c
   for(const word of ["recipient","organizationId","idempotencyKey","proposalId","sendAllowed"])
     assert.equal(Object.hasOwn(result,word),false);
 });
+
+test("an earlier reply is recorded for manual review, not treated as a permanent opt-out",()=>{
+  const previous=make(1,["reserved","provider_accepted","provider_delivered","recipient_replied"]);
+  const out=scan([previous]);
+  assert.equal(out.contact,"no-suppression-seen-in-fixtures");
+  assert.deepEqual(out.suppression,[]);
+  assert.equal(out.repliedInHistory,true);
+  assert.equal(out.contactAuthorized,false);
+  const serialized=JSON.stringify(out);
+  for(const secret of [RECIPIENT,ORG,target.idempotencyKey,target.proposalId])
+    assert.equal(serialized.includes(secret),false);
+  assert.equal(scan([]).repliedInHistory,false);
+  assert.equal(scan([delivered()]).repliedInHistory,false);
+});
+test("historical replies coexist with sticky suppression irrespective of proposal order",()=>{
+  const replied=make(1,["reserved","provider_accepted","provider_delivered","recipient_replied"]);
+  const bounced=make(2,["reserved","provider_accepted","provider_bounced"]);
+  const a=scan([replied,bounced]);
+  assert.deepEqual(a.suppression,["bounced"]);
+  assert.equal(a.contact,"suppressed-in-fixtures");
+  assert.equal(a.repliedInHistory,true);
+  assert.deepEqual(a,scan([bounced,replied]));
+});
+test("bad prior reply evidence fails rather than silently dropping the manual review hold",()=>{
+  const replied=make(1,["reserved","provider_accepted","provider_delivered","recipient_replied"]);
+  const broken={...replied,events:replied.events.map((item,index)=>index===3
+    ?{...item,recipient:"someone-else@fictional.example"}:item)};
+  assert.throws(()=>scan([broken]),/cross-tenant delivery event/);
+  assert.throws(()=>scan([replied],"2026-10-20T08:02:00.000Z"),/Future synthetic recipient observation/);
+});
+
 test("bounce and complaint on different proposals remain sticky",()=>{
   const bounce=make(1,["reserved","provider_accepted","provider_bounced"]);
   const complaint=make(2,["reserved","provider_accepted","provider_delivered","provider_complained"]);

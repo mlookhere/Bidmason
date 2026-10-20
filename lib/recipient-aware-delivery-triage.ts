@@ -13,6 +13,7 @@ import {
 export type RecipientAwareDeliveryTriage = DeliveryTriage & {
   historicalContact: SyntheticRecipientContactReview["contact"];
   historicalSuppression: SyntheticRecipientContactReview["suppression"];
+  historicalReplyObserved: boolean;
   historicalStreams: number;
   contactAuthorized: false;
 };
@@ -43,6 +44,21 @@ export function classifySimulatedRecipientAwareTriage(
         + " overrides current proposal state; stop contact and review suppression.",
       historicalContact: prior.contact,
       historicalSuppression: prior.suppression,
+      historicalReplyObserved: prior.repliedInHistory,
+      historicalStreams: prior.examinedStreams,
+      contactAuthorized: false,
+    };
+  }
+  if (prior.repliedInHistory) {
+    return {
+      ...current,
+      category: "reply-needs-review",
+      attention: "operator-review",
+      rationale: "A reply on an earlier fictional proposal for this recipient"
+        + " requires manual review before any new follow-up; no contact is authorized.",
+      historicalContact: prior.contact,
+      historicalSuppression: prior.suppression,
+      historicalReplyObserved: true,
       historicalStreams: prior.examinedStreams,
       contactAuthorized: false,
     };
@@ -51,6 +67,7 @@ export function classifySimulatedRecipientAwareTriage(
     ...current,
     historicalContact: prior.contact,
     historicalSuppression: prior.suppression,
+    historicalReplyObserved: false,
     historicalStreams: prior.examinedStreams,
     contactAuthorized: false,
   };

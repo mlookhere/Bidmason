@@ -49,6 +49,50 @@ test("earlier recipient opt-out overrides internally eligible current proposal",
   assert.equal(review.sourceEventCount,3);
 });
 
+
+test("earlier reply puts a new due-looking proposal into manual reply review",()=>{
+  const prior=past("recipient_replied");
+  const historical=[{intent:prior.intent,events:prior.events}];
+  const base=classifySimulatedDeliveryTriage(
+    entry.intent,entry.events,POLICY,[],NOW);
+  assert.equal(base.category,"external-authorization-required");
+  const result=triage(entry,historical);
+  assert.equal(result.category,"reply-needs-review");
+  assert.equal(result.attention,"operator-review");
+  assert.equal(result.historicalReplyObserved,true);
+  assert.equal(result.historicalContact,"no-suppression-seen-in-fixtures");
+  assert.deepEqual(result.historicalSuppression,[]);
+  assert.equal(result.contactAuthorized,false);
+  assert.match(result.rationale,/manual review/);
+  const report=summarize([entry],[historical]);
+  assert.equal(report.categories.find(x=>x.category==="reply-needs-review").count,1);
+  assert.equal(report.categories.find(x=>x.category==="external-authorization-required").count,0);
+  for(const forbidden of [EMAIL,ORG,"dryrun_",IDS[0]])
+    assert.equal(JSON.stringify(report).includes(forbidden),false);
+});
+test("prior permanent suppression outranks a separate earlier reply",()=>{
+  const reply=past("recipient_replied");
+  const bounce=make(2,["reserved","provider_accepted","provider_bounced"],ORG,EMAIL,1);
+  const result=triage(entry,[
+    {intent:reply.intent,events:reply.events},
+    {intent:bounce.intent,events:bounce.events},
+  ]);
+  assert.equal(result.category,"contact-suppressed");
+  assert.equal(result.attention,"stop-contact");
+  assert.deepEqual(result.historicalSuppression,["bounced"]);
+  assert.equal(result.historicalReplyObserved,true);
+  assert.equal(result.contactAuthorized,false);
+});
+test("invalid prior reply or current event is never converted into a normal review",()=>{
+  const reply=past("recipient_replied");
+  const historical=[{intent:reply.intent,events:reply.events}];
+  const invalid=make(0,["provider_delivered"]);
+  assert.throws(()=>triage(invalid,historical),/Unexpected provider delivery/);
+  const corrupted={intent:reply.intent,events:[...reply.events.slice(0,3),
+    {...reply.events[3],organizationId:OUTSIDE}]};
+  assert.throws(()=>triage(entry,[corrupted]),/cross-tenant delivery event/);
+});
+
 test("historical suppression outranks current replies, consent ambiguity, and cooldown",()=>{
   const history=[{intent:past().intent,events:past().events}];
   const replied=make(0,["reserved","provider_accepted","provider_delivered","recipient_replied"]);

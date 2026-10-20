@@ -13,6 +13,7 @@ export type SyntheticRecipientContactReview = {
   state: "review-simulation-only";
   contact: "suppressed-in-fixtures" | "no-suppression-seen-in-fixtures";
   suppression: DeliveryProjection["suppression"];
+  repliedInHistory: boolean;
   examinedStreams: number;
   contactAuthorized: false;
 };
@@ -59,6 +60,7 @@ export function reviewSimulatedRecipientContactHistory(
   const keys = new Set<string>();
   const eventIds = new Set<string>();
   const suppression = new Set<DeliveryProjection["suppression"][number]>();
+  let repliedInHistory = false;
   let totalEvents = 0;
 
   for (const record of history) {
@@ -92,12 +94,14 @@ export function reviewSimulatedRecipientContactHistory(
     }
     for (const eventId of localIds) eventIds.add(eventId);
     for (const reason of projection.suppression) suppression.add(reason);
+    if (projection.replied) repliedInHistory = true;
   }
 
   return {
     state: "review-simulation-only",
     contact: suppression.size ? "suppressed-in-fixtures" : "no-suppression-seen-in-fixtures",
     suppression: [...suppression].sort(),
+    repliedInHistory,
     examinedStreams: history.length,
     contactAuthorized: false,
   };
