@@ -19,6 +19,7 @@ type CaseDefinition = {
   company: string;
   organizationId: string;
   proposalId: string;
+  recipient: string;
   consent: "confirmed" | "unknown";
   events: readonly DeliveryEventKind[];
   earlierOptOutProposalId?: string;
@@ -28,30 +29,35 @@ const CASES: readonly CaseDefinition[] = [
    company:"Fictional painting contractor",
    organizationId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
    proposalId:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+   recipient:"buyer-reply@fictional.example",
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered","recipient_replied"]},
   {id:"cleaning-bounce",label:"A bounce suppresses follow-up",
    company:"Fictional cleaning contractor",
    organizationId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
    proposalId:"dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+   recipient:"buyer-bounce@fictional.example",
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_bounced"]},
   {id:"painting-consent-unknown",label:"Missing consent blocks follow-up",
    company:"Fictional painting contractor",
    organizationId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
    proposalId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+   recipient:"buyer-unknown@fictional.example",
    consent:"unknown",
    events:["reserved","provider_accepted","provider_delivered"]},
   {id:"cleaning-internal-candidate",label:"A due date is not send approval",
    company:"Fictional cleaning contractor",
    organizationId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
    proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff",
+   recipient:"buyer-candidate@fictional.example",
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered"]},
   {id:"cleaning-prior-optout",label:"Earlier opt-out overrides new proposal",
    company:"Fictional cleaning contractor",
    organizationId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
    proposalId:"11111111-1111-4111-8111-111111111111",
+   recipient:"buyer-prior-optout@fictional.example",
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered"],
    earlierOptOutProposalId:"22222222-2222-4222-8222-222222222222"},
@@ -72,9 +78,9 @@ function buildFixtureRecords(): FixtureRecord[] {
   return CASES.map(scenario => {
     const identity={organizationId:scenario.organizationId,
       proposalId:scenario.proposalId,revision:1,...HASHES,
-      // Different fictional people unless an earlier-proposal fixture explicitly
-      // binds the SAME exact recipient. Avoid silently bypassing past bounces.
-      recipient:"buyer-"+scenario.id+"@fictional.example"};
+      // Different invented people, except an earlier proposal explicitly reuses
+      // one exact recipient to demonstrate sticky cross-proposal suppression.
+      recipient:scenario.recipient};
     const intent:DeliveryIntent={...identity,idempotencyKey:deliveryIdempotencyKey(identity)};
     const events:DeliveryEvent[]=scenario.events.map((kind,index)=>({
       eventId:String(index+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

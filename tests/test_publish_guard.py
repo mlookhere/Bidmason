@@ -86,10 +86,10 @@ class PublishGuardTests(unittest.TestCase):
         self.with_lab()
         self.replace_lab("lib/delivery-lab-fixtures.ts",
                          "Fictional painting contractor", "Real Contractor LLC")
-        self.assertTrue(any("four fictional companies" in x for x in findings(self.root)))
+        self.assertTrue(any("five fictional scenarios" in x for x in findings(self.root)))
         self.with_lab()
         self.replace_lab("lib/delivery-lab-fixtures.ts",
-                         "buyer@fictional.example", "buyer@customer-company.com")
+                         "buyer-reply@fictional.example", "buyer-reply@customer-company.com")
         self.assertTrue(any("Nonfictional email" in x for x in findings(self.root)))
 
 
