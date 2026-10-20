@@ -19,7 +19,7 @@ test("first simulated CAS wins but never authorizes customer communication",()=>
   const ledger=new SyntheticDispatchReservationLedger();
   const before=ledger.snapshot(intent);
   assert.deepEqual(before,{state:"simulation-only",version:0,reserved:false,
-    suppression:[],contactAuthorized:false});
+    replyReviewRequired:false,suppression:[],contactAuthorized:false});
   const first=ledger.compareAndReserve(intent,before.version);
   assert.equal(first.state,"reserved-simulation-only");
   assert.equal(first.snapshot.version,1);
@@ -83,6 +83,82 @@ test("reservation and opt-out racing at same version never both succeed",async()
     assert.equal(winner.state,operations[0]==="reserve"
       ?"reserved-simulation-only":"suppressed-simulation-only");
   }
+});
+
+
+test("a fictional reply AFTER reservation invalidates it and prevents replay",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const reserved=ledger.compareAndReserve(intent,0);
+  assert.equal(reserved.state,"reserved-simulation-only");
+  const reply=ledger.compareAndRecordReply(intent,1);
+  assert.equal(reply.state,"reply-review-simulation-only");
+  assert.equal(reply.snapshot.version,2);
+  assert.equal(reply.snapshot.reserved,false);
+  assert.equal(reply.snapshot.replyReviewRequired,true);
+  assert.deepEqual(reply.snapshot.suppression,[]);
+  assert.equal(reply.snapshot.contactAuthorized,false);
+  assert.equal(ledger.compareAndReserve(intent,2).reason,"recipient-reply-review-required");
+  assert.equal(ledger.compareAndRecordReply(intent,2).reason,"duplicate-reply-review");
+  assert.equal(typeof ledger.clearReplyReview,"undefined");
+  for(const field of ["recipient","organizationId","idempotencyKey","send","provider"])
+    assert.equal(Object.hasOwn(reply,field),false);
+});
+
+test("a reply BEFORE reservation blocks same recipient across proposals, not all tenants",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  assert.equal(ledger.compareAndRecordReply(intent,0).state,"reply-review-simulation-only");
+  const next=make({proposalId:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",revision:2});
+  assert.equal(ledger.compareAndReserve(next,1).reason,"recipient-reply-review-required");
+  assert.equal(ledger.snapshot(next).replyReviewRequired,true);
+  const outside=make({organizationId:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"});
+  assert.equal(ledger.compareAndReserve(outside,0).state,"reserved-simulation-only");
+});
+
+test("reservation-vs-reply CAS race requires explicit retry when reserve wins",async()=>{
+  for(let i=0;i<32;i++){
+    const ledger=new SyntheticDispatchReservationLedger();
+    const operations=i%2===0?["reserve","reply"]:["reply","reserve"];
+    const results=await Promise.all(operations.map(op=>Promise.resolve().then(()=>
+      op==="reserve"?ledger.compareAndReserve(intent,0):
+      ledger.compareAndRecordReply(intent,0))));
+    assert.equal(results.filter(x=>x.state!=="blocked").length,1);
+    assert.equal(ledger.snapshot(intent).version,1);
+    const refreshed=ledger.snapshot(intent);
+    if(refreshed.reserved){
+      const retry=ledger.compareAndRecordReply(intent,refreshed.version);
+      assert.equal(retry.state,"reply-review-simulation-only");
+    }
+    const final=ledger.snapshot(intent);
+    assert.equal(final.reserved,false);
+    assert.equal(final.replyReviewRequired,true);
+    assert.equal(ledger.compareAndReserve(intent,final.version).reason,"recipient-reply-review-required");
+  }
+});
+
+test("reply review persists alongside later sticky suppression and cannot be lifted",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  ledger.compareAndRecordReply(intent,0);
+  const suppressed=ledger.compareAndSuppress(intent,1,"complained");
+  assert.deepEqual(suppressed.snapshot.suppression,["complained"]);
+  assert.equal(suppressed.snapshot.replyReviewRequired,true);
+  assert.equal(ledger.compareAndReserve(intent,2).reason,"recipient-suppressed");
+  assert.equal(ledger.compareAndRecordReply(intent,2).reason,"duplicate-reply-review");
+  assert.equal(typeof ledger.unsuppress,"undefined");
+});
+
+test("forged identities, hidden getters and stale reply CAS fail without mutation",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const identity={...intent,allowSend:true};
+  assert.throws(()=>ledger.compareAndRecordReply(identity,0),/Invalid synthetic reservation identity/);
+  const badKey={...intent,idempotencyKey:"dryrun_"+"0".repeat(64)};
+  assert.throws(()=>ledger.compareAndRecordReply(badKey,0),/Invalid synthetic reservation identity/);
+  const accessor={...intent};let reads=0;
+  Object.defineProperty(accessor,"recipient",{enumerable:true,get(){reads++;throw Error("unsafe")}});
+  assert.throws(()=>ledger.compareAndRecordReply(accessor,0),/Invalid synthetic reservation identity/);
+  assert.equal(reads,0);
+  for(const invalid of [NaN,-1,Infinity,0.5,"0"])
+    assert.equal(ledger.compareAndRecordReply(intent,invalid).reason,"stale-or-invalid-version");
+  assert.equal(ledger.snapshot(intent).version,0);
 });
 
 test("suppression is sticky, reason-union is stable, and no lifting operation exists",()=>{

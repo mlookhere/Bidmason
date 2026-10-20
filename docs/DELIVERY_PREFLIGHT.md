@@ -678,3 +678,41 @@ provider, DB, credentials, email, or CI gate is introduced. Source
 fixtures and in-process CAS do not authenticate a recipient, prove full
 historical coverage, establish a real manual review, or provide durable
 transactional safety. H01-H13 and human/live acceptance remain blocking.
+
+
+## Post-reservation fictional reply review hold (no live dispatch)
+
+Earlier fictional recipient replies already blocked new-proposal preflight
+when present in validated caller-supplied historical streams. A distinct
+gap remained for a reply received *after* the in-memory reservation:
+only bounce, complaint and opt-out could invalidate a pending synthetic
+reservation in the CAS ledger.
+
+SyntheticDispatchReservationLedger.compareAndRecordReply now provides a
+version-checked, fictional reply-review transition. A successful local
+transition increments the tenant/recipient scoped version, invalidates
+the current synthetic reservation and sets replyReviewRequired=true
+without adding a permanent bounce/complaint/opt-out. Subsequent CAS
+reservations return recipient-reply-review-required. Repeated reply
+observations are harmless blocked duplicates; later permanent suppression
+retains priority and preserves the reply-review flag. No API is provided
+to clear reply review or reactivate a reservation: a genuine authorized
+human review and trusted durable DB design remain outside this model.
+
+Five additional synthetic ledger tests verify reply-before/reservation-
+after, reservation-before/reply-after, 32 adversarial same-version races
+with explicit refreshed-version retry, coexistence with sticky complaint,
+and forged/hidden/invalid identity evidence. Two integrated preflight
+tests verify that a reply after a fictional reservation blocks subsequent
+same-recipient/new-proposal attempts, and that historical replies retain
+priority when current in-memory review flags also exist. Existing
+mandatory Linux/Windows Node tests exercise all seven groups without
+changing any required checks.
+
+All state is volatile, untrusted, caller-supplied and simulation-only.
+No real inbound reply origin is verified and no actual consent, provider,
+user authorization, buyer view, sender credentials, message, database
+transaction, distributed lock or release authorization is implied.
+Actual inbound replies must be authenticated and applied atomically
+with send reservation in a durable tenant-scoped store after H01-H13
+human/live acceptance; a synthetic concurrency test does not prove this.

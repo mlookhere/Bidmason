@@ -25,7 +25,8 @@ export type SyntheticReservationEvidence = {
 export type SyntheticPreflightReservationResult = {
   state: "blocked" | "reserved-simulation-only";
   reason: "preflight-blocked" | "prior-recipient-suppressed"
-    | "prior-recipient-replied" | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
+    | "prior-recipient-replied" | "recipient-reply-review-required"
+    | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
     | "recipient-suppressed" | "recipient-already-reserved";
   blockers: string[];
   observedHistory: "caller-fixtures-only";

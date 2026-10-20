@@ -214,6 +214,35 @@ test("different proposal for same recipient cannot bypass existing simulated res
   assert.equal(ledger.snapshot(another.intent).version,1);
 });
 
+
+test("an incoming fictional reply after preflight reservation blocks subsequent rehearsals",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const evidence=make();
+  assert.equal(review(ledger,evidence).state,"reserved-simulation-only");
+  const reply=ledger.compareAndRecordReply(evidence.intent,1);
+  assert.equal(reply.state,"reply-review-simulation-only");
+  assert.equal(reply.snapshot.reserved,false);
+  assert.equal(reply.snapshot.replyReviewRequired,true);
+  assert.equal(review(ledger,evidence,[],2).reason,"recipient-reply-review-required");
+  const other=make({proposalId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"});
+  assert.equal(review(ledger,other,[],2).reason,"recipient-reply-review-required");
+  assert.equal(ledger.snapshot(other.intent).version,2);
+});
+
+test("valid historical review plus current in-memory reply hold cannot reserve",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const evidence=make();
+  ledger.compareAndRecordReply(evidence.intent,0);
+  const previous=history("recipient_replied");
+  const result=review(ledger,evidence,previous,1);
+  assert.equal(result.reason,"prior-recipient-replied");
+  assert.equal(ledger.snapshot(evidence.intent).version,1);
+  const clean=review(ledger,evidence,[],1);
+  assert.equal(clean.reason,"recipient-reply-review-required");
+  assert.equal(clean.contactAuthorized,false);
+  assert.equal(ledger.snapshot(evidence.intent).reserved,false);
+});
+
 test("simulated opt-out before reservation blocks; after reservation it invalidates lock",()=>{
   const before=new SyntheticDispatchReservationLedger(), e=make();
   before.compareAndSuppress(e.intent,0,"opted_out");

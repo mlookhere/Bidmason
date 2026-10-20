@@ -5,6 +5,7 @@ import {deliveryIdempotencyKey, type DeliveryIntent} from "./outbound-preflight.
 type RecordState = {
   version: number;
   reservationKey: string | null;
+  replyReviewRequired: boolean;
   suppressions: Set<"opted_out" | "bounced" | "complained">;
 };
 
@@ -12,11 +13,13 @@ export type SyntheticReservationSnapshot = {
   state: "simulation-only";
   version: number;
   reserved: boolean;
+  replyReviewRequired: boolean;
   suppression: ("bounced" | "complained" | "opted_out")[];
   contactAuthorized: false;
 };
 export type SyntheticReservationVerdict = {
-  state: "reserved-simulation-only" | "suppressed-simulation-only" | "blocked";
+  state: "reserved-simulation-only" | "suppressed-simulation-only"
+    | "reply-review-simulation-only" | "blocked";
   reason: string;
   snapshot: SyntheticReservationSnapshot;
 };
@@ -55,7 +58,10 @@ function validVersion(version: unknown): version is number {
   return typeof version === "number" && Number.isSafeInteger(version)
     && version >= 0 && version < Number.MAX_SAFE_INTEGER;
 }
-const empty = (): RecordState => ({version: 0, reservationKey: null, suppressions: new Set()});
+const empty = (): RecordState => ({
+  version: 0, reservationKey: null, replyReviewRequired: false,
+  suppressions: new Set(),
+});
 
 export class SyntheticDispatchReservationLedger {
   #records = new Map<string, RecordState>();
@@ -71,6 +77,7 @@ export class SyntheticDispatchReservationLedger {
       state: "simulation-only",
       version: record.version,
       reserved: record.reservationKey !== null,
+      replyReviewRequired: record.replyReviewRequired,
       suppression: [...record.suppressions].sort(),
       contactAuthorized: false,
     };
@@ -95,6 +102,10 @@ export class SyntheticDispatchReservationLedger {
       return {state: "blocked", reason: "recipient-suppressed",
         snapshot: this.#snapshot(record)};
     }
+    if (record.replyReviewRequired) {
+      return {state: "blocked", reason: "recipient-reply-review-required",
+        snapshot: this.#snapshot(record)};
+    }
     if (record.reservationKey !== null) {
       return {state: "blocked", reason: "recipient-already-reserved",
         snapshot: this.#snapshot(record)};
@@ -103,6 +114,29 @@ export class SyntheticDispatchReservationLedger {
       reservationKey: intent.idempotencyKey};
     this.#records.set(this.#key(intent), updated);
     return {state: "reserved-simulation-only", reason: "synthetic-cas-won-no-send",
+      snapshot: this.#snapshot(updated)};
+  }
+
+  /** An independently observed fictional reply can interrupt an existing
+   * in-memory reservation. It is NOT a permanent opt-out, and the model
+   * intentionally has no operator-clearance or send transition. */
+  compareAndRecordReply(rawIntent: DeliveryIntent, expectedVersion: number): SyntheticReservationVerdict {
+    const intent = scopedIntent(rawIntent);
+    const record = this.#read(intent);
+    if (!validVersion(expectedVersion) || record.version !== expectedVersion) {
+      return {state: "blocked", reason: "stale-or-invalid-version",
+        snapshot: this.#snapshot(record)};
+    }
+    if (record.replyReviewRequired) {
+      return {state: "blocked", reason: "duplicate-reply-review",
+        snapshot: this.#snapshot(record)};
+    }
+    const updated: RecordState = {
+      ...record, version: record.version + 1,
+      reservationKey: null, replyReviewRequired: true,
+    };
+    this.#records.set(this.#key(intent), updated);
+    return {state: "reply-review-simulation-only", reason: "synthetic-reply-review-recorded",
       snapshot: this.#snapshot(updated)};
   }
 
@@ -126,6 +160,7 @@ export class SyntheticDispatchReservationLedger {
     const updated: RecordState = {
       version: record.version + 1,
       reservationKey: null,
+      replyReviewRequired: record.replyReviewRequired,
       suppressions: new Set([...record.suppressions, reason]),
     };
     this.#records.set(this.#key(intent), updated);
