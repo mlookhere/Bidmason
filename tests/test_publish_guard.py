@@ -3,6 +3,7 @@ from pathlib import Path
 from shutil import copyfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ci.publish_guard import findings, delivery_lab_findings
 
@@ -145,15 +146,15 @@ class PublishGuardTests(unittest.TestCase):
                 route.unlink()
 
     def test_symlink_under_publishable_next_code_is_rejected(self):
-        target = self.root / "private.ts"
-        target.write_text("export const secret = true")
+        # Mock the platform-dependent filesystem predicate: no Windows skip.
         shortcut = self.root / "app/shortcut.ts"
-        try:
-            shortcut.symlink_to(target)
-        except (OSError, NotImplementedError):
-            self.skipTest("Symlink creation not supported")
-        self.assertTrue(any("Symlink in publishable Next tree" in x
-                            for x in findings(self.root)))
+        shortcut.write_text("export const secret = true")
+        original = Path.is_symlink
+        with patch.object(Path, "is_symlink",
+                          lambda candidate: candidate == shortcut
+                          or original(candidate)):
+            self.assertTrue(any("Symlink in publishable Next tree" in x
+                                for x in findings(self.root)))
 
     def test_static_public_pages_remain_permitted(self):
         page = self.root / "app/operator/page.tsx"
