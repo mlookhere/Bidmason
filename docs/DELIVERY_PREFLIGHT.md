@@ -195,3 +195,28 @@ event is not proof of delivery. Implement actual provider-specific
 raw-body verification, trusted tenant dispatch lookup, durable
 transactional uniqueness and out-of-order reconciliation only after
 provider, consent and authorized Supabase dependencies are resolved.
+
+## Out-of-order signed callback reconciliation (synthetic-only)
+
+`reconcileSignedSyntheticWebhookBatch` is a separate **offline**
+mode alongside the unchanged strict-arrival `projectSignedSyntheticWebhookBatch`.
+It validates **every** fictional HMAC signature, tenant/revision/recipient
+scope, event body and replay ID in a bounded batch **before** ordering
+events by their signed UTC observation timestamps. An independent fictional
+local reservation remains mandatory. Equal event timestamps on distinct
+IDs and callbacks before or at the reservation time are ambiguous and
+rejected rather than guessed. It then reruns the complete chronology
+through the existing CRM state machine, preserving bounce/complaint/opt-out
+suppression, response semantics and hard failure on missing prerequisites.
+The result reports moved event positions as `reorderedEvents` and is always
+`simulation-only`. It never processes actual provider callbacks, saves
+a ledger, resolves durable race conditions or sends a follow-up.
+
+New `synthetic-webhook-reconciliation.test.mjs` regression groups execute
+under **both** existing Linux/Windows `test:web` and the unchanged
+`synthetic-webhook-qa` job's webhook test glob. This is a full replay
+of locally supplied fictional data, **not** a production event merger:
+a real provider adapter requires authenticated durable event history,
+concurrency-safe event-ID uniqueness, out-of-order buffering policy,
+reconciliation alerts and transactional current-state checks. H01-H13
+human/live acceptance is unchanged.
