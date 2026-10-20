@@ -22,7 +22,7 @@ class ReviewParser(HTMLParser):
             self.checks.append(data)
 
 def main(directory):
-    for company in ("painting","cleaning","painting-unicode"):
+    for company in ("painting","cleaning","painting-unicode","painting-v4"):
         path = directory / f"{company}.review.html"
         text = path.read_text(encoding="utf-8")
         parser = ReviewParser()
@@ -35,6 +35,10 @@ def main(directory):
                          "Source and scope", "Assumptions", "Exclusions"):
             assert required in content, f"{company}: missing {required}"
         assert text.count('<th scope="col">') >= 6
+        if company == "painting-v4":
+            for required in ("Changes since revision 3", "Prior revision receipts",
+                             "1,020.00", "1,045.00", "Prepare and repaint newly measured"):
+                assert required in content, f"Revision comparison missing {required}"
         print("PASS: inert offline proposal report:", company)
 
 if __name__ == "__main__":

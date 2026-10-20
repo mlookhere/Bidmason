@@ -154,3 +154,22 @@ rejection, non-indexability and absence of active controls. A Python HTML
 parser separately validates each real generated report. Production access,
 independent reviewer authentication, real accessible PDF acceptance and
 release readiness remain deferred under H01-H13.
+
+## Synthetic proposal revision comparison
+
+An optional prior-revision artifact can now be passed to the existing
+`renderSyntheticProposalReview` function. Both sets of PDF bytes and
+canonical fixture hashes must match their manifests; the company and
+synthetic reference must be identical and revision numbers consecutive.
+The review displays old/new totals, line item units/rates, scope,
+recipient, timeline, terms and brand changes in an offline table.
+Every comparison warns that previous reviewer receipts and QA evidence
+must be refreshed, **even when proposal content has not changed**.
+It never imports or claims actual approvals.
+
+The mandatory PDF CI now renders a fourth fictional sample: a new
+painting revision with a modified room preparation scope and rate,
+then inspects the before/after HTML review and exercises the Python
+to Node revision comparison using **real PDFs**, not only unit mocks.
+Mismatched, cross-company or stale artifacts are rejected; the
+generated HTML remains private, inert, `noindex` and blocked from delivery.

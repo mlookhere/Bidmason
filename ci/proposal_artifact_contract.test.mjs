@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
+import {compareSyntheticProposalRevisions} from "../lib/synthetic-proposal-review.ts";
 import {
   buildProposalQaReport,
   evaluateSyntheticArtifactQaConsistency,
@@ -47,7 +48,7 @@ function qa(manifest, override = {}) {
   return {report, receipts};
 }
 
-const artifacts = await Promise.all(["painting", "cleaning", "painting-unicode"].map(async company => {
+const artifacts = await Promise.all(["painting", "cleaning", "painting-unicode", "painting-v4"].map(async company => {
   const [{snapshot, manifest}, bytes] = await Promise.all([
     readFile(join(directory, company + ".json"), "utf8").then(JSON.parse),
     readFile(join(directory, company + ".pdf")),
@@ -61,7 +62,7 @@ test("Python-generated PDF bytes and canonical JSON match independent Node SHA-2
     assert.equal(sha(bytes), manifest.pdfSha256);
     assert.equal(bytes.length, manifest.pdfBytes);
     assert.equal(manifest.disposition, "INTERNAL ONLY - NOT FOR DELIVERY");
-    assert.equal(manifest.revision, 3);
+    assert.equal(manifest.revision, snapshot.proposal.totalCents===104500?4:3);
   }
   assert.notEqual(artifacts[0].manifest.snapshotSha256, artifacts[1].manifest.snapshotSha256);
   assert.notEqual(artifacts[0].manifest.snapshotSha256, artifacts[2].manifest.snapshotSha256);
@@ -99,4 +100,20 @@ test("Stale/swapped PDF, snapshot, revision and receipt evidence fails closed", 
   const updated = structuredClone(painting.snapshot);
   updated.proposal.recipient = "Different fictional recipient";
   assert.notEqual(digestObject(updated), painting.manifest.snapshotSha256);
+});
+
+
+test("Real Python-rendered revision 4 produces a reviewable exact scope and price delta",()=>{
+  const [previous,,,updated]=artifacts;
+  const before={snapshot:previous.snapshot,manifest:previous.manifest,pdfBytes:previous.bytes};
+  const after={snapshot:updated.snapshot,manifest:updated.manifest,pdfBytes:updated.bytes};
+  const delta=compareSyntheticProposalRevisions(before,after);
+  assert.equal(delta.from,3);
+  assert.equal(delta.to,4);
+  assert.ok(delta.changes.some(x=>x.field==="Total" && x.before==="$1,020.00" && x.after==="$1,045.00"));
+  assert.ok(delta.changes.some(x=>x.field==="Service interior_repaint"));
+  assert.ok(delta.changes.some(x=>x.field==="Scope 1"));
+  assert.throws(()=>compareSyntheticProposalRevisions(after,before),/Nonconsecutive/);
+  const swapped={...after,manifest:{...after.manifest,pdfSha256:previous.manifest.pdfSha256}};
+  assert.throws(()=>compareSyntheticProposalRevisions(before,swapped),/mismatch/);
 });
