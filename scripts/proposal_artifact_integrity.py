@@ -33,8 +33,17 @@ def _inspect_pdf(snapshot: dict, pdf_bytes: bytes) -> int:
         raise ValueError("Invalid synthetic PDF bytes")
     try:
         with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
-            if not 1 <= pdf.page_count <= 8 or pdf.needs_pass:
+            if not 1 <= pdf.page_count <= 8 or pdf.needs_pass or pdf.is_encrypted:
                 raise ValueError("PDF page count or encryption invalid")
+            forbidden_catalog = {"Names", "OpenAction", "AA", "AcroForm", "Collection", "Perms", "Outlines"}
+            if (pdf.embfile_count() or pdf.is_form_pdf
+                    or forbidden_catalog.intersection(pdf.xref_get_keys(pdf.pdf_catalog()))):
+                raise ValueError("Interactive or attached PDF content is forbidden")
+            for page in pdf:
+                if (page.get_links() or list(page.annots() or ())
+                        or list(page.widgets() or ())
+                        or "AA" in pdf.xref_get_keys(page.xref)):
+                    raise ValueError("Interactive PDF page content is forbidden")
             first = pdf[0].get_text()
             proposal = snapshot["proposal"]
             brand = snapshot["brand"]

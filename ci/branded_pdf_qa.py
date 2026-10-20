@@ -203,6 +203,42 @@ def check_integrity_manifest(directory):
 
 
 
+def check_pdf_interactive_payloads(snapshot, directory):
+    from scripts.proposal_artifact_integrity import build_integrity_manifest
+
+    original = directory / "safe-before-injection.pdf"
+    render(snapshot, original)
+    clean_pdf = original.read_bytes()
+    def mutate(doc, kind):
+        if kind == "external-link":
+            doc[0].insert_link({"kind": fitz.LINK_URI,
+                                "uri": "https://example.invalid/",
+                                "from": fitz.Rect(50, 50, 150, 75)})
+        elif kind == "annotation":
+            doc[0].add_text_annot((50, 50), "secret review note")
+        elif kind == "attachment":
+            doc.embfile_add("source.txt", b"hidden source payload")
+        elif kind == "catalog-script":
+            doc.xref_set_key(doc.pdf_catalog(), "OpenAction",
+                             "<</S/JavaScript/JS (app.alert(1))>>")
+        elif kind == "page-script":
+            doc.xref_set_key(doc[0].xref, "AA",
+                             "<</O <</S/JavaScript/JS (app.alert(1))>>>>")
+        elif kind == "bookmark":
+            doc.set_toc([[1, "Unreviewed bookmark", 1]])
+
+    for kind in ("external-link", "annotation", "attachment", "catalog-script", "page-script", "bookmark"):
+        with fitz.open(stream=clean_pdf, filetype="pdf") as doc:
+            mutate(doc, kind)
+            tainted = doc.tobytes()
+        try:
+            build_integrity_manifest(snapshot, tainted, 3)
+        except ValueError:
+            continue
+        raise AssertionError(f"Embedded PDF payload accepted with a newly computed manifest: {kind}")
+    print("PASS: 6 embedded PDF payloads rejected before manifest creation")
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp)
@@ -234,6 +270,7 @@ def main():
         check_atomic_output(sample, directory)
         pages = check_long_pdf(sample, directory)
         check_integrity_manifest(directory)
+        check_pdf_interactive_payloads(sample, directory)
         print(f"PASS: 2 company PDFs; 28 denied inputs; {pages}-page stress PDF; atomic writes")
 
 

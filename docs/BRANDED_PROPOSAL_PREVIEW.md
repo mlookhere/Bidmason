@@ -86,3 +86,20 @@ future authenticated adapter must explicitly maintain this digest contract
 rather than assuming a different proposal serialization is equivalent.
 The product still has **no release, publication, signature, or send path**.
 Real approvals/storage remain blocked by H01–H13.
+
+## Reject hidden PDF interactions before manifest creation
+
+The synthetic integrity verifier now **fails closed even when a new manifest
+could be computed** for a modified PDF containing external links, annotations,
+embedded files, forms, PDF catalog or page actions, or outlines. Such hidden
+content is unnecessary in the internal proposal previews and could otherwise
+conceal instructions, personal information, attachments or scripts without
+changing the visible proposal totals or warnings. This is defense in depth,
+not a replacement for malware scanning or authorized source handling.
+
+The existing mandatory `proposal-pdf-qa` explicitly injects six distinct
+interactive payload classes into a valid fictional proposal and proves each
+is refused during new-manifest creation. All previous math, pagination,
+atomic publication, and fingerprint regression checks remain intact.
+Real branded interactive PDFs would require a separately reviewed policy;
+no live document or delivery path is enabled here.
