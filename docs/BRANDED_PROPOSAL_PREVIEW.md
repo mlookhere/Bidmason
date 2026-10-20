@@ -121,3 +121,10 @@ hand-authored mock digests. Files exist only in a disposable job directory
 and are removed even on failure. It does not authenticate people or grant
 the synthetic artifact permission to be sent or published. The existing
 PDF assertions and H01–H13 release constraints remain mandatory.
+
+The cross-runtime contract test is deliberately located at
+`ci/proposal_artifact_contract.test.mjs`, **outside** the standalone
+`tests-web/*.test.mjs` glob. It is executed in the mandatory
+`proposal-pdf-qa` job only after Python creates and verifies its real PDF
+artifacts. No tests are skipped or ignored; the general web and Windows jobs
+retain all their original assertions without a Python/PDF dependency.
