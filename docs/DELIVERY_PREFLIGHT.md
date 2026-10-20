@@ -109,3 +109,31 @@ For real delivery, all source events and consent/attempt records must be
 authenticated, tenant-isolated, and committed transactionally with current
 suppression and revision checks. Neither a supplied `confirmed` flag nor
 a simulated provider event is independently verified consent.
+
+
+## Nonbinding buyer-response draft validation (no submission)
+
+`lib/buyer-response-draft.ts` builds on offline read-only signed-view
+claims without expanding their authority. It validates only three
+**nonbinding draft** kinds: `question`, `request_changes`, and `decline`.
+It explicitly disallows any `accept`, `approve`, contract-signing or send
+action. Every draft is tied to the exact organization, proposal ID, revision,
+recipient fingerprint, and content fingerprint of the supplied HMAC-signed
+read-only grant. Changed company, document, revision, recipient, or signature
+is rejected. Notes are bounded to 500 Unicode code units, NFC-normalized
+and restricted to plain printable text; questions and change requests
+require a nonempty note. Caller-supplied expired/revoked grants and
+already-responded grant IDs block. A fingerprint helps compare identical
+**local drafts** but is not an authority, signature, database lock, or
+proof that an event was accepted.
+
+The only positive state is `draft-internal-only`. No buyer identity was
+authenticated and **no response was persisted or delivered**. A read-only
+view token is not a response-submission credential. Real response capture
+will require a distinct tenant-authenticated, anti-CSRF-protected endpoint;
+an independently authorized buyer, verified scope and active revision;
+durable per-grant response uniqueness and revocation; abuse/rate limits;
+sanitized server-side persistence with text escaping on all views;
+appropriate retention, audit logging and commercial/legal review. All
+these are deferred rather than assumed passed. Eight positive/adversarial
+Node test groups run under the existing required web/Windows gates.
