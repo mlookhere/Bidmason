@@ -286,3 +286,25 @@ Its fixture import is explicitly added to the mandatory publication
 guard allowlist, without widening that guard for remote data access.
 This does not persist an operator queue, prove that any event occurred,
 authenticate a tenant or authorize outbound communication.
+
+## Single-tenant redacted synthetic operator review summary (no queue)
+
+`lib/delivery-review-summary.ts` aggregates a bounded (1–100) set of
+**fictional** delivery-triage records belonging to one explicitly specified
+tenant. It calls the existing validated `classifySimulatedDeliveryTriage`
+for each record and rejects duplicate delivery idempotency keys (even for
+identical inputs), cross-tenant records, malformed/accessor-backed evidence,
+invalid times and impossible event/consent histories. It returns only count
+totals in a stable category order and attention bands: stop contact,
+operator review and deferred. It does not return proposal IDs, recipient
+addresses, delivery event histories, idempotency keys or consent records.
+
+The result remains `review-simulation-only`, even when fictional timing is
+eligible. The existing required Linux/Windows `test:web` glob runs eight new
+positive/adversarial groups in `tests-web/delivery-review-summary.test.mjs`
+including privacy-safe output, deterministic ordering, duplicate rejection,
+tenant isolation and invalid evidence. No provider, live server endpoint,
+database, background queue, customer auth or sending ability is added.
+This is not a secure real operator dashboard: counts from caller-supplied
+fixtures do not prove trusted origin, access control, durable uniqueness or
+acceptance of H01–H13.
