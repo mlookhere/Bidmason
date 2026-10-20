@@ -110,9 +110,9 @@ test("an invalid, missing or accessor-backed evidence field fails closed",()=>{
 });
 
 test("idempotency key distinguishes recipients, revisions and QA fingerprints",()=>{
-  const base=fixture().intent;
-  assert.notEqual(deliveryIdempotencyKey({...base,revision:4}),base.idempotencyKey);
-  assert.notEqual(deliveryIdempotencyKey({...base,recipient:"other@example.test"}),base.idempotencyKey);
-  assert.notEqual(deliveryIdempotencyKey({...base,qaSha256:"e".repeat(64)}),base.idempotencyKey);
+  const {idempotencyKey, ...base}=fixture().intent;
+  assert.notEqual(deliveryIdempotencyKey({...base,revision:4}),idempotencyKey);
+  assert.notEqual(deliveryIdempotencyKey({...base,recipient:"other@example.test"}),idempotencyKey);
+  assert.notEqual(deliveryIdempotencyKey({...base,qaSha256:"e".repeat(64)}),idempotencyKey);
   assert.throws(()=>deliveryIdempotencyKey({...base,recipient:"name@internal"}),/Invalid proposed delivery identity/);
 });
