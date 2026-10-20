@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { snapshotInertEvidence } from "./inert-evidence-graph.ts";
+import { snapshotInertEvidence, snapshotInertPolicyHistory }
+  from "./inert-evidence-graph.ts";
 import { isDeepStrictEqual } from "node:util";
 import type { TrustedPolicyStore } from "./company-policy-service.ts";
 import { readActivePolicy } from "./company-policy-revisions.ts";
@@ -101,7 +102,7 @@ export async function readAuthorizedProposalDraftPreview(
   // validator, JSON fingerprint and approved-policy lookup can inspect it.
 
   checkStoredReview(first, target);
-  const history = await readPolicy();
+  const history = snapshotInertPolicyHistory(await readPolicy());
   if (!history) throw new Error("Company approved policy is unavailable");
   const approved = readActivePolicy(history, target.organizationId);
   const model = buildReviewWorkbench(first.original, first.review!, approved);
@@ -143,7 +144,7 @@ export async function readAuthorizedProposalDraftPreview(
   if (snapshotSha(latest) !== originalSnapshotSha) {
     throw new Error("Reviewed scope evidence changed during draft preview");
   }
-  const currentPolicyHistory = await readPolicy();
+  const currentPolicyHistory = snapshotInertPolicyHistory(await readPolicy());
   if (!currentPolicyHistory) {
     throw new Error("Company approved policy became unavailable");
   }

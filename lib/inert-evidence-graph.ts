@@ -7,11 +7,11 @@
  * prototypes and non-JSON primitives before calling correction verification
  * or JSON.stringify. A bounded walk also prevents cyclic/huge audit graphs.
  */
-export function inertEvidenceGraph(value: unknown): boolean {
+function inspectInertEvidence(value: unknown, maxNodes: number, maxArrayLength: number): boolean {
   const seen = new Set<object>();
   let nodes = 0;
   function visit(item: unknown, depth: number): boolean {
-    if (++nodes > 4096 || depth > 24) return false;
+    if (++nodes > maxNodes || depth > 24) return false;
     if (item === null || typeof item === "string" || typeof item === "boolean") {
       return true;
     }
@@ -20,7 +20,7 @@ export function inertEvidenceGraph(value: unknown): boolean {
     seen.add(item);
     if (Array.isArray(item)) {
       if (Object.getPrototypeOf(item) !== Array.prototype
-        || item.length > 256
+        || item.length > maxArrayLength
         || Reflect.ownKeys(item).length !== item.length + 1) return false;
       for (let i = 0; i < item.length; i++) {
         const entry = Object.getOwnPropertyDescriptor(item, String(i));
@@ -47,15 +47,35 @@ export function inertEvidenceGraph(value: unknown): boolean {
   return visit(value, 0);
 }
 
+/** Preserve the original small limit for source records; policy history may
+ * legitimately contain up to 1000 revisions, so use its separate bounded path. */
+export function inertEvidenceGraph(value: unknown): boolean {
+  return inspectInertEvidence(value, 4096, 256);
+}
+
 /** Detach a validated authorized store read before the next awaited call.
  * Without this snapshot a storage adapter can change previously inspected
  * fields during async policy lookup; a later read could execute a new getter
  * or silently price different data. This snapshot grants no authorization. */
-export function snapshotInertEvidence<T>(value: T, failure: string): T {
-  if (!inertEvidenceGraph(value)) throw new Error(failure);
+function snapshotChecked<T>(value: T, failure: string, maxNodes: number,
+  maxArrayLength: number): T {
+  if (!inspectInertEvidence(value, maxNodes, maxArrayLength)) {
+    throw new Error(failure);
+  }
   try {
     return structuredClone(value);
   } catch {
     throw new Error(failure);
   }
+}
+
+export function snapshotInertEvidence<T>(value: T, failure: string): T {
+  return snapshotChecked(value, failure, 4096, 256);
+}
+
+/** Policy histories allow 1000 revisions. Verify every nested revision before
+ * company-policy validation, hashing or serialization can evaluate it.
+ * The budget is bounded; oversized histories fail closed. */
+export function snapshotInertPolicyHistory<T>(value: T): T {
+  return snapshotChecked(value, "Unsafe company policy history", 65536, 1000);
 }

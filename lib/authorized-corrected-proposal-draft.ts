@@ -1,4 +1,5 @@
-import { snapshotInertEvidence } from "./inert-evidence-graph.ts";
+import { snapshotInertEvidence, snapshotInertPolicyHistory }
+  from "./inert-evidence-graph.ts";
 import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { readActivePolicy } from "./company-policy-revisions.ts";
@@ -89,7 +90,7 @@ export async function readAuthorizedCorrectedProposalDraftPreview(
   const originalStamp = sourceStamp(first);
   const evidence = verifyActivatedCorrectionLineage(first, target);
   const scope = first.correctedScopeReview;
-  const history = await readPolicy();
+  const history = snapshotInertPolicyHistory(await readPolicy());
   if (!history) throw new Error("Approved company policy is unavailable");
   const policy = readActivePolicy(history, target.organizationId);
   const model = buildReviewWorkbench(first.original, evidence.correctedReview, policy);
@@ -129,7 +130,7 @@ export async function readAuthorizedCorrectedProposalDraftPreview(
   if (sourceStamp(latest) !== originalStamp) {
     throw new Error("Corrected evidence changed during internal draft preview");
   }
-  const latestHistory = await readPolicy();
+  const latestHistory = snapshotInertPolicyHistory(await readPolicy());
   if (!latestHistory) throw new Error("Approved company policy became unavailable");
   const latestPolicy = readActivePolicy(latestHistory, target.organizationId);
   const latestModel = buildReviewWorkbench(latest.original,

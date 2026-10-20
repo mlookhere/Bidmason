@@ -111,3 +111,21 @@ in-process asynchronous boundary only; the second independent
 `readAuthorized` and the live tenant/session/RLS validation gates are
 still mandatory. This does **not** create proposal approval, sending
 authorization, or a commercial signature.
+
+
+## Company policy read-back validation
+
+Both internal draft preview readers now validate and detach **each** authorized
+company-policy history response before inspecting active revision, rates, review
+actors or stored policy SHA. The shared preflight rejects accessor-backed,
+hidden/symbol, sparse, cyclic or serializer-bearing history fields before
+calling the existing policy validator or pricing engine. The policy-specific
+bounded snapshot allows up to 1000 history entries (the current history
+schema maximum), while the stricter original-source evidence limit remains
+unchanged. Graphs above the resource budget fail closed.
+
+Staged regression tests inject malicious rate and history getters, custom
+serializers and non-enumerable/symbol approval fields into the first or second
+policy read; no hostile getter/serializer executes and no draft is returned.
+Company history is still required to come from separately authorized tenant
+reads. This is not approval, quote authority or a live Supabase acceptance.

@@ -371,3 +371,31 @@ test("original draft snapshots each source read before its asynchronous policy l
   assert.equal(getters,0);
  }
 });
+
+test("original proposal draft rejects unsafe company history on either authorized read",async()=>{
+ const tamper=[
+  (history,hit)=>Object.defineProperty(history,"activeRevision",{
+   enumerable:true,get(){hit();throw Error("Executed company history getter");}}),
+  (history,hit)=>Object.defineProperty(
+   history.revisions[0].policy.pricing.services.office,"rateCents",{
+   enumerable:true,get(){hit();throw Error("Executed company rate getter");}}),
+  (history,hit)=>Object.defineProperty(history.revisions[0].policy,"toJSON",{
+   enumerable:true,value(){hit();throw Error("Executed company serializer");}}),
+  history=>{history.revisions[Symbol("release")]=true;},
+  history=>{Object.defineProperty(history.revisions[0],"hiddenApproval",{value:true});},
+ ];
+ for(const phase of [1,2]){
+  for(const mutate of tamper){
+   const f=fixture();await committed(f);
+   let reads=0,executions=0;
+   const policies={readAuthorized:async input=>{
+    const record=await f.policyStore.readAuthorized(input);
+    if(++reads===phase)mutate(record,()=>{executions++;});
+    return record;
+   }};
+   await assert.rejects(readAuthorizedProposalDraftPreview(f.sourceStore,policies,'reviewer',selector),/Unsafe company policy history/);
+   assert.equal(reads,phase);
+   assert.equal(executions,0);
+  }
+ }
+});
