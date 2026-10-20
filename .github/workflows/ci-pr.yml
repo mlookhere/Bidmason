@@ -114,3 +114,15 @@ jobs:
         run: python3 -m playwright install --with-deps chromium
       - name: Chromium mobile, keyboard and disabled-intake E2E
         run: python3 ci/browser_qa.py
+
+  proposal-pdf-qa:
+    name: proposal-pdf-qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install PDF QA dependencies
+        run: python3 -m pip install --requirement requirements-pdf.txt
+      - name: Multi-company PDF render, geometry, and rejection checks
+        run: python3 ci/branded_pdf_qa.py

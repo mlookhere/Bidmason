@@ -1,0 +1,56 @@
+{
+  "kind": "synthetic-branded-proposal-preview",
+  "brand": {
+    "businessName": "Clearview Cleaning - Fictional Company",
+    "primaryHex": "#245c52",
+    "accentHex": "#e0ad55"
+  },
+  "proposal": {
+    "reference": "SYN-CLEAN-001",
+    "recipient": "Fictional Lakeside Offices",
+    "title": "Commercial cleaning visit",
+    "overview": "An illustrative cleaning visit covering common areas and meeting spaces with a checklist-based inspection.",
+    "scope": [
+      {
+        "area": "Meeting rooms",
+        "work": "Dust surfaces, clean tables, empty waste bins",
+        "completion": "Visible surfaces clear and waste removed"
+      },
+      {
+        "area": "Entry and reception",
+        "work": "Vacuum, mop approved flooring, clean contact points",
+        "completion": "Clean and clear walkways"
+      }
+    ],
+    "lines": [
+      {
+        "serviceCode": "meeting_rooms",
+        "label": "Meeting room cleaning",
+        "unit": "room",
+        "units": 3,
+        "unitPriceCents": 7000,
+        "lineTotalCents": 21000
+      },
+      {
+        "serviceCode": "floor_service",
+        "label": "Floor care",
+        "unit": "job",
+        "units": 1,
+        "unitPriceCents": 9000,
+        "lineTotalCents": 9000
+      }
+    ],
+    "subtotalCents": 30000,
+    "taxCents": 0,
+    "totalCents": 30000,
+    "assumptions": [
+      "Authorized access to all scheduled areas",
+      "Routine cleaning conditions and onsite disposal provided"
+    ],
+    "exclusions": [
+      "Biohazard handling and restoration",
+      "Unlisted additional floors or rooms"
+    ],
+    "timeline": "Visit time remains provisional pending the fictional client review."
+  }
+}
