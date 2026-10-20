@@ -264,3 +264,25 @@ portal or operator dashboard requires a separately reviewed authenticated
 route, source-authorized records, consent/legal/security review, and
 resolution of H01-H13. Do not bypass this tripwire for a dynamic feature
 without implementing those requirements.
+
+
+## Synthetic delivery exception review (operator triage, no actions)
+
+The pure delivery-triage classifier reuses the existing validated CRM
+event projection and follow-up assessment. It categorizes fictional
+suppression events (bounce, complaint, opt-out) as stop-contact review;
+recipient replies as manual reply review; missing or revoked consent
+as consent verification; incomplete delivery as provider-evidence review;
+and cooldown/attempt exhaustion as deferred. A fully consistent internal
+follow-up becomes *external-authorization-required*, never "send ready".
+All outcomes have a permanent review-simulation-only state and no action.
+
+The public /delivery-lab displays the resulting explanation beside each
+of its four fictional examples, computed from the actual pure domain
+functions. Eight adversarial Node regression groups in the required web
+and Windows checks cover precedence, fabricated approval prevention,
+replay, chronology, tenant mismatch, consent and incomplete delivery.
+Its fixture import is explicitly added to the mandatory publication
+guard allowlist, without widening that guard for remote data access.
+This does not persist an operator queue, prove that any event occurred,
+authenticate a tenant or authorize outbound communication.

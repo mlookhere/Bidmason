@@ -25,7 +25,7 @@ LAB_IMPORTS = {
     LAB_ROUTE: {"next", "../../lib/delivery-lab-fixtures.ts"},
     LAB_FIXTURE: {
         "./outbound-preflight.ts", "./follow-up-assessment.ts",
-        "./delivery-event-projection.ts",
+        "./delivery-event-projection.ts", "./delivery-triage.ts",
     },
 }
 LAB_IMPORT = re.compile(

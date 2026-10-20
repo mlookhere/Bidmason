@@ -1,5 +1,6 @@
 import {deliveryIdempotencyKey, type DeliveryIntent} from "./outbound-preflight.ts";
 import {assessSimulatedFollowUp, type FollowUpAssessment} from "./follow-up-assessment.ts";
+import {classifySimulatedDeliveryTriage, type DeliveryTriage} from "./delivery-triage.ts";
 import {
   projectSimulatedDeliveryEvents, type DeliveryEvent, type DeliveryEventKind, type DeliveryProjection,
 } from "./delivery-event-projection.ts";
@@ -48,7 +49,7 @@ const CASES: readonly CaseDefinition[] = [
 
 export type DeliveryLabCase = {
   id:string;label:string;company:string;
-  projection:DeliveryProjection;followUp:FollowUpAssessment;
+  projection:DeliveryProjection;followUp:FollowUpAssessment;triage:DeliveryTriage;
   contactState:"fictional-confirmed"|"fictional-unconfirmed";
 };
 
@@ -64,11 +65,11 @@ export function buildSyntheticDeliveryLabCases(): DeliveryLabCase[] {
       recipient:intent.recipient,kind,
       observedAt:"2026-10-20T08:"+String(index).padStart(2,"0")+":00.000Z",
     }));
+    const policy={consent:scenario.consent,version:1,minimumDelayHours:24,maximumAttempts:2};
     return {id:scenario.id,label:scenario.label,company:scenario.company,
       projection:projectSimulatedDeliveryEvents(intent,events),
-      followUp:assessSimulatedFollowUp(intent,events,{
-        consent:scenario.consent,version:1,minimumDelayHours:24,maximumAttempts:2,
-      },[],NOW),
+      followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW),
+      triage:classifySimulatedDeliveryTriage(intent,events,policy,[],NOW),
       contactState:scenario.consent==="confirmed"?"fictional-confirmed":"fictional-unconfirmed",
     };
   });

@@ -56,7 +56,10 @@ export default function DeliveryLab() {
                   <div><dt>Contact state</dt><dd>{scenario.contactState==="fictional-confirmed"?"Fixture states confirmed (unverified)":"Unknown — blocks contact"}</dd></div>
                   <div><dt>Follow-up assessment</dt><dd>{scenario.followUp.state==="blocked"?"Blocked":"Internal candidate only — not send approval"}</dd></div>
                   <div><dt>Fictional reply</dt><dd>{scenario.projection.replied?"Recorded in fixture":"None in fixture"}</dd></div>
+                  <div><dt>Operator review category</dt><dd>{scenario.triage.category.replaceAll("-"," ")} (simulation only)</dd></div>
                 </dl>
+                <h4>What an operator would review</h4>
+                <p className="lab-review-rationale">{scenario.triage.rationale}</p>
                 <h4>Why this cannot send</h4>
                 <ul className="lab-blockers">
                   {scenario.followUp.blockers.length
