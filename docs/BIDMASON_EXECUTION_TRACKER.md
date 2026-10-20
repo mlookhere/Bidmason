@@ -353,3 +353,14 @@ Issue [#3](https://github.com/mlookhere/Bidmason/issues/3), draft [PR #11](https
 - Implemented `lib/company-pricing.ts` as a pure company-configurable evaluator and `tests-web/company-pricing.test.mjs` using separate synthetic painting and cleaning configurations, distinct minima, optional included work, discount/surcharge orders, numerical validation and reject-on-pending behavior. This is a stepping stone, **not** the production pricing backend.
 - The general platform architecture is captured in `docs/COMPANY_POLICY_ARCHITECTURE.md`. Tax, legal/regulatory, company-specific source authorization, persisted policy versioning and role-based commercial approvals remain scheduled for later implementation slices.
 - Do not mark original 2026 Harbor Coast PDF as approved or overwrite source evidence. Step 2 may proceed to internal QA/review without an arbitrary fictional $475 business choice once new CI checks succeed; this does **not** loosen any approval/claim/security gate.
+
+
+---
+
+## 24. Item 5 synthetic proposal and deferred acceptance checkpoint — October 19, 2026
+
+- Reconstructed live repository: `dev=08e40794829b92e910af1432fd3c2bf7c8cf502e`, `main=a3225039bb5415aad2e6c950e9d11c1a2842bdd2`. Item 3 / Issue #4 / draft PR #12 and Item 4 / Issue #5 / draft PR #13 remain unmerged; Item 4 HEAD `7da070f0` has 9/9 verified green CI at Actions #39356145819.
+- Reused existing Issue #6; created `work/6-branded-proposal-preview` **from dev**, no direct dev/main changes. Initial Item 5 commit `30a9d340` adds a strict reusable ReportLab preview and fixtures for fictional painting and cleaning contractors, and a new mandatory `proposal-pdf-qa` Actions job. The original fixture renderer and security gates remain unchanged. GitHub workflow_dispatch Actions #39383012143 confirmed **8/8 required jobs successful** at that exact first HEAD, including the newly added gate.
+- Item 5 follow-on code implements five required `passed/failed/not_run` internal QA checks, a SHA-256 fingerprint bound to proposal, revision, source, policy and content, and an independently consistent operator/contractor receipt pair. The positive state is **consistent-internal-only**, never authenticated authority to send or publish. Its exact-head CI is independent of the older green run; confirm each newer commit's run before claiming green.
+- **Human-review deferment is explicitly preserved**, not waived. See [DEFERRED_ACCEPTANCE_REGISTER.md](DEFERRED_ACCEPTANCE_REGISTER.md) for 13 traceable real Supabase, malware scanning, company policy, consent/legal, real PDF, independent role approvals, quotas/operations and launch evidence items. Last connected Item 4 preflight 5/24 passed, 19 missing; that value was not rerun in this Item 5 work.
+- Item 5 draft PR must target dev and use `Refs #6`. Do not merge based solely on branch workflow_dispatch or reuse synthetic examples for real customers.
