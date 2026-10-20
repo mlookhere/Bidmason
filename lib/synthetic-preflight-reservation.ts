@@ -25,7 +25,7 @@ export type SyntheticReservationEvidence = {
 export type SyntheticPreflightReservationResult = {
   state: "blocked" | "reserved-simulation-only";
   reason: "preflight-blocked" | "prior-recipient-suppressed"
-    | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
+    | "prior-recipient-replied" | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
     | "recipient-suppressed" | "recipient-already-reserved";
   blockers: string[];
   observedHistory: "caller-fixtures-only";
@@ -46,7 +46,7 @@ function exactData(value: unknown): value is SyntheticReservationEvidence {
 
 /** A reproducible, NON-SENDING rehearsal of three existing safety boundaries:
  * 1) exact-revision preflight with two distinct fictional reviewers;
- * 2) same-recipient historical opt-out/complaint/bounce projection;
+ * 2) same-recipient historical opt-out/complaint/bounce and reply review;
  * 3) version-checked in-memory recipient reservation.
  *
  * Every supplied record remains untrusted and synthetic; successful
@@ -87,6 +87,19 @@ export function rehearseSyntheticDeliveryReservation(
     return {
       state: "blocked", reason: "prior-recipient-suppressed",
       blockers: ["Earlier fictional recipient opt-out, complaint or bounce blocks reservation"],
+      observedHistory: "caller-fixtures-only",
+      reservationVersion: current.version,
+      contactAuthorized: false,
+    };
+  }
+
+  // An earlier reply is NOT a durable opt-out, but it requires operator
+  // review before rehearsing any additional reminder/reservation. Persistent
+  // suppression above always has priority over this manual-review hold.
+  if (prior.repliedInHistory) {
+    return {
+      state: "blocked", reason: "prior-recipient-replied",
+      blockers: ["Earlier fictional recipient reply requires operator review before another reminder"],
       observedHistory: "caller-fixtures-only",
       reservationVersion: current.version,
       contactAuthorized: false,

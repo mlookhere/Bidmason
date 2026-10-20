@@ -125,6 +125,67 @@ test("historical opt-out blocks an otherwise clean-looking preflight",()=>{
     "prior-recipient-suppressed");
 });
 
+
+test("earlier fictional recipient reply prevents a new reservation until human review",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const result=review(ledger,make(),history("recipient_replied"));
+  assert.equal(result.state,"blocked");
+  assert.equal(result.reason,"prior-recipient-replied");
+  assert.equal(result.reservationVersion,0);
+  assert.equal(result.observedHistory,"caller-fixtures-only");
+  assert.equal(result.contactAuthorized,false);
+  assert.match(result.blockers.join(" "),/operator review/i);
+  const current=ledger.snapshot(make().intent);
+  assert.equal(current.version,0);
+  assert.equal(current.reserved,false);
+  for(const token of [BASE.organizationId,BASE.recipient,BASE.proposalId,"dryrun_"])
+    assert.equal(JSON.stringify(result).includes(token),false);
+});
+
+test("permanent opt-out outranks earlier reply and no reservation occurs",()=>{
+  const priorReply=history("recipient_replied")[0];
+  const bounceIdentity=make({revision:1,proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff"});
+  const bounceEvents=["reserved","provider_accepted","provider_bounced"].map((kind,index)=>({
+    eventId:String(index+101).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    organizationId:bounceIdentity.intent.organizationId,
+    idempotencyKey:bounceIdentity.intent.idempotencyKey,
+    recipient:bounceIdentity.intent.recipient,kind,
+    observedAt:"2026-10-19T08:"+String(index).padStart(2,"0")+":00.000Z",
+  }));
+  const priorBounce={intent:bounceIdentity.intent,events:bounceEvents};
+  for(const records of [[priorReply,priorBounce],[priorBounce,priorReply]]){
+    const ledger=new SyntheticDispatchReservationLedger();
+    const result=review(ledger,make(),records);
+    assert.equal(result.state,"blocked");
+    assert.equal(result.reason,"prior-recipient-suppressed");
+    assert.equal(ledger.snapshot(make().intent).version,0);
+  }
+});
+
+test("all simulated contenders with earlier reply block without changing CAS version",async()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const oldReply=history("recipient_replied");
+  const results=await Promise.all(Array.from({length:24},()=>Promise.resolve().then(()=>
+    review(ledger,make(),oldReply,0))));
+  assert.equal(results.length,24);
+  assert.ok(results.every(x=>x.state==="blocked"
+    && x.reason==="prior-recipient-replied" && x.contactAuthorized===false));
+  assert.equal(ledger.snapshot(make().intent).version,0);
+});
+
+test("forged historical reply evidence fails before a blocked preflight or ledger mutation",()=>{
+  const evidence=make();
+  evidence.proposal.reviewState="revoked";
+  const valid=history("recipient_replied");
+  const altered=[{intent:valid[0].intent,events:valid[0].events.map((event,index)=>
+    index===3?{...event,recipient:"different@fictional.example"}:event)}];
+  const ledger=new SyntheticDispatchReservationLedger();
+  assert.throws(()=>review(ledger,evidence,altered),/cross-tenant delivery event/);
+  assert.equal(ledger.snapshot(evidence.intent).version,0);
+  assert.equal(review(ledger,evidence,valid).reason,"preflight-blocked");
+  assert.equal(ledger.snapshot(evidence.intent).version,0);
+});
+
 test("invalid history still fails even when the proposal was already blocked",()=>{
   const ledger=new SyntheticDispatchReservationLedger();
   const e=make();e.proposal.reviewState="revoked";

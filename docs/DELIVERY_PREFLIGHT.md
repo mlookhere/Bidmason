@@ -421,7 +421,8 @@ safety exercises into one reviewed sequence:
 source/policy/content/QA hashes, a reviewed proposal, two independent actor
 receipts, current caller-provided suppression and absent dispatch evidence;
 (2) reviewSimulatedRecipientContactHistory validates the same recipient's
-prior fictional proposal streams and applies sticky bounce/complaint/opt-out;
+prior fictional proposal streams, including sticky bounce/complaint/opt-out
+and past-reply manual-review signals;
 (3) SyntheticDispatchReservationLedger.compareAndReserve applies a fresh
 in-process version comparison and refuses existing fictional reservations or
 ledger suppressions. Both evidence streams are validated before attempting
@@ -648,3 +649,32 @@ tenant-scoped reply ownership, trustworthy event origin, customer consent,
 verified suppression, human review and transactional dispatch constraints.
 No response endpoint, automatic follow-up, schedule, database mutation,
 provider, or email is added. H01-H13 and draft PR holds remain unchanged.
+
+
+## Reply-aware preflight reservation rehearsal (synthetic only)
+
+The integrated synthetic preflight/reservation flow now enforces the
+historical-reply hold that was already represented in recipient-aware CRM
+triage. Previously, an earlier fictional recipient reply on a different
+proposal changed the operator review category, but
+rehearseSyntheticDeliveryReservation still checked only historical
+opt-outs, bounces and complaints before performing an in-memory CAS.
+
+After validating both complete preflight and historical evidence, the
+rehearsal now checks suppression first, then repliedInHistory. A prior
+reply returns blocked / prior-recipient-replied and leaves the ledger
+unchanged; it requires manual operator review and does not turn a reply
+into a permanent opt-out. A past bounce, opt-out or complaint still wins
+as prior-recipient-suppressed regardless of replay ordering. A fictional
+clean-history rehearsal still yields at most reserved-simulation-only,
+never a customer send, provider call or authorized contact.
+
+Four additional required Linux/Windows Node test groups assert direct
+prior-reply holds, suppression precedence across separate earlier
+proposals, 24 concurrent fictional contenders blocked with no version
+change, and malformed cross-recipient event evidence rejected even if
+the current proposal is revoked. No new runtime module, route, queue,
+provider, DB, credentials, email, or CI gate is introduced. Source
+fixtures and in-process CAS do not authenticate a recipient, prove full
+historical coverage, establish a real manual review, or provide durable
+transactional safety. H01-H13 and human/live acceptance remain blocking.
