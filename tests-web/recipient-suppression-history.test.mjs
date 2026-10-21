@@ -108,6 +108,28 @@ test("duplicate proposal keys, including target proposal, must not obscure suppr
   const previousRevision=make(0,["reserved","provider_accepted","provider_bounced"],ORG,RECIPIENT,1);
   assert.deepEqual(scan([previousRevision]).suppression,["bounced"]);
 });
+test("conflicting hashes cannot masquerade as different histories for one immutable revision",()=>{
+  const original=make(1,["reserved","provider_accepted","provider_delivered","recipient_opted_out"]);
+  const changedFields={...original.intent,contentSha256:"e".repeat(64)};
+  const {idempotencyKey: _oldKey,...newIdentity}=changedFields;
+  const changedIntent={...newIdentity,idempotencyKey:deliveryIdempotencyKey(newIdentity)};
+  const changed={intent:changedIntent,events:original.events.map((event,index)=>({
+    ...event,idempotencyKey:changedIntent.idempotencyKey,
+    eventId:String(81+index).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  }))};
+  assert.notEqual(changedIntent.idempotencyKey,original.intent.idempotencyKey);
+  assert.throws(()=>scan([original,changed]),/Duplicate or current-proposal/);
+  assert.throws(()=>scan([changed,original]),/Duplicate or current-proposal/);
+  const targetRevisionConflict=make(0,["reserved"],ORG,RECIPIENT,2);
+  const alteredTarget={...targetRevisionConflict.intent,policySha256:"f".repeat(64)};
+  const {idempotencyKey: _targetKey,...alteredTargetIdentity}=alteredTarget;
+  const previousKey={...alteredTargetIdentity,
+    idempotencyKey:deliveryIdempotencyKey(alteredTargetIdentity)};
+  assert.throws(()=>scan([{intent:previousKey,events:[]}]),/Duplicate or current-proposal/);
+  // A genuinely earlier numbered revision of the same proposal is valid history.
+  assert.deepEqual(scan([make(0,["reserved","provider_accepted","provider_bounced"],ORG,RECIPIENT,1)]).suppression,["bounced"]);
+});
+
 test("event IDs reused across proposal streams fail, exact within-stream replay remains safe",()=>{
   const a=make(1,["reserved","provider_accepted"]);
   const b=make(2,["reserved","provider_accepted"]);

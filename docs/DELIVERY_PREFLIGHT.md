@@ -820,3 +820,21 @@ exactly six invented case definitions without permitting new runtime
 imports, network access, secrets, or dynamic customer data.
 H01–H13 and upstream draft PR holds remain unchanged; synthetic
 history does not establish verified consent or authenticate a reply.
+
+
+## Immutable proposal-revision identity in fictional recipient history
+
+Recipient-history review now rejects two distinct dry-run delivery keys that
+claim the **same proposal ID and revision**, even when their source, pricing,
+content or QA digests differ. A historical record that conflicts with the
+**current** proposal ID and revision is rejected as well. Immutable revisions
+may not be changed in place to disguise duplicate or conflicting history.
+Earlier numbered revisions of the same proposal remain valid historical
+streams so their opt-outs, replies, complaints and bounces still block or
+require review. Tests cover conflicting keys in both orders, conflict with
+the current revision, and valid prior revision suppression.
+
+The keys and revision claims here remain caller-provided fictional fixtures,
+not independently authenticated records or complete recipient history. The
+result never authorizes communication; H01–H13 and live tenant/provider
+acceptance requirements are unchanged.

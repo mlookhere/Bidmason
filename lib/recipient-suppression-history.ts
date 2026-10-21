@@ -58,6 +58,7 @@ export function reviewSimulatedRecipientContactHistory(
   projectSimulatedDeliveryEvents(target, []);
 
   const keys = new Set<string>();
+  const revisions = new Set<string>();
   const eventIds = new Set<string>();
   const suppression = new Set<DeliveryProjection["suppression"][number]>();
   let repliedInHistory = false;
@@ -72,11 +73,18 @@ export function reviewSimulatedRecipientContactHistory(
       || record.intent.recipient !== target.recipient) {
       throw new TypeError("Cross-tenant or cross-recipient synthetic history");
     }
+    const revisionId = record.intent.proposalId + "\u0000" + record.intent.revision;
+    // A proposal revision is immutable. A changed source or policy digest must
+    // create a new revision, not a second key for the same revision identity.
     if (record.intent.idempotencyKey === target.idempotencyKey
-      || keys.has(record.intent.idempotencyKey)) {
+      || keys.has(record.intent.idempotencyKey)
+      || revisions.has(revisionId)
+      || (record.intent.proposalId === target.proposalId
+        && record.intent.revision === target.revision)) {
       throw new TypeError("Duplicate or current-proposal synthetic history");
     }
     keys.add(record.intent.idempotencyKey);
+    revisions.add(revisionId);
     totalEvents += record.events.length;
     if (totalEvents > 500) throw new TypeError("Oversized synthetic recipient history");
 
