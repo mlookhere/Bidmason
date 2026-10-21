@@ -213,6 +213,30 @@ class PublishGuardTests(unittest.TestCase):
             self.assertTrue(any("Symlink in publishable Next tree" in x
                                 for x in findings(self.root)))
 
+    def test_unapproved_io_from_other_next_pages_is_rejected(self):
+        for path, code in (
+            ("app/operator/page.tsx", "const send = () => fetch('/api/send')"),
+            ("src/app/(operator)/page.tsx", "navigator.sendBeacon('/contact', 'body')"),
+            ("pages/lead.tsx", "const live = new WebSocket('wss://example.test')"),
+            ("src/pages/contact.tsx", "localStorage.setItem('customer', 'x')"),
+            ("app/operator/page.tsx", "const secret = process.env.SENDER_KEY"),
+            ("pages/lead.tsx", "const db = createClient('https://example.test')"),
+            ("app/operator/page.tsx", "const db = indexedDB.open('leads')"),
+            ("pages/lead.tsx", "const stream = new EventSource('/events')"),
+        ):
+            with self.subTest(path=path, code=code):
+                candidate = self.root / path
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_text(code)
+                self.assertTrue(any("Unapproved Next network, storage or environment IO"
+                                    in finding for finding in findings(self.root)))
+                candidate.unlink()
+        # Plain static views and explanatory text are allowed.
+        page = self.root / "app/operator/page.tsx"
+        page.parent.mkdir(exist_ok=True)
+        page.write_text("export default function Page(){return <main>Fictional preview</main>}")
+        self.assertEqual(findings(self.root), [])
+
     def test_static_public_pages_remain_permitted(self):
         page = self.root / "app/operator/page.tsx"
         page.parent.mkdir(exist_ok=True)

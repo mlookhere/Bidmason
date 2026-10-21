@@ -154,6 +154,14 @@ ROUTE_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"
 SERVER_ENTRYPOINTS = ("middleware", "proxy", "instrumentation")
 SERVER_ACTION_MARKER = re.compile(r"""['"]use server['"]""")
 FORM_ACTION_MARKER = re.compile(r"<\s*form\b[^>]*\baction\s*=|\bformAction\s*=", re.I | re.S)
+# No verified customer backend: a static Next page must not quietly acquire
+# browser network, persistent client storage or environment-backed IO.
+# Conservative tripwire, not an exhaustive JS information-flow analysis.
+UNREVIEWED_NEXT_IO = re.compile(
+    r"\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|WebTransport|"
+    r"sendBeacon|localStorage|sessionStorage|indexedDB|BroadcastChannel|"
+    r"createClient)\b|\bprocess\s*\.\s*env\b"
+)
 
 
 def outbound_endpoint_findings(root: Path) -> list[str]:
@@ -184,6 +192,8 @@ def outbound_endpoint_findings(root: Path) -> list[str]:
                 problems.append(f"Unapproved Next server action: {relative}")
             if FORM_ACTION_MARKER.search(content):
                 problems.append(f"Unapproved mutating form action: {relative}")
+            if UNREVIEWED_NEXT_IO.search(content):
+                problems.append(f"Unapproved Next network, storage or environment IO: {relative}")
     for base in (root, root / "src"):
         for basename in SERVER_ENTRYPOINTS:
             for suffix in ROUTE_EXTENSIONS:

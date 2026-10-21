@@ -853,3 +853,24 @@ current fictional review is revoked. The result is still caller-supplied,
 non-sending and non-authoritative; this cannot establish actual revision
 chronology, tenant authentication, consent or real contact clearance. H01–H13
 and all real provider/database/release requirements remain blocked.
+
+
+## Unreviewed Next-page network and storage tripwire
+
+The mandatory fast, PR and security publication guard now rejects direct
+browser network APIs (fetch, WebSocket, EventSource, XMLHttpRequest,
+WebTransport, sendBeacon), client-side persistent storage primitives,
+`createClient`, and `process.env` references in all Next application/page
+source trees, not only the fictional delivery lab. Earlier checks covered
+unreviewed HTTP route files, server actions and form submissions; a new
+ordinary page with a client-side network operation could previously bypass
+those checks. Adversarial Python cases cover App/Pages Router and `src/`
+variants, while ordinary static informational pages remain permitted.
+
+This deliberately conservative source-level release tripwire is **not** a
+JavaScript parser, dependency/alias analysis or formal guarantee that no
+network side effect can exist. A genuinely authorized live workflow must
+replace these temporary blocks with independent tenant-safe endpoint,
+provider, consent, privacy/security and transactional tests. No production
+email, credentials, customer data, portal, endpoint or deployment is created,
+and H01–H13 acceptance remains outstanding.
