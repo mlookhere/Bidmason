@@ -972,3 +972,24 @@ request, or new dependency was added. These are fabricated IDs, not
 provider authenticity or durable uniqueness evidence. Production tenant
 RLS, signed webhook event IDs, transactional deduplication and H01–H13
 human release acceptance remain mandatory and unverified.
+
+## Immutable fictional proposal-revision identity within CRM summaries
+
+The non-sending tenant-local `summarizeSyntheticDeliveryReview` now rejects
+two different dry-run delivery keys that claim **the same proposal ID,
+revision number and recipient** in one summary, even if their source,
+policy, proposal content or QA fingerprints differ. Previous checks rejected
+identical dispatch keys and event-ID collisions, but could count conflicting
+immutable proposal-revision identities as two independent CRM cases.
+
+Regression cases reject all four fingerprint changes in either input order,
+while allowing legitimately distinct revisions, different fictional
+recipients for a shared proposal revision, and unrelated proposal IDs. The
+rule is recipient-scoped so one approved proposal revision may still be
+shared with multiple distinct recipients without treating those deliveries
+as duplicates. All outputs remain redacted counts with
+`review-simulation-only` state. This proves neither actual immutable
+storage nor authenticated approvals; real transactional tenant/recipient
+uniqueness, RLS, consent, provider evidence and all H01–H13 human release
+acceptance remain outstanding. No live endpoint, sending or persistence is
+added, and existing required CI gates remain unchanged.

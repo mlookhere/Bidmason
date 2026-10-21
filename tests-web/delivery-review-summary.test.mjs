@@ -68,6 +68,35 @@ test("duplicate delivery identity rejects both identical and conflicting entries
   assert.throws(()=>summary([valid,{...valid,policy:{...valid.policy,consent:"revoked"}}]),
     /Duplicate simulated review identity/);
 });
+test("same proposal revision and recipient cannot be re-keyed with contradictory evidence",()=>{
+  const initial=make(0),other=make(1);
+  for(const field of ["sourceSha256","policySha256","contentSha256","qaSha256"]){
+    const {idempotencyKey: _previous,...raw}=initial.intent;
+    const modified={...raw,[field]:"e".repeat(64)};
+    const changed={...other,intent:{...modified,
+      idempotencyKey:deliveryIdempotencyKey(modified)},
+      events:other.events.map(event=>({...event,
+        idempotencyKey:deliveryIdempotencyKey(modified)}))};
+    assert.throws(()=>summary([initial,changed]),
+      /Conflicting simulated proposal revision/,field);
+    assert.throws(()=>summary([changed,initial]),
+      /Conflicting simulated proposal revision/,field);
+  }
+  // Revisions are independent; delivering the exact same revision to a
+  // different fictional recipient is not inherently a duplicate.
+  const clone=(changes,template=other)=>{
+    const {idempotencyKey: _old,...raw}=initial.intent;
+    const modified={...raw,...changes};
+    const idempotencyKey=deliveryIdempotencyKey(modified);
+    return {...template,intent:{...modified,idempotencyKey},
+      events:template.events.map(event=>({...event,
+        recipient:modified.recipient,idempotencyKey}))};
+  };
+  assert.equal(summary([initial,clone({revision:2})]).reviewedCases,2);
+  assert.equal(summary([initial,clone({recipient:"other@fictional.example"})]).reviewedCases,2);
+  assert.equal(summary([initial,other]).reviewedCases,2);
+});
+
 test("event IDs must not collide between distinct proposals in one tenant",()=>{
   const first=make(0),second=make(1);
   const collision={...second,events:second.events.map((e,i)=>i===1

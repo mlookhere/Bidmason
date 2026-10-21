@@ -81,6 +81,7 @@ export function summarizeSyntheticDeliveryReview(
     throw new TypeError("Invalid simulated review batch");
   }
   const seen = new Set<string>();
+  const revisionRecipients = new Set<string>();
   const eventIds = new Set<string>();
   const counts = new Map<DeliveryTriage["category"], number>(
     CATEGORIES.map(category => [category, 0]),
@@ -108,6 +109,15 @@ export function summarizeSyntheticDeliveryReview(
       throw new TypeError("Duplicate simulated review identity");
     }
     seen.add(key);
+    // Different hashes cannot create multiple delivery records for the same
+    // immutable proposal revision and recipient, even with distinct keys.
+    const revisionRecipient = JSON.stringify([
+      entry.intent.proposalId, entry.intent.revision, entry.intent.recipient,
+    ]);
+    if (revisionRecipients.has(revisionRecipient)) {
+      throw new TypeError("Conflicting simulated proposal revision in CRM summary");
+    }
+    revisionRecipients.add(revisionRecipient);
     // Replays within one validated stream are harmless; a provider event ID
     // reused by another proposal would corrupt a tenant-wide CRM rollup.
     const streamIds = new Set(entry.events.map(event => event.eventId));
