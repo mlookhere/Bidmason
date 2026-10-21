@@ -891,3 +891,21 @@ audit. It cannot prove that an attempt or reply occurred or authenticate
 consent. Live provider receipt, durable audit/recovery, tenant-scoped storage,
 company policies and all H01–H13 human/release requirements remain pending.
 No API route, provider, database or outbound side effect was introduced.
+
+## Strict fictional CRM event timestamp ordering
+
+The offline `projectSimulatedDeliveryEvents` projector now rejects two
+**distinct** event IDs with identical UTC observation timestamps. Previously
+the strict arrival-order reducer allowed a tie even though the fictional
+signed-webhook reconciliation path already treated the same ordering as
+ambiguous. Exact duplicate event-ID/body replays remain idempotent, including
+after later distinct events. An adversarial Node regression checks simultaneous
+reservation/acceptance, simultaneous suppression events, and allowed exact
+replay. No fabricated tie-breaker or implicit event order is introduced.
+
+This is a stricter validation contract for fictional event fixtures, not a
+real provider event chronology or reliable timestamp source. Genuine
+same-time events will require an independently specified provider/DB ordering
+and durable reconciliation policy. H01–H13 tenant, consent, provider, SQL
+transactional and human release dependencies remain unverified; no live
+endpoint, storage or sending was enabled.

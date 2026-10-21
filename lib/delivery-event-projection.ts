@@ -100,8 +100,10 @@ export function projectSimulatedDeliveryEvents(
       if (previous !== fingerprint) throw new TypeError("Conflicting delivery event replay");
       continue;
     }
-    if (event.observedAt < lastTimestamp) {
-      throw new TypeError("Out-of-order delivery events require reconciliation");
+    // Distinct events at one timestamp have no provable causal order.
+    // Exact event-ID replays are handled above and remain idempotent.
+    if (event.observedAt <= lastTimestamp) {
+      throw new TypeError("Out-of-order or ambiguous delivery event chronology");
     }
 
     switch(event.kind) {

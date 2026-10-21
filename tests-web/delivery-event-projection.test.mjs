@@ -48,6 +48,17 @@ test("out-of-order and impossible state transitions fail closed",()=>{
   assert.throws(()=>run([evt("reserved",3),evt("provider_accepted",2)]),/Out-of-order/);
 });
 
+test("equal-time distinct events are ambiguous, but exact event-ID replay remains safe",()=>{
+  const reserved=evt("reserved",0),accepted=evt("provider_accepted",1);
+  const sameTime={...accepted,observedAt:reserved.observedAt};
+  assert.throws(()=>run([reserved,sameTime]),/ambiguous/);
+  const delivered=evt("provider_delivered",2);
+  const optOut=evt("recipient_opted_out",3);
+  const complaint={...evt("provider_complained",4),observedAt:optOut.observedAt};
+  assert.throws(()=>run([reserved,accepted,delivered,optOut,complaint]),/ambiguous/);
+  assert.deepEqual(run([reserved,accepted,{...reserved}]),run([reserved,accepted]));
+});
+
 test("bounces, complaints and opt-outs remain suppressions",()=>{
   const events=["reserved","provider_accepted","recipient_opted_out",
     "provider_delivered","provider_complained"].map(evt);
