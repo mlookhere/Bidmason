@@ -949,3 +949,26 @@ The synthetic result can never authorize a contact; real audit/recovery,
 tenant RLS, transactional suppression, provider, policy approval and H01–H13
 human release acceptance remain blocked. No web route, sender, persistence,
 secret, provider integration or CI gate was introduced.
+
+## Tenant-local CRM event-ID uniqueness in fictional summaries
+
+The non-sending `summarizeSyntheticDeliveryReview` now rejects a provider
+`eventId` reused by two distinct proposal streams inside the same
+fictional tenant summary. Previously each stream was individually validated,
+but a colliding ID on a different proposal could be counted twice across
+CRM cases. The existing recipient-history validator already enforced this
+boundary for its historical collections. Exact same-ID/body replays inside
+**one** validated stream remain idempotent and do not become cross-proposal
+collisions. This rule does not compare independent tenant summaries.
+
+The public six-case lab now assigns deterministic distinct fictional event
+IDs to each case and its optional historical proposal, without changing
+scenario meaning, company grouping, contact restrictions or visible counts.
+Required Node coverage tests reversed collision order, legitimate distinct
+streams, exact replay in one stream, and independent tenant scopes; the
+existing delivery-lab source tests also remain required. No customer
+records, signed live provider callback, database, sender, route, external
+request, or new dependency was added. These are fabricated IDs, not
+provider authenticity or durable uniqueness evidence. Production tenant
+RLS, signed webhook event IDs, transactional deduplication and H01–H13
+human release acceptance remain mandatory and unverified.

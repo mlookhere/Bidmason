@@ -81,6 +81,7 @@ export function summarizeSyntheticDeliveryReview(
     throw new TypeError("Invalid simulated review batch");
   }
   const seen = new Set<string>();
+  const eventIds = new Set<string>();
   const counts = new Map<DeliveryTriage["category"], number>(
     CATEGORIES.map(category => [category, 0]),
   );
@@ -107,6 +108,13 @@ export function summarizeSyntheticDeliveryReview(
       throw new TypeError("Duplicate simulated review identity");
     }
     seen.add(key);
+    // Replays within one validated stream are harmless; a provider event ID
+    // reused by another proposal would corrupt a tenant-wide CRM rollup.
+    const streamIds = new Set(entry.events.map(event => event.eventId));
+    if ([...streamIds].some(id => eventIds.has(id))) {
+      throw new TypeError("Cross-proposal simulated review event ID collision");
+    }
+    for (const id of streamIds) eventIds.add(id);
     counts.set(result.category, (counts.get(result.category) ?? 0) + 1);
     if (result.attention === "stop-contact") attention.stopContact++;
     else if (result.attention === "operator-review") attention.operatorReview++;

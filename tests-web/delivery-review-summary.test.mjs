@@ -20,7 +20,7 @@ const make=(index,kinds=["reserved","provider_accepted","provider_delivered"],co
     contentSha256:"c".repeat(64),qaSha256:"d".repeat(64),
     recipient:"buyer@fictional.example"};
   const intent={...identity,idempotencyKey:deliveryIdempotencyKey(identity)};
-  const events=kinds.map((kind,j)=>({eventId:String(j+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  const events=kinds.map((kind,j)=>({eventId:String(index*10+j+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     organizationId,recipient:intent.recipient,idempotencyKey:intent.idempotencyKey,
     kind,observedAt:"2026-10-20T08:"+String(j).padStart(2,"0")+":00.000Z"}));
   return {intent,events,policy:{...policy,consent},previousAttempts:[]};
@@ -68,6 +68,21 @@ test("duplicate delivery identity rejects both identical and conflicting entries
   assert.throws(()=>summary([valid,{...valid,policy:{...valid.policy,consent:"revoked"}}]),
     /Duplicate simulated review identity/);
 });
+test("event IDs must not collide between distinct proposals in one tenant",()=>{
+  const first=make(0),second=make(1);
+  const collision={...second,events:second.events.map((e,i)=>i===1
+    ?{...e,eventId:first.events[1].eventId}:e)};
+  assert.throws(()=>summary([first,collision]),/Cross-proposal simulated review event ID collision/);
+  assert.throws(()=>summary([collision,first]),/Cross-proposal simulated review event ID collision/);
+  assert.equal(summary([first,second]).reviewedCases,2);
+  const replay={...first,events:[...first.events,{...first.events[0]}]};
+  assert.equal(summary([replay,second]).reviewedCases,2);
+  const otherTenant=make(1,["reserved"],"confirmed",
+    "99999999-9999-4999-8999-999999999999");
+  assert.equal(summarizeSyntheticDeliveryReview(otherTenant.intent.organizationId,
+    [otherTenant],now).reviewedCases,1);
+});
+
 test("empty, oversized, sparse and decorated collections are rejected",()=>{
   for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
     assert.throws(()=>summary(entries),/Invalid simulated review batch/);

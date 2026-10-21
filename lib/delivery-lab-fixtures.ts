@@ -84,7 +84,7 @@ type FixtureRecord = {organizationId:string;company:string;
   history: readonly SyntheticRecipientHistory[]};
 
 function buildFixtureRecords(): FixtureRecord[] {
-  return CASES.map(scenario => {
+  return CASES.map((scenario, scenarioIndex) => {
     const identity={organizationId:scenario.organizationId,
       proposalId:scenario.proposalId,revision:1,...HASHES,
       // Different invented people, except an earlier proposal explicitly reuses
@@ -92,7 +92,7 @@ function buildFixtureRecords(): FixtureRecord[] {
       recipient:scenario.recipient};
     const intent:DeliveryIntent={...identity,idempotencyKey:deliveryIdempotencyKey(identity)};
     const events:DeliveryEvent[]=scenario.events.map((kind,index)=>({
-      eventId:String(index+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      eventId:String(scenarioIndex*10+index+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       organizationId:intent.organizationId,idempotencyKey:intent.idempotencyKey,
       recipient:intent.recipient,kind,
       observedAt:"2026-10-20T08:"+String(index).padStart(2,"0")+":00.000Z",
@@ -108,7 +108,7 @@ function buildFixtureRecords(): FixtureRecord[] {
         const previousKinds:DeliveryEventKind[]=["reserved","provider_accepted",
           "provider_delivered",scenario.earlierReplyProposalId?"recipient_replied":"recipient_opted_out"];
         const previousEvents:DeliveryEvent[]=previousKinds.map((kind,index)=>({
-          eventId:String(index+101).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          eventId:String(scenarioIndex*10+index+101).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
           organizationId:previousIntent.organizationId,
           idempotencyKey:previousIntent.idempotencyKey,
           recipient:previousIntent.recipient,kind,
