@@ -66,6 +66,22 @@ test("cross-tenant, inconsistent replay, forged and out-of-order attempts are re
   const changed={...identity,revision:4};
   assert.throws(()=>run({intent:{...changed,idempotencyKey:intent.idempotencyKey}}),/Invalid simulated delivery identity/);
 });
+test("attempts at or after replies and suppression events fail chronological validation",()=>{
+  const stopTime="2026-10-22T08:00:00.000Z";
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const events=[...delivered,{...evt(kind,3),observedAt:stopTime}];
+    assert.throws(()=>run({events,attempts:[attempt(0)]}),/stop-contact chronology/,kind);
+    assert.throws(()=>run({events,attempts:[attempt(1)]}),/stop-contact chronology/,kind);
+    const earlier={...attempt(0),recordedAt:"2026-10-21T09:00:00.000Z"};
+    const result=run({events,attempts:[earlier]});
+    assert.equal(result.state,"blocked",kind);
+    assert.equal(result.recordedAttempts,1,kind);
+    assert.throws(()=>run({events,attempts:[earlier,attempt(1)]}),
+      /stop-contact chronology/,kind);
+  }
+});
+
 test("unsafe policy, accessor fields, malformed time and sparse arrays fail closed",()=>{
   for(const change of [
     {minimumDelayHours:0},{minimumDelayHours:721},{minimumDelayHours:1.5},

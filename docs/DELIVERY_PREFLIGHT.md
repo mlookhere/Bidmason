@@ -874,3 +874,20 @@ replace these temporary blocks with independent tenant-safe endpoint,
 provider, consent, privacy/security and transactional tests. No production
 email, credentials, customer data, portal, endpoint or deployment is created,
 and H01–H13 acceptance remains outstanding.
+
+## Fictional follow-up attempts after stop-contact evidence
+
+An offline CRM attempt record timestamped **at or after** the first fictional
+recipient reply, opt-out, provider bounce or complaint in that delivery stream
+is now rejected as conflicting history. Previously the dry-run returned a
+blocked recommendation but still counted such contradictory attempts as
+internally coherent. Valid earlier attempt records remain countable, although
+the assessment remains blocked by the subsequently observed contact signal.
+All four stop-contact kinds and the chronological boundary have regression
+coverage under unchanged required Linux and Windows web tests.
+
+This validates caller-provided synthetic evidence, NOT a real customer contact
+audit. It cannot prove that an attempt or reply occurred or authenticate
+consent. Live provider receipt, durable audit/recovery, tenant-scoped storage,
+company policies and all H01–H13 human/release requirements remain pending.
+No API route, provider, database or outbound side effect was introduced.

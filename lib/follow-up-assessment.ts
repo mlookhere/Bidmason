@@ -71,6 +71,11 @@ export function assessSimulatedFollowUp(
     throw new TypeError("Invalid simulated follow-up identity");
   }
   const deliveredAt=delivery.timeline.find(e=>e.kind==="provider_delivered")?.observedAt;
+  // A recorded reminder after a recipient's stop-contact signal is conflicting
+  // history, not a coherent attempt that can be silently counted as valid.
+  const contactStoppedAt=delivery.timeline.find(event => [
+    "recipient_replied", "recipient_opted_out", "provider_bounced", "provider_complained",
+  ].includes(event.kind))?.observedAt;
   const seen=new Map<string,string>();
   let lastAttempt="";
   for(const attempt of previousAttempts){
@@ -91,6 +96,9 @@ export function assessSimulatedFollowUp(
     if(!deliveredAt||attempt.recordedAt<deliveredAt
       ||attempt.recordedAt>nowUtc||attempt.recordedAt<lastAttempt){
       throw new TypeError("Follow-up history requires chronological reconciliation");
+    }
+    if(contactStoppedAt && attempt.recordedAt>=contactStoppedAt){
+      throw new TypeError("Follow-up attempt conflicts with stop-contact chronology");
     }
     seen.set(attempt.attemptId,fingerprint);
     lastAttempt=attempt.recordedAt;
