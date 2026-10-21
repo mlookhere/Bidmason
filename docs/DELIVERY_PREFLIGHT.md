@@ -838,3 +838,18 @@ The keys and revision claims here remain caller-provided fictional fixtures,
 not independently authenticated records or complete recipient history. The
 result never authorizes communication; H01–H13 and live tenant/provider
 acceptance requirements are unchanged.
+
+## Proposal-scoped chronological revision guard (fictional only)
+
+The recipient-history validator now rejects future-numbered revisions of the
+**current** proposal when presented as earlier history. The existing same-
+revision conflict guard remains unchanged, and an actually older revision of
+that proposal can still contribute historical opt-out, bounce, complaint and
+reply evidence. Revisions on *other* proposals are independent, not compared
+to the current proposal's revision number. Positive and adversarial Node
+coverage includes integrated preflight checks that reject a false historical
+revision **before** changing the in-memory reservation ledger, even when the
+current fictional review is revoked. The result is still caller-supplied,
+non-sending and non-authoritative; this cannot establish actual revision
+chronology, tenant authentication, consent or real contact clearance. H01–H13
+and all real provider/database/release requirements remain blocked.

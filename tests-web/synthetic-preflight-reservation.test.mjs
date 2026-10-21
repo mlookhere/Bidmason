@@ -196,6 +196,21 @@ test("invalid history still fails even when the proposal was already blocked",()
   assert.throws(()=>review(ledger,e,[],-1,"not-time"),/Invalid synthetic recipient history/);
 });
 
+test("future current-proposal revisions fail before rehearsal CAS, even with stale signoff",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const future=make({revision:4});
+  const forgedHistory=[{intent:future.intent,events:[]}];
+  const evidence=make();
+  assert.throws(()=>review(ledger,evidence,forgedHistory),/Duplicate or current-proposal/);
+  evidence.proposal.reviewState="revoked";
+  assert.throws(()=>review(ledger,evidence,forgedHistory),/Duplicate or current-proposal/);
+  assert.equal(ledger.snapshot(evidence.intent).version,0);
+  const differentProposal=make({revision:10,proposalId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"});
+  assert.equal(review(ledger,make(),[{intent:differentProposal.intent,events:[]}]).state,
+    "reserved-simulation-only");
+  assert.equal(ledger.snapshot(evidence.intent).contactAuthorized,false);
+});
+
 test("same-version reviewers racing for one recipient get only one simulated winner",async()=>{
   const ledger=new SyntheticDispatchReservationLedger(), e=make();
   const results=await Promise.all(Array.from({length:48},()=>Promise.resolve().then(()=>

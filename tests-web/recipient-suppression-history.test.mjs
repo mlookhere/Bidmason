@@ -130,6 +130,16 @@ test("conflicting hashes cannot masquerade as different histories for one immuta
   assert.deepEqual(scan([make(0,["reserved","provider_accepted","provider_bounced"],ORG,RECIPIENT,1)]).suppression,["bounced"]);
 });
 
+test("later revisions of the target proposal cannot masquerade as earlier history",()=>{
+  const future=make(0,["reserved","provider_accepted","provider_delivered","recipient_opted_out"],
+    ORG,RECIPIENT,3);
+  assert.throws(()=>scan([future]),/Duplicate or current-proposal/);
+  // Revisions are proposal-scoped, not a tenant-wide counter.
+  const otherProposal=make(1,[],ORG,RECIPIENT,9);
+  assert.equal(scan([otherProposal]).examinedStreams,1);
+  assert.equal(scan([otherProposal]).contactAuthorized,false);
+});
+
 test("event IDs reused across proposal streams fail, exact within-stream replay remains safe",()=>{
   const a=make(1,["reserved","provider_accepted"]);
   const b=make(2,["reserved","provider_accepted"]);

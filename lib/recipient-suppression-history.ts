@@ -74,13 +74,13 @@ export function reviewSimulatedRecipientContactHistory(
       throw new TypeError("Cross-tenant or cross-recipient synthetic history");
     }
     const revisionId = record.intent.proposalId + "\u0000" + record.intent.revision;
-    // A proposal revision is immutable. A changed source or policy digest must
-    // create a new revision, not a second key for the same revision identity.
+    // An immutable revision can appear only once, and a historical stream
+    // for the current proposal must have a strictly earlier revision number.
     if (record.intent.idempotencyKey === target.idempotencyKey
       || keys.has(record.intent.idempotencyKey)
       || revisions.has(revisionId)
       || (record.intent.proposalId === target.proposalId
-        && record.intent.revision === target.revision)) {
+        && record.intent.revision >= target.revision)) {
       throw new TypeError("Duplicate or current-proposal synthetic history");
     }
     keys.add(record.intent.idempotencyKey);
