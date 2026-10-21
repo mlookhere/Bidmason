@@ -928,3 +928,24 @@ suppression or produce a sending authority. No new API, email provider, DB,
 workflow, or public route is introduced. This is strictly synthetic local
 state, not authenticated event intake, transactional RLS/consent, or proof
 that a person may be contacted. H01-H13 remain blocking.
+
+## Minimum follow-up cadence validated in fictional attempt history
+
+The offline `assessSimulatedFollowUp` reviewer now requires **every prior
+recorded attempt**, not just the *next* candidate, to respect the supplied
+company policy's `minimumDelayHours` from the originally reported delivery
+or the immediately preceding unique attempt. Earlier history with two
+one-minute-apart reminders could previously be treated as internally
+coherent (merely exhausted) despite violating the 24-hour fictional policy.
+This validation now fails closed with a distinct minimum-delay error. An
+identical attempt-ID/body replay remains idempotent and does not restart the
+cooldown. Existing chronological, stop-contact, tenant, and caller-fixture
+checks remain required and have regression coverage at the millisecond
+boundary, for exact eligibility, conflicting retries and stricter policies.
+
+This does not establish that a provider sent anything, that consent existed,
+or that company policy and historical attempt records are trustworthy.
+The synthetic result can never authorize a contact; real audit/recovery,
+tenant RLS, transactional suppression, provider, policy approval and H01–H13
+human release acceptance remain blocked. No web route, sender, persistence,
+secret, provider integration or CI gate was introduced.

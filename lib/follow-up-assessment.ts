@@ -100,6 +100,12 @@ export function assessSimulatedFollowUp(
     if(contactStoppedAt && attempt.recordedAt>=contactStoppedAt){
       throw new TypeError("Follow-up attempt conflicts with stop-contact chronology");
     }
+    // A previous reminder is coherent only when the same minimum delay was
+    // respected at the time, not merely when the next reminder would be due.
+    if(Date.parse(attempt.recordedAt)<Date.parse(lastAttempt||deliveredAt)
+      +policy.minimumDelayHours*3600000){
+      throw new TypeError("Follow-up history violates minimum delay");
+    }
     seen.set(attempt.attemptId,fingerprint);
     lastAttempt=attempt.recordedAt;
   }

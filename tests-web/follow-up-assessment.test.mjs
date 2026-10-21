@@ -14,8 +14,8 @@ const evt=(kind,i=0)=>({eventId:String(i+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaa
     String(i).padStart(2,"0")+":00.000Z"});
 const attempt=(i=0)=>({attemptId:String(i+1).padStart(8,"0")+"-cccc-4ccc-8ccc-cccccccccccc",
   organizationId:intent.organizationId,idempotencyKey:intent.idempotencyKey,
-  recipient:intent.recipient,recordedAt:"2026-10-22T08:"+
-    String(i).padStart(2,"0")+":00.000Z"});
+  recipient:intent.recipient,recordedAt:i===0
+    ?"2026-10-22T08:00:00.000Z":"2026-10-23T08:00:00.000Z"});
 const delivered=["reserved","provider_accepted","provider_delivered"].map(evt);
 const policy={consent:"confirmed",version:1,minimumDelayHours:24,maximumAttempts:2};
 const run=(o={})=>assessSimulatedFollowUp(o.intent??intent,o.events??delivered,
@@ -80,6 +80,20 @@ test("attempts at or after replies and suppression events fail chronological val
     assert.throws(()=>run({events,attempts:[earlier,attempt(1)]}),
       /stop-contact chronology/,kind);
   }
+});
+
+test("recorded follow-up attempts must respect minimum delay from delivery and each other",()=>{
+  const first=attempt(0),second=attempt(1);
+  const firstDue="2026-10-21T08:02:00.000Z";
+  assert.throws(()=>run({attempts:[{...first,recordedAt:"2026-10-21T08:01:59.999Z"}]}),
+    /minimum delay/);
+  assert.equal(run({attempts:[{...first,recordedAt:firstDue}]}).recordedAttempts,1);
+  assert.throws(()=>run({attempts:[first,{...second,recordedAt:"2026-10-23T07:59:59.999Z"}]}),
+    /minimum delay/);
+  assert.equal(run({attempts:[first,second]}).recordedAttempts,2);
+  assert.equal(run({attempts:[first,{...first},second]}).recordedAttempts,2);
+  assert.throws(()=>run({attempts:[first],policy:{...policy,minimumDelayHours:48}}),
+    /minimum delay/);
 });
 
 test("unsafe policy, accessor fields, malformed time and sparse arrays fail closed",()=>{
