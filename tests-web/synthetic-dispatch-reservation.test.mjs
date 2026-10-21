@@ -146,6 +146,47 @@ test("reply review persists alongside later sticky suppression and cannot be lif
   assert.equal(typeof ledger.unsuppress,"undefined");
 });
 
+test("reply after sticky suppression remains stop-contact while retaining reply evidence",()=>{
+  for(const reason of ["opted_out","bounced","complained"]){
+    const ledger=new SyntheticDispatchReservationLedger();
+    const stopped=ledger.compareAndSuppress(intent,0,reason);
+    assert.equal(stopped.state,"suppressed-simulation-only");
+    const reply=ledger.compareAndRecordReply(intent,stopped.snapshot.version);
+    assert.equal(reply.state,"suppressed-simulation-only",reason);
+    assert.equal(reply.reason,"synthetic-reply-review-recorded");
+    assert.equal(reply.snapshot.version,2);
+    assert.deepEqual(reply.snapshot.suppression,[reason]);
+    assert.equal(reply.snapshot.replyReviewRequired,true);
+    assert.equal(reply.snapshot.reserved,false);
+    assert.equal(reply.snapshot.contactAuthorized,false);
+    assert.equal(ledger.compareAndReserve(intent,2).reason,"recipient-suppressed");
+    assert.equal(ledger.compareAndRecordReply(intent,2).reason,"duplicate-reply-review");
+  }
+});
+
+test("reply and suppression CAS races preserve stop-contact precedence after retry",async()=>{
+  for(let i=0;i<32;i++){
+    const ledger=new SyntheticDispatchReservationLedger();
+    const ops=i%2 ? ["reply","suppress"] : ["suppress","reply"];
+    const first=await Promise.all(ops.map(op=>Promise.resolve().then(()=>
+      op==="reply" ? ledger.compareAndRecordReply(intent,0)
+        : ledger.compareAndSuppress(intent,0,"opted_out"))));
+    assert.equal(first.filter(result=>result.state!=="blocked").length,1);
+    const loser=first.find(result=>result.state==="blocked");
+    assert.equal(loser.reason,"stale-or-invalid-version");
+    const nextVersion=ledger.snapshot(intent).version;
+    const retry=ops[1]==="reply"
+      ? ledger.compareAndRecordReply(intent,nextVersion)
+      : ledger.compareAndSuppress(intent,nextVersion,"opted_out");
+    assert.equal(retry.state,"suppressed-simulation-only");
+    assert.equal(retry.snapshot.version,2);
+    assert.deepEqual(retry.snapshot.suppression,["opted_out"]);
+    assert.equal(retry.snapshot.replyReviewRequired,true);
+    assert.equal(retry.snapshot.contactAuthorized,false);
+    assert.equal(ledger.compareAndReserve(intent,2).reason,"recipient-suppressed");
+  }
+});
+
 test("forged identities, hidden getters and stale reply CAS fail without mutation",()=>{
   const ledger=new SyntheticDispatchReservationLedger();
   const identity={...intent,allowSend:true};

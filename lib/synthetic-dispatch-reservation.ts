@@ -136,8 +136,9 @@ export class SyntheticDispatchReservationLedger {
       reservationKey: null, replyReviewRequired: true,
     };
     this.#records.set(this.#key(intent), updated);
-    return {state: "reply-review-simulation-only", reason: "synthetic-reply-review-recorded",
-      snapshot: this.#snapshot(updated)};
+    return {state: updated.suppressions.size
+        ? "suppressed-simulation-only" : "reply-review-simulation-only",
+      reason: "synthetic-reply-review-recorded", snapshot: this.#snapshot(updated)};
   }
 
   /** Atomic single-process application of one FULLY VALIDATED fictional

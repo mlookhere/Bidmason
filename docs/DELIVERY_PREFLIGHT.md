@@ -909,3 +909,22 @@ same-time events will require an independently specified provider/DB ordering
 and durable reconciliation policy. H01–H13 tenant, consent, provider, SQL
 transactional and human release dependencies remain unverified; no live
 endpoint, storage or sending was enabled.
+
+## Stop-contact precedence when a fictional reply arrives after suppression
+
+The in-memory `SyntheticDispatchReservationLedger.compareAndRecordReply`
+now preserves `suppressed-simulation-only` as the returned verdict if a
+recipient already has sticky opt-out, bounce or complaint evidence. The
+newly observed fictional reply is still retained as
+`replyReviewRequired: true`, but cannot downgrade the contact's primary
+stop-contact state into a reply-only review classification. Reservation
+remains blocked by the suppression state; replay and per-recipient version
+checks remain unchanged.
+
+Two added Node regression groups test all three suppression reasons, the
+reply-after-suppression path, and 32 opposite-order same-version CAS races
+with explicit refreshed-version retries. Neither event ordering can clear a
+suppression or produce a sending authority. No new API, email provider, DB,
+workflow, or public route is introduced. This is strictly synthetic local
+state, not authenticated event intake, transactional RLS/consent, or proof
+that a person may be contacted. H01-H13 remain blocking.
