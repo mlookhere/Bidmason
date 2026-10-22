@@ -199,6 +199,16 @@ reviewed real resolver and import graph are implemented. It is **not**
 proof of complete static analysis, actual Auth/RLS, consent or production
 send/view authorization. H01–H13 remain blocked.
 
+### ECMAScript BOM whitespace cannot conceal an executable import
+
+JavaScript treats U+FEFF as lexical whitespace, but Python's regular-expression
+`\\s` does not. The offline runtime guard explicitly recognizes this
+character before module-level and function-scoped `"use server"` directives
+and between import, re-export, `require`, and dynamic-import tokens.
+Adversarial tests exercise these bypass shapes and the `/delivery-lab`
+exception. This remains conservative static containment, not a parser,
+real tenant authorization, or release clearance.
+
 ### Leading comments cannot conceal executable server directives
 
 The Item 6 static boundary now treats ordinary leading block and line comments
