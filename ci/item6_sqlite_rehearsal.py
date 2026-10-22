@@ -213,6 +213,8 @@ def _reserve_in_transaction(
     if db.execute("SELECT 1 FROM rehearsal_reservations WHERE organization_id=? AND recipient=? AND state IN ('reserved','outcome_unknown')",
                   (organization_id, recipient)).fetchone():
         return "blocked-existing-recipient-reservation"
+    if _fictional_event_id_conflict_count(db, organization_id):
+        return "blocked-event-evidence-inconsistent"
     db.execute(
         "INSERT INTO rehearsal_reservations "
         "(organization_id,idempotency_key,proposal_id,recipient,state,"
@@ -263,6 +265,8 @@ def mark_fictional_handoff_unknown(
             "SELECT 1 FROM rehearsal_deal_closures WHERE organization_id=? AND proposal_id=?",
             (organization_id, proposal_id)).fetchone():
             return "blocked-closed-deal"
+        if _fictional_event_id_conflict_count(db, organization_id):
+            return "blocked-event-evidence-inconsistent"
         db.execute(
             "UPDATE rehearsal_reservations SET state='outcome_unknown' "
             "WHERE organization_id=? AND proposal_id=? AND recipient=? "
@@ -315,6 +319,25 @@ _EVENT_TABLES = (
     "rehearsal_recipient_confirmations",
     "rehearsal_recipient_confirmation_revocations",
 )
+
+
+def _fictional_event_id_conflict_count(
+    db: sqlite3.Connection, organization_id: str,
+) -> int:
+    """Count conflicting fictional UUIDs without exposing event identities.
+
+    Tenant scoped, fixed five-table namespace, called inside BEGIN IMMEDIATE.
+    Used by both the redacted operator audit and the fail-closed forward gates.
+    """
+    sources = " UNION ALL ".join(
+        f"SELECT event_id FROM {table} WHERE organization_id=?"
+        for table in _EVENT_TABLES
+    )
+    return db.execute(
+        "SELECT COUNT(*) FROM (SELECT event_id FROM (" + sources + ") "
+        "GROUP BY event_id HAVING COUNT(*) > 1)",
+        (organization_id,) * len(_EVENT_TABLES),
+    ).fetchone()[0]
 
 
 def _assert_unused_fictional_event_id(
