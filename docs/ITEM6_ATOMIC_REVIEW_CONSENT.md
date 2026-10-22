@@ -181,13 +181,31 @@ contact fingerprint, idempotency key, or provider claim**:
 - `consentWithdrawals`: invented recipient-level withdrawal records.
 - `recipientConfirmationRevocations`: invented per-recipient/revision
   contractor approval revocations, not the same scope as consent.
-- `suppressedRecipients`: **distinct** fictional recipients with one or
-  more contact stop/reply signals; multiple kinds are not double-counted.
+- `suppressedRecipients`: backward-compatible **distinct union** of
+  fictional recipients with *any* stop or reply contact signal; this legacy
+  label does not mean every recipient has permanently opted out.
+- `hardStopRecipients`: **distinct** fictional recipients with one or more
+  opt-out, bounce or complaint signals. Multiple hard-stop signals for the
+  same recipient count once, even when a reply also exists.
+- `replyOnlyReviewRecipients`: **distinct** fictional recipients with a
+  reply signal but **no** opt-out, bounce or complaint. Manual review is
+  required; a reply is **not** itself a permanent opt-out. Once a hard stop
+  is recorded for the same tenant and recipient, priority shifts them to
+  `hardStopRecipients` instead of double-counting.
+- `rawPendingReservations` and `reviewedPendingReservations` split the
+  total local `pendingReservations` into **unreviewed CAS fixture** rows
+  and rows with revision-bound internal reviews. Neither category represents
+  a message to be sent or proof of recipient permission.
 - `closedProposals`: fictional won/lost proposal closure records.
 
 The output always has `state="review-simulation-only"` and
-`contactAuthorized=false`. Categories may overlap, so their totals **must
-not** be added to derive a number of unique customers. The fictional
+`contactAuthorized=false`. The contact-hold split is intentionally
+disjoint **within this fixture**: `hardStopRecipients +
+replyOnlyReviewRecipients = suppressedRecipients`; it does not establish
+real-world permission, consent or deliverability. Similarly,
+`rawPendingReservations + reviewedPendingReservations =
+pendingReservations`. Other categories may overlap, so their totals
+**must not** be added to derive a number of unique customers. The fictional
 operator view neither clears `outcome_unknown` nor issues approvals,
 tokens, notifications, reconsents or sends.
 
