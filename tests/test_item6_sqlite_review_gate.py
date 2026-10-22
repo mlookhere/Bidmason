@@ -1,0 +1,168 @@
+"""Independent fictional dual-review and consent simulation; no sending."""
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+from pathlib import Path
+import tempfile
+import unittest
+
+from ci.item6_sqlite_rehearsal import (
+    initialize_fixture_db, fictional_counts, record_fictional_contact_signal,
+    close_fictional_deal, fictional_unknown_count,
+)
+from ci.item6_sqlite_review_gate import (
+    record_fictional_review, record_fictional_consent, reserve_reviewed_fictional,
+)
+
+ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+PROPOSAL = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+OTHER_PROPOSAL = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+OPERATOR = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+CONTRACTOR = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+RECIPIENT = "buyer@fictional.example"
+HASH = "a" * 64
+OTHER_HASH = "b" * 64
+CONSENT_EVENT = "11111111-1111-4111-8111-111111111111"
+DEAL_EVENT = "22222222-2222-4222-8222-222222222222"
+
+def key(seed):
+    return "dryrun_" + hashlib.sha256(seed.encode()).hexdigest()
+
+class FictionalReviewedReservationTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.db = Path(tmp.name) / "review.sqlite3"
+        initialize_fixture_db(self.db)
+
+    def review(self, role, actor, revision=3, digest=HASH, org=ORG, proposal=PROPOSAL):
+        return record_fictional_review(self.db, org, proposal, revision,
+                                       digest, role, actor)
+
+    def consent(self, recipient=RECIPIENT, event=CONSENT_EVENT, org=ORG):
+        return record_fictional_consent(self.db, org, recipient, event)
+
+    def reserve(self, revision=3, digest=HASH, recipient=RECIPIENT, seed="one",
+                org=ORG, proposal=PROPOSAL):
+        return reserve_reviewed_fictional(self.db, org, proposal, revision,
+                                           digest, recipient, key(seed))
+
+    def both(self):
+        self.review("operator", OPERATOR)
+        self.review("contractor", CONTRACTOR)
+
+    def test_no_reservation_without_independent_reviews_or_consent(self):
+        self.assertEqual(self.reserve(), "blocked-missing-independent-reviews")
+        self.review("operator", OPERATOR)
+        self.assertEqual(self.reserve(), "blocked-missing-independent-reviews")
+        self.review("contractor", CONTRACTOR)
+        self.assertEqual(self.reserve(), "blocked-unconfirmed-consent")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 0))
+
+    def test_exact_two_reviewers_and_fictional_consent_permit_only_local_reservation(self):
+        self.both()
+        self.assertEqual(self.consent(), "fictional-consent-recorded")
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.assertEqual(self.reserve(), "blocked-existing-key")
+        self.assertEqual(self.reserve(seed="two"), "blocked-existing-recipient-reservation")
+        self.assertEqual(fictional_counts(self.db, ORG), (1, 0, 0))
+
+    def test_one_actor_cannot_approve_both_roles_and_conflicting_replay_rejected(self):
+        self.review("operator", OPERATOR)
+        with self.assertRaisesRegex(ValueError, "both roles"):
+            self.review("contractor", OPERATOR)
+        self.assertEqual(self.review("operator", OPERATOR), "blocked-duplicate-review")
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional review"):
+            self.review("operator", CONTRACTOR)
+        self.assertEqual(self.reserve(), "blocked-missing-independent-reviews")
+
+    def test_exact_content_digest_binds_both_receipts(self):
+        self.review("operator", OPERATOR, digest=HASH)
+        self.review("contractor", CONTRACTOR, digest=OTHER_HASH)
+        self.consent()
+        self.assertEqual(self.reserve(), "blocked-review-content-mismatch")
+        self.assertEqual(self.reserve(digest=OTHER_HASH), "blocked-review-content-mismatch")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 0))
+
+    def test_newer_partially_reviewed_revision_freezes_prior_version(self):
+        self.both()
+        self.consent()
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.review("operator", OPERATOR, revision=4)
+        self.assertEqual(self.reserve(seed="new"), "blocked-stale-revision")
+        self.assertEqual(self.reserve(revision=4, seed="new"), "blocked-missing-independent-reviews")
+        self.review("contractor", CONTRACTOR, revision=4)
+        # An existing live recipient lock still wins after valid new review.
+        self.assertEqual(self.reserve(revision=4, seed="new"), "blocked-existing-recipient-reservation")
+
+    def test_fake_consent_event_identity_and_stop_contact(self):
+        self.both()
+        self.assertEqual(self.consent(), "fictional-consent-recorded")
+        self.assertEqual(self.consent(), "blocked-duplicate-consent")
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional consent"):
+            self.consent(event=DEAL_EVENT)
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional consent event ID"):
+            self.consent(recipient="second@fictional.example")
+        self.assertEqual(record_fictional_contact_signal(self.db, ORG, PROPOSAL,
+                                                         RECIPIENT, "opted_out"), 0)
+        self.assertEqual(self.consent(), "blocked-contact-hold")
+        self.assertEqual(self.reserve(), "blocked-contact-hold")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 1))
+
+    def test_closed_deal_always_blocks_and_cannot_create_review_after_close(self):
+        self.both()
+        self.consent()
+        self.assertEqual(close_fictional_deal(self.db, ORG, PROPOSAL, RECIPIENT,
+                                               DEAL_EVENT, "won"), ("closed-simulation-only", 0))
+        self.assertEqual(self.reserve(), "blocked-closed-deal")
+        self.assertEqual(self.review("operator", OPERATOR, revision=4), "blocked-closed-deal")
+
+    def test_tenant_and_proposal_scopes_are_distinct(self):
+        self.both()
+        self.consent()
+        self.assertEqual(self.reserve(org=OTHER), "blocked-missing-independent-reviews")
+        self.assertEqual(self.reserve(proposal=OTHER_PROPOSAL), "blocked-missing-independent-reviews")
+        self.assertEqual(self.reserve(recipient="other@fictional.example"), "blocked-unconfirmed-consent")
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+
+    def test_stop_signal_racing_reviewed_reservation_cannot_leave_live_work(self):
+        self.both()
+        self.consent()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a = pool.submit(self.reserve)
+            b = pool.submit(record_fictional_contact_signal, self.db, ORG, PROPOSAL,
+                            RECIPIENT, "complained")
+            a.result()
+            b.result()
+        self.assertEqual(fictional_counts(self.db, ORG)[0], 0)
+        self.assertEqual(self.reserve(seed="another"), "blocked-contact-hold")
+
+    def test_terminal_deal_racing_reviewed_reservation_cannot_leave_live_work(self):
+        self.both()
+        self.consent()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a = pool.submit(self.reserve)
+            b = pool.submit(close_fictional_deal, self.db, ORG, PROPOSAL,
+                            RECIPIENT, DEAL_EVENT, "lost")
+            a.result()
+            b.result()
+        self.assertEqual(fictional_counts(self.db, ORG)[0], 0)
+        self.assertEqual(self.reserve(seed="retry"), "blocked-closed-deal")
+
+    def test_invalid_revision_digest_actor_or_real_recipient_rejected(self):
+        for revision in (0, -1, True, 1.25, 1000001):
+            with self.subTest(revision=revision), self.assertRaises(ValueError):
+                self.reserve(revision=revision)
+        for digest in ("A"*64, "bad", "\u200b" + HASH):
+            with self.subTest(digest=digest), self.assertRaises(ValueError):
+                self.reserve(digest=digest)
+        with self.assertRaises(ValueError):
+            self.review("operator", "bad")
+        with self.assertRaises(ValueError):
+            self.review("unknown", OPERATOR)
+        with self.assertRaises(ValueError):
+            self.consent(recipient="real@gmail.com")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 0))
+
+if __name__ == "__main__":
+    unittest.main()
