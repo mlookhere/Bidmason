@@ -288,6 +288,44 @@ test("duplicate case identities still fail when full recipient history supplied"
 
 const asHistory = ({intent,events}) => ({intent,events});
 
+test("individual triage rejects cross-proposal event ID reuse even without contact-stop events",()=>{
+  const current=make(0);
+  const prior=make(1,["reserved","provider_accepted","provider_delivered"],ORG,EMAIL,1);
+  for(const currentIndex of [0,1,2]){
+    for(const historicalIndex of [0,1,2]){
+      const colliding={intent:prior.intent,events:prior.events.map((event,i)=>
+        i===historicalIndex?{...event,eventId:current.events[currentIndex].eventId}:event)};
+      const history=[colliding];
+      assert.throws(()=>triage(current,history),
+        /Cross-proposal simulated recipient event ID collision/,
+        "current "+currentIndex+" versus historical "+historicalIndex);
+      assert.throws(()=>summarize([current],[history]),
+        /Conflicting synthetic CRM event ID across streams/);
+    }
+  }
+  const cleanHistory=[asHistory(prior)];
+  const allowed=triage(current,cleanHistory);
+  assert.equal(allowed.state,"review-simulation-only");
+  assert.equal(allowed.historicalStreams,1);
+  assert.equal(allowed.contactAuthorized,false);
+  assert.equal(summarize([current],[cleanHistory]).reviewedCases,1);
+});
+
+test("historical reply and permanent suppression cannot hide a reused current event ID",()=>{
+  const current=make(0);
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const historySource=make(1,kind==="provider_bounced"
+      ?["reserved","provider_accepted","provider_bounced"]
+      :["reserved","provider_accepted","provider_delivered",kind],
+      ORG,EMAIL,1);
+    const changed=asHistory({...historySource,events:historySource.events.map((event,i)=>
+      i===1?{...event,eventId:current.events[1].eventId}:event)});
+    assert.throws(()=>triage(current,[changed]),
+      /Cross-proposal simulated recipient event ID collision/,kind);
+  }
+});
+
 test("CRM rollups reject event IDs reused across current and historical streams",()=>{
   const current=make(0),other=make(2);
   const prior=make(1,["reserved","provider_accepted","provider_delivered"],ORG,EMAIL,1);
