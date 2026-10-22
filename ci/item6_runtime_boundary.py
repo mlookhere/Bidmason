@@ -6,6 +6,7 @@ remain blocked under H01-H13. Do not treat passing as release authorization.
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -129,10 +130,56 @@ def _is_offline_only(rel: str) -> bool:
     return any(project_relative.startswith(prefix) for prefix in FORBIDDEN)
 
 
+def _module_mapping_findings(root: Path) -> list[str]:
+    """Fail closed if configuration can redirect otherwise external imports.
+
+    This scanner only resolves known local paths. Unreviewed TS path aliases,
+    package self-reference/\u0023imports and baseUrl mappings would invalidate
+    that assumption; refuse the configuration rather than guessing.
+    """
+    problems: list[str] = []
+    for p in sorted(root.rglob("*.json")):
+        if any(part in EXCLUDED_DIRS for part in p.relative_to(root).parts):
+            continue
+        if not (p.name in ("tsconfig.json", "jsconfig.json", "package.json")
+                or (p.name.startswith("tsconfig.") and p.suffix == ".json")):
+            continue
+        rel = p.relative_to(root).as_posix()
+        if p.is_symlink():
+            problems.append(f"{rel}: unreviewed symlinked module configuration")
+            continue
+        try:
+            config = json.loads(p.read_text(encoding="utf-8"))
+        except (UnicodeError, OSError, ValueError):
+            problems.append(f"{rel}: unreadable/unreviewed module configuration")
+            continue
+        if not isinstance(config, dict):
+            problems.append(f"{rel}: module configuration must be an object")
+            continue
+        if p.name == "package.json":
+            if "imports" in config or "exports" in config:
+                problems.append(
+                    f"{rel}: unreviewed package imports/exports resolution"
+                )
+        else:
+            if "extends" in config or "references" in config:
+                problems.append(
+                    f"{rel}: unreviewed inherited/referenced TS module resolution"
+                )
+            opts = config.get("compilerOptions", {})
+            if not isinstance(opts, dict):
+                problems.append(f"{rel}: compilerOptions must be an object")
+            elif "paths" in opts or "baseUrl" in opts:
+                problems.append(
+                    f"{rel}: unreviewed TS path aliases/baseUrl resolution"
+                )
+    return problems
+
+
 def findings(root: Path = ROOT) -> list[str]:
     """Fail live server entrypoints closed on simulated imports and ambiguity."""
     root = root.resolve()
-    violations: set[str] = set()
+    violations: set[str] = set(_module_mapping_findings(root))
     for entry in _entrypoints(root):
         pending = [entry]
         visited: set[Path] = set()
