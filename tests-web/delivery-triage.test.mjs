@@ -14,7 +14,7 @@ const event=(kind,index=0)=>({eventId:String(index+1).padStart(8,"0")+"-aaaa-4aa
  recipient:intent.recipient,kind,
  observedAt:"2026-10-20T08:"+String(index).padStart(2,"0")+":00.000Z"});
 const sent=["reserved","provider_accepted","provider_delivered"].map(event);
-const evaluate=(events=sent,p=policy,time=at,rec=[])=>classifySimulatedDeliveryTriage(intent,events,p,rec,time);
+const evaluate=(events=sent,p=policy,time=at,rec=[],dealEvents=[])=>classifySimulatedDeliveryTriage(intent,events,p,rec,time,dealEvents);
 
 test("internal timing eligibility remains external-authorization-required, never send",()=>{
  const outcome=evaluate();
@@ -77,4 +77,19 @@ test("duplicate replay stays deduplicated and side-effect-free",()=>{
  assert.equal(results.category,"external-authorization-required");
  assert.equal(results.sourceEventCount,3);
  assert.equal(evaluate().rationale,results.rationale);
+});
+
+test("won/lost outcomes are deferred, and stop-contact still outranks closed deals",()=>{
+ const deal={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  organizationId:intent.organizationId,proposalId:intent.proposalId,
+  revision:intent.revision,kind:"won",observedAt:"2026-10-21T09:00:00.000Z"};
+ const result=evaluate(sent,policy,at,[],[deal]);
+ assert.equal(result.category,"deal-closed");
+ assert.equal(result.attention,"deferred");
+ assert.equal(result.state,"review-simulation-only");
+ assert.equal(evaluate([...sent,event("recipient_opted_out",3)],policy,at,[],[deal]).category,
+  "contact-suppressed");
+ assert.equal(evaluate([...sent,event("recipient_replied",3)],policy,at,[],[deal]).category,
+  "reply-needs-review");
+ assert.equal(evaluate(sent,policy,at,[],[{...deal,kind:"lost"}]).category,"deal-closed");
 });

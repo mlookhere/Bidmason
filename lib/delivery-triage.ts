@@ -3,13 +3,15 @@ import {assessSimulatedFollowUp, type FollowUpPolicy, type FollowUpRecord}
   from "./follow-up-assessment.ts";
 import {projectSimulatedDeliveryEvents, type DeliveryEvent}
   from "./delivery-event-projection.ts";
+import {projectSyntheticDealOutcome, type SyntheticDealOutcomeEvent}
+  from "./synthetic-deal-outcome.ts";
 
 /** Fictional operator-review classification; never a live queue or permission to send. */
 export type DeliveryTriage = {
   state: "review-simulation-only";
   category: "contact-suppressed" | "reply-needs-review" | "consent-needs-verification"
     | "delivery-needs-verification" | "waiting-for-cooldown"
-    | "external-authorization-required";
+    | "deal-closed" | "external-authorization-required";
   attention: "stop-contact" | "operator-review" | "deferred";
   rationale: string;
   sourceEventCount: number;
@@ -23,10 +25,12 @@ export function classifySimulatedDeliveryTriage(
   policy: FollowUpPolicy,
   previousAttempts: readonly FollowUpRecord[],
   nowUtc: string,
+  dealEvents: readonly SyntheticDealOutcomeEvent[] = [],
 ): DeliveryTriage {
   // Both existing evaluators enforce exact tenant/revision and chronology.
   const delivery = projectSimulatedDeliveryEvents(intent,events);
-  const followUp = assessSimulatedFollowUp(intent,events,policy,previousAttempts,nowUtc);
+  const followUp = assessSimulatedFollowUp(intent,events,policy,previousAttempts,nowUtc,dealEvents);
+  const deal = projectSyntheticDealOutcome(intent,dealEvents,nowUtc);
   const {idempotencyKey,...identity} = intent;
   if(deliveryIdempotencyKey(identity)!==idempotencyKey)
     throw new TypeError("Invalid simulated triage identity");
@@ -43,6 +47,10 @@ export function classifySimulatedDeliveryTriage(
     category="reply-needs-review";
     attention="operator-review";
     rationale="Fictional recipient reply requires manual review; follow-up remains blocked.";
+  }else if(deal.closedAt){
+    category="deal-closed";
+    attention="deferred";
+    rationale="Fictional won/lost deal is closed; do not schedule a follow-up.";
   }else if(policy.consent!=="confirmed"){
     category="consent-needs-verification";
     attention="operator-review";

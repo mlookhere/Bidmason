@@ -19,7 +19,7 @@ const attempt=(i=0)=>({attemptId:String(i+1).padStart(8,"0")+"-cccc-4ccc-8ccc-cc
 const delivered=["reserved","provider_accepted","provider_delivered"].map(evt);
 const policy={consent:"confirmed",version:1,minimumDelayHours:24,maximumAttempts:2};
 const run=(o={})=>assessSimulatedFollowUp(o.intent??intent,o.events??delivered,
-  o.policy??policy,o.attempts??[],o.now??"2026-10-23T12:00:00.000Z");
+  o.policy??policy,o.attempts??[],o.now??"2026-10-23T12:00:00.000Z",o.dealEvents??[]);
 
 test("due candidate remains internal only, without send authority",()=>{
   const result=run();
@@ -115,4 +115,22 @@ test("forged events and accessor-backed attempt entries cannot become ready",()=
   const bad={...attempt()};
   Object.defineProperty(bad,"recordedAt",{enumerable:true,get(){throw Error("getter")}});
   assert.throws(()=>run({attempts:[bad]}),/Invalid or cross-tenant/);
+});
+
+test("fictional won/lost closes follow-up even with consent and elapsed timing",()=>{
+  for(const kind of ["won","lost"]){
+    const record={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:intent.revision,kind,observedAt:"2026-10-22T09:00:00.000Z"};
+    const result=run({dealEvents:[record]});
+    assert.equal(result.state,"blocked");
+    assert.equal(result.nextEligibleAt,null);
+    assert.ok(result.blockers.includes("Fictional won/lost deal stops follow-up"));
+    const before={...attempt(0),recordedAt:"2026-10-22T08:00:00.000Z"};
+    assert.equal(run({attempts:[before],dealEvents:[record]}).state,"blocked");
+    assert.throws(()=>run({attempts:[attempt(1)],dealEvents:[record]}),
+      /closed-deal chronology/);
+    const changed={...record,revision:4};
+    assert.throws(()=>run({dealEvents:[changed]}),/cross-tenant/);
+  }
 });

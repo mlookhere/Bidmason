@@ -1,5 +1,7 @@
 import {deliveryIdempotencyKey, type DeliveryIntent} from "./outbound-preflight.ts";
 import {projectSimulatedDeliveryEvents, type DeliveryEvent} from "./delivery-event-projection.ts";
+import {projectSyntheticDealOutcome, type SyntheticDealOutcomeEvent}
+  from "./synthetic-deal-outcome.ts";
 
 export type FollowUpPolicy = {
   consent: "confirmed" | "unknown" | "revoked";
@@ -61,11 +63,13 @@ function validAttempts(value:unknown):value is FollowUpRecord[]{
 export function assessSimulatedFollowUp(
   intent:DeliveryIntent,events:readonly DeliveryEvent[],
   policy:FollowUpPolicy,previousAttempts:readonly FollowUpRecord[],nowUtc:string,
+  dealEvents:readonly SyntheticDealOutcomeEvent[]=[],
 ):FollowUpAssessment{
   const delivery=projectSimulatedDeliveryEvents(intent,events);
   if(!validPolicy(policy)||!validAttempts(previousAttempts)||!utc(nowUtc)){
     throw new TypeError("Invalid simulated follow-up inputs");
   }
+  const deal=projectSyntheticDealOutcome(intent,dealEvents,nowUtc);
   const {idempotencyKey,...identity}=intent;
   if(deliveryIdempotencyKey(identity)!==idempotencyKey){
     throw new TypeError("Invalid simulated follow-up identity");
@@ -100,6 +104,9 @@ export function assessSimulatedFollowUp(
     if(contactStoppedAt && attempt.recordedAt>=contactStoppedAt){
       throw new TypeError("Follow-up attempt conflicts with stop-contact chronology");
     }
+    if(deal.closedAt && attempt.recordedAt>=deal.closedAt){
+      throw new TypeError("Follow-up attempt conflicts with closed-deal chronology");
+    }
     // A previous reminder is coherent only when the same minimum delay was
     // respected at the time, not merely when the next reminder would be due.
     if(Date.parse(attempt.recordedAt)<Date.parse(lastAttempt||deliveredAt)
@@ -115,10 +122,11 @@ export function assessSimulatedFollowUp(
     blockers.push("No uncontested simulated delivery event");
   if(delivery.replied)blockers.push("Recipient reply suppresses follow-up");
   if(delivery.suppression.length)blockers.push("Bounce, complaint or opt-out suppresses follow-up");
+  if(deal.closedAt)blockers.push("Fictional won/lost deal stops follow-up");
   if(seen.size>=policy.maximumAttempts)blockers.push("Follow-up attempt limit reached");
   const baseline=lastAttempt||deliveredAt;
   let nextEligibleAt:string|null=null;
-  if(baseline){
+  if(baseline && !deal.closedAt){
     nextEligibleAt=new Date(Date.parse(baseline)+policy.minimumDelayHours*3600000).toISOString();
     if(nowUtc<nextEligibleAt)blockers.push("Minimum follow-up delay has not elapsed");
   }
