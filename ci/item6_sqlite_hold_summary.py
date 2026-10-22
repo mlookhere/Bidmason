@@ -110,6 +110,12 @@ def fictional_hold_summary(path: Path, organization_id: str) -> dict[str, object
             "contactAuthorized": False,
             "pendingReservations": count(
                 "rehearsal_reservations", "AND state=?", ("reserved",)),
+            "rawPendingReservations": count(
+                "rehearsal_reservations",
+                "AND state='reserved' AND reviewed_revision IS NULL"),
+            "reviewedPendingReservations": count(
+                "rehearsal_reservations",
+                "AND state='reserved' AND reviewed_revision IS NOT NULL"),
             "invalidatedReservations": count(
                 "rehearsal_reservations", "AND state=?", ("invalidated",)),
             "unknownOutcomeHolds": count(
@@ -117,9 +123,29 @@ def fictional_hold_summary(path: Path, organization_id: str) -> dict[str, object
             "consentWithdrawals": count("rehearsal_consent_revocations"),
             "recipientConfirmationRevocations": count(
                 "rehearsal_recipient_confirmation_revocations"),
+            # Backward-compatible union of distinct recipients with ANY
+            # contact hold, including a nonterminal reply requiring review.
             "suppressedRecipients": db.execute(
                 "SELECT COUNT(DISTINCT recipient) FROM rehearsal_contact_signals "
                 "WHERE organization_id=?", (organization_id,)
+            ).fetchone()[0],
+            # Permanent-contact-stop categories outrank a prior reply.
+            "hardStopRecipients": db.execute(
+                "SELECT COUNT(DISTINCT recipient) FROM rehearsal_contact_signals "
+                "WHERE organization_id=? "
+                "AND kind IN ('opted_out','bounced','complained')",
+                (organization_id,)
+            ).fetchone()[0],
+            "replyOnlyReviewRecipients": db.execute(
+                "SELECT COUNT(DISTINCT replied.recipient) "
+                "FROM rehearsal_contact_signals AS replied "
+                "WHERE replied.organization_id=? AND replied.kind='replied' "
+                "AND NOT EXISTS ("
+                " SELECT 1 FROM rehearsal_contact_signals AS stopped "
+                " WHERE stopped.organization_id=replied.organization_id "
+                " AND stopped.recipient=replied.recipient "
+                " AND stopped.kind IN ('opted_out','bounced','complained'))",
+                (organization_id,)
             ).fetchone()[0],
             "closedProposals": count("rehearsal_deal_closures"),
         }
