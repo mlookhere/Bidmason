@@ -21,6 +21,17 @@ ROW = re.compile(
     r"\| (.*?) \| (.*?) \|$", re.MULTILINE,
 )
 MAX_RUNBOOK_BYTES = 128 * 1024
+# Reviewer instructions are source-controlled plain text, not evidence locations.
+# Do not echo user/tenant URLs, email addresses or Markdown/HTML from cells.
+UNSAFE_INSTRUCTION = re.compile(
+    r"(?i:[a-z][a-z0-9+.-]*://|www\.|mailto:)|[<>\[\]@`|]"
+)
+
+
+def _plain_instruction(value: str) -> bool:
+    return (bool(value.strip()) and len(value) <= 800
+            and all(ord(char) >= 32 for char in value)
+            and UNSAFE_INSTRUCTION.search(value) is None)
 
 
 def _read_runbook(path: Path) -> bytes:
@@ -53,8 +64,8 @@ def review_packet(manifest: dict, runbook_bytes: bytes) -> dict:
         if (identifier in details or identifier not in REQUIRED
                 or source != REQUIRED[identifier]
                 or int(number) != list(REQUIRED).index(identifier) + 1
-                or not owner.strip() or not negative.strip()
-                or len(owner) > 800 or len(negative) > 800):
+                or not _plain_instruction(owner)
+                or not _plain_instruction(negative)):
             raise ValueError("Conflicting or incomplete acceptance runbook requirement")
         details[identifier] = (number, owner, negative)
     if set(details) != set(REQUIRED):
