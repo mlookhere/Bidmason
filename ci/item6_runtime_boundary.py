@@ -79,6 +79,11 @@ APP_ENTRY_STEMS = {
     "route", "page", "layout", "template", "default", "error", "global-error",
     "loading", "not-found",
 }
+# Next.js serves code-backed metadata files as special route handlers, even
+# when they have no conventional page/route component. Numbered image files
+# (for example icon1.tsx) also generate publicly reachable endpoints.
+METADATA_STEMS = {"robots", "sitemap", "manifest"}
+METADATA_IMAGE = re.compile(r"(?:icon|apple-icon|opengraph-image|twitter-image)\\d*\\Z")
 GLOBAL_STEMS = {"middleware", "instrumentation", "proxy"}
 
 
@@ -101,7 +106,11 @@ def _entrypoints(root: Path) -> list[Path]:
                     or (len(pieces) >= 3 and pieces[:2] == ["src", "pages"]))
         # Next.js pages and layouts are server-rendered entrypoints by
         # default; guarding only API handlers leaves a real execution path.
-        is_live_render = (is_app and p.stem in APP_ENTRY_STEMS) or is_pages
+        is_live_render = (is_app and (
+            p.stem in APP_ENTRY_STEMS
+            or p.stem in METADATA_STEMS
+            or METADATA_IMAGE.fullmatch(p.stem) is not None
+        )) or is_pages
         is_global = rel in {
             f"{prefix}{stem}{suffix}"
             for prefix in ("", "src/")
