@@ -129,6 +129,27 @@ test("hidden or accessor-backed reviewer receipt indexes never satisfy two-perso
   assert.deepEqual(run(fixture()),{state:"consistent-internal-only",blockers:[]});
 });
 
+test("RFC dot-atom recipient local parts reject consecutive and terminal dots",()=>{
+  for(const bad of ["first..last@example.test", "first.@example.test",
+    "first...last@example.test", "first..@example.test"]){
+    const f=fixture();
+    const {idempotencyKey, ...base}=f.intent;
+    assert.throws(()=>deliveryIdempotencyKey({...base,recipient:bad}),
+      /Invalid proposed delivery identity/,bad);
+    f.intent.recipient=bad;
+    f.proposal.recipient=bad;
+    f.suppression.recipient=bad;
+    assert.throws(()=>run(f),/Invalid internal delivery preflight evidence/,bad);
+  }
+  for(const good of ["first.last@example.test", "first+tag@example.test",
+    "first.last+tag@example.test", "first_last@example.test"]){
+    const f=fixture();
+    const {idempotencyKey, ...base}=f.intent;
+    assert.match(deliveryIdempotencyKey({...base,recipient:good}),
+      /^dryrun_[0-9a-f]{64}$/,good);
+  }
+});
+
 test("idempotency key distinguishes recipients, revisions and QA fingerprints",()=>{
   const {idempotencyKey, ...base}=fixture().intent;
   assert.notEqual(deliveryIdempotencyKey({...base,revision:4}),idempotencyKey);

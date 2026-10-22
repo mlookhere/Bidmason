@@ -1351,3 +1351,32 @@ exact-revision approvals, recipient consent, selected provider/domain
 and native signed callbacks, transactional replay/stop-contact and
 independent human security/legal/privacy/ops go/no-go remain blocked.
 No email, live route, provider, customer data, SQL mutation or deployment.
+
+## Recipient dot-atom validation for non-sending preflight
+
+The pure `deliveryIdempotencyKey` and `evaluateDeliveryDryRun` now
+reject malformed unquoted recipient local parts with consecutive dots
+or a trailing dot before the @ sign. The previous broad character
+pattern accepted addresses such as `first..last@example.test` and
+`first.@example.test`, even though those are not valid dot-atoms;
+an internal review could then claim `consistent-internal-only` for
+an invalid target recipient.
+
+Regression coverage exercises rejection through **both** the
+idempotency fingerprint and the complete fictional preflight, alongside
+valid dot-separated, plus-tagged and underscore addresses. The negative
+test reproduced acceptance under the old source, then passed only after
+the validator was corrected; full offline Node test:web remains green.
+No address is contacted, normalized to a different recipient, or
+passed to a real email provider. Existing recipient-exactness,
+two-reviewer receipts, suppression, no-dispatch and no-send constraints
+remain intact.
+
+This remains a source-shape check on fictional caller-provided evidence,
+not independent verification of a buyer's address or communication
+consent. H01–H13 production tenant Auth/RLS/private Storage, verified
+reviewers and immutable revision, consent, sender/provider/domain and
+native signatures, SQL transactional suppression/idempotency and
+independent security/legal/privacy/operations go/no-go remain blocked.
+No new endpoint, provider, deployment, database mutation or CI-gate
+change was introduced.

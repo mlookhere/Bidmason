@@ -70,8 +70,12 @@ function validRevision(value: unknown, additional: readonly string[]): value is 
 }
 
 function safeAddress(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 254
-    && value === value.toLowerCase() && EMAIL.test(value);
+  if (typeof value !== "string" || value.length > 254
+    || value !== value.toLowerCase() || !EMAIL.test(value)) return false;
+  // Unquoted local parts are dot-atoms: empty atoms (".." or terminal ".")
+  // are not valid recipient addresses, even when the broad character regex matches.
+  const local = value.slice(0, value.indexOf("@"));
+  return !local.includes("..") && !local.endsWith(".");
 }
 
 function sameRevision(a: DeliveryRevision, b: DeliveryRevision): boolean {
