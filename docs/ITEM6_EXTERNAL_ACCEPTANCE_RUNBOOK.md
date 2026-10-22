@@ -103,10 +103,12 @@ New `ci/item6_runtime_boundary.py` checks whether an executable
 **live server entrypoint** can import any of these helpers. It traverses
 static local ESM imports/re-exports (including multiline and type imports),
 literal `require()` and `import()`, known local path aliases, and
-**transitive** local modules. Live entrypoints include `app/**/route.*`,
-`src/app/**/route.*`, `pages/api/**`, `src/pages/api/**`,
-root or `src/` middleware/instrumentation, and modules declaring
-`"use server"`. Unknown dynamic module loading and unresolved local
+**transitive** local modules. Live entrypoints now include all `app/**` and `src/app/**` page,
+layout, template, error/loading, default/not-found and route modules;
+all Pages Router pages (not just `pages/api/**`), root and `src/`
+middleware/**proxy**/instrumentation, and modules declaring
+`"use server"`. This matters because server-rendered pages and
+shared layouts may execute server-side code even without an API handler. Unknown dynamic module loading and unresolved local
 code dependencies inside these trees fail the boundary check rather than
 being silently treated as safe. The static scanner checks a fixed list
 of offline delivery modules; it does not claim to parse the full TS/JS
@@ -116,11 +118,15 @@ The gate is **additive** to the pre-existing fast, PR and security suites
 and executes through `ci/run.py`, including native Windows fast.
 It does **not** prohibit the explicitly labeled, fictional,
 non-customer-facing `/delivery-lab` page from rendering internal
-simulations. Eleven negative/positive Python tests cover direct and
-transitive imports, aliases, server actions, dynamic imports,
-middleware, scoped pages/API routes, unresolved modules and preview
-isolation. A passing gate means only that **known static routes** do not
-currently expose the offline modules; it is **not** a guarantee of
+simulations. The preview exception is confined to the exact
+`app/delivery-lab/page.tsx` (or future `src/` equivalent), provided it
+does **not** declare a server action. A shared layout, nested route handler,
+or newly introduced public page under that URL receives no exception.
+Nineteen negative/positive Python tests cover direct and transitive imports,
+aliases, server actions, dynamic imports, middleware/proxy,
+server-rendered pages and shared layouts, scoped pages/API routes,
+unresolved modules and narrow preview isolation. A passing gate means only
+that **known static entrypoints** do not currently expose offline modules; it is **not** a guarantee of
 authenticity, complete dependency resolution, real API authorization,
 or production readiness. Any future real sender, webhook receiver,
 buyer portal or API still requires H01–H13 live external verification.
