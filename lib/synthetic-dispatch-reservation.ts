@@ -161,11 +161,22 @@ export class SyntheticDispatchReservationLedger {
     if (!Array.isArray(suppression)
       || Object.getPrototypeOf(suppression) !== Array.prototype
       || suppression.length > REASONS.length
-      || Reflect.ownKeys(suppression).length !== suppression.length + 1
-      || !suppression.every((reason,index) =>
-        Object.hasOwn(Object.getOwnPropertyDescriptor(suppression,String(index))??{},"value")
-        && REASONS.includes(reason))
-      || suppression.join(",") !== [...new Set(suppression)].sort().join(",")
+      || Reflect.ownKeys(suppression).length !== suppression.length + 1) {
+      throw new TypeError("Invalid synthetic contact signals");
+    }
+    // Array iteration reads values BEFORE invoking its callback, which would
+    // execute hostile index getters even if the callback checked descriptors.
+    // Copy only enumerable own data properties into a validated local list.
+    const validated: SuppressionReason[] = [];
+    for (let index = 0; index < suppression.length; index++) {
+      const entry = Object.getOwnPropertyDescriptor(suppression, String(index));
+      if (!entry?.enumerable || !Object.hasOwn(entry,"value")
+        || !REASONS.includes(entry.value)) {
+        throw new TypeError("Invalid synthetic contact signals");
+      }
+      validated.push(entry.value);
+    }
+    if (validated.join(",") !== [...new Set(validated)].sort().join(",")
       || typeof rawSignals.replied !== "boolean") {
       throw new TypeError("Invalid synthetic contact signals");
     }
@@ -174,7 +185,7 @@ export class SyntheticDispatchReservationLedger {
       return {state:"blocked",reason:"stale-or-invalid-version",
         snapshot:this.#snapshot(record)};
     }
-    const nextReasons=suppression.filter(reason=>!record.suppressions.has(reason));
+    const nextReasons=validated.filter(reason=>!record.suppressions.has(reason));
     const newReply=rawSignals.replied && !record.replyReviewRequired;
     if (!nextReasons.length && !newReply) {
       return {state:"blocked",reason:"duplicate-or-empty-contact-signals",

@@ -1194,3 +1194,30 @@ database recovery or human approval is proven. It does not send, unlock
 reservations, alter API routes or waive any mandatory CI gates. Actual
 tenant-scoped SQL transactions and H01–H13 real go-live signoffs remain
 unverified and blocking.
+
+## Hostile fictional suppression array indexes are rejected before use
+
+The volatile `SyntheticDispatchReservationLedger.compareAndApplyContactSignals`
+previously used `Array.every` to validate the caller-supplied suppression
+list. JavaScript reads an array element **before** calling the predicate, so
+an accessor-backed indexed entry could execute untrusted getter code even
+though the predicate attempted to inspect its descriptor. An indexed data
+entry that was hidden (non-enumerable) also passed the earlier data-only
+check, contrary to the existing strict evidence contract.
+
+The local compare-and-swap rehearsal now reads each indexed property
+**descriptor first**, requiring an enumerable own data value and an allowed
+canonical suppression reason; only validated local values are considered
+for ordering, duplicate detection and sticky state reconciliation.
+Adversarial tests require accessor getters to remain completely unread,
+non-enumerable indexed values to reject, the fictional reservation/version
+to remain unchanged after either rejection, and an ordinary opt-out
+update to remain successful and non-authorizing. Existing reply,
+complaint, bounce, tenant-isolation and optimistic-CAS tests are preserved.
+
+This does not authenticate real inbound webhook evidence, provide durable
+recipient suppression, persist events, authorize a contact, expose a
+sending route, or lift an existing hold. H01–H13 production tenant Auth/RLS,
+verified provider signatures/consent, durable transactional idempotency
+and written human go/no-go still block release. No CI gate, API,
+dependency, provider or database behavior was added or weakened.

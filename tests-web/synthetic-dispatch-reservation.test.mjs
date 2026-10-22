@@ -202,6 +202,34 @@ test("forged identities, hidden getters and stale reply CAS fail without mutatio
   assert.equal(ledger.snapshot(intent).version,0);
 });
 
+test("suppression array getters and hidden entries fail before reading or mutating state",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  assert.equal(ledger.compareAndReserve(intent,0).state,"reserved-simulation-only");
+  let reads=0;
+  const getter=["opted_out"];
+  Object.defineProperty(getter,"0",{enumerable:true,configurable:true,get(){
+    reads++;throw new Error("unsafe array getter");
+  }});
+  const hidden=["opted_out"];
+  Object.defineProperty(hidden,"0",{enumerable:false,configurable:true,
+    value:"opted_out"});
+  for (const suppression of [getter,hidden]){
+    assert.throws(()=>ledger.compareAndApplyContactSignals(intent,1,{
+      suppression,replied:false,
+    }),/Invalid synthetic contact signals/);
+    assert.equal(ledger.snapshot(intent).version,1);
+    assert.equal(ledger.snapshot(intent).reserved,true);
+  }
+  assert.equal(reads,0);
+  const valid=ledger.compareAndApplyContactSignals(intent,1,{
+    suppression:["opted_out"],replied:false,
+  });
+  assert.equal(valid.state,"suppressed-simulation-only");
+  assert.equal(valid.snapshot.version,2);
+  assert.deepEqual(valid.snapshot.suppression,["opted_out"]);
+  assert.equal(valid.snapshot.contactAuthorized,false);
+});
+
 test("suppression is sticky, reason-union is stable, and no lifting operation exists",()=>{
   const ledger=new SyntheticDispatchReservationLedger();
   assert.equal(ledger.compareAndSuppress(intent,0,"bounced").state,"suppressed-simulation-only");
