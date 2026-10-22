@@ -34,6 +34,49 @@ test("redacted CRM summaries stay tenant-scoped and never imply send authority",
     assert.deepEqual(Object.keys(report).sort(),["attention","categories","reviewedCases","state"]);
   }
 });
+test("fictional company pipeline is derived from the same scoped CRM evidence",()=>{
+  const summaries=buildSyntheticDeliveryLabSummaries();
+  const byCompany=Object.fromEntries(summaries.map(item=>[item.company,item]));
+  const painting=byCompany["Fictional painting contractor"];
+  const cleaning=byCompany["Fictional cleaning contractor"];
+  assert.deepEqual(painting.pipeline.delivery,{
+    notStarted:0,reserved:0,accepted:0,reportedDelivered:4,bounced:0,
+  });
+  assert.deepEqual(painting.pipeline.deals,{unverified:3,won:1,lost:0});
+  assert.equal(painting.pipeline.distinctProposals,4);
+  assert.deepEqual(cleaning.pipeline.delivery,{
+    notStarted:0,reserved:0,accepted:0,reportedDelivered:2,bounced:1,
+  });
+  assert.deepEqual(cleaning.pipeline.deals,{unverified:3,won:0,lost:0});
+  assert.equal(cleaning.pipeline.distinctProposals,3);
+  for(const {report,pipeline} of summaries){
+    assert.equal(pipeline.reviewedCases,report.reviewedCases);
+    assert.deepEqual(pipeline.attention,report.attention);
+    assert.equal(Object.values(pipeline.delivery).reduce((a,b)=>a+b,0),
+      pipeline.reviewedCases);
+    assert.equal(Object.values(pipeline.deals).reduce((a,b)=>a+b,0),
+      pipeline.distinctProposals);
+    assert.equal(pipeline.state,"crm-simulation-only");
+    assert.equal(pipeline.contactAuthorized,false);
+    assert.equal(pipeline.dataComplete,false);
+    const output=JSON.stringify(pipeline);
+    for(const secret of ["buyer@","fictional.example","dryrun_","organizationId",
+      "proposalId","recipient","sourceSha256","policySha256"]){
+      assert.equal(output.includes(secret),false);
+    }
+  }
+});
+
+test("lab renders explicit case-versus-proposal semantics without enabling contact",()=>{
+  assert.match(page,/Fictional pipeline/);
+  assert.match(page,/Case-level delivery reports; proposal-level deal outcomes/);
+  assert.match(page,/Reported delivered · cases/);
+  assert.match(page,/Won · unique proposals/);
+  assert.match(page,/Unverified · unique proposals/);
+  assert.match(page,/Incomplete fictional evidence; no contact authorization/);
+  assert.doesNotMatch(page,/<form\b|<input\b|<button\b|<textarea\b/i);
+});
+
 test("reply, bounce and unknown consent each block follow-up",()=>{
   const byId=Object.fromEntries(buildSyntheticDeliveryLabCases().map(x=>[x.id,x]));
   assert.equal(byId["painting-reply"].followUp.state,"blocked");
