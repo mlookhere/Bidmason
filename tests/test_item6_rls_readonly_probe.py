@@ -1,0 +1,173 @@
+"""H01 opt-in read-only live probe: tested offline; never grants release."""
+from __future__ import annotations
+
+import base64
+import contextlib
+import io
+import json
+import time
+import unittest
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
+
+from ci.item6_rls_readonly_probe import main, probe_readonly_rls
+
+ORG_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+ORG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+USER_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+USER_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+URL = "https://" + "a" * 20 + ".supabase.co"
+KEY = "sb_publishable_" + "k" * 25
+
+
+def token(sub: str, **overrides) -> str:
+    claims = {"sub": sub, "role": "authenticated", "exp": int(time.time()) + 86400}
+    claims.update(overrides)
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return "header." + payload + ".signature"
+
+
+class FakeTransport:
+    def __init__(self):
+        self.tokens = {token(USER_A): (USER_A, ORG_A), token(USER_B): (USER_B, ORG_B)}
+        self.requests = []
+        self.leak = False
+        self.missing_own = False
+        self.auth_rejected = False
+        self.anon_leak = False
+
+    def __call__(self, url, headers):
+        self.requests.append((url, headers))
+        parts = urlsplit(url)
+        query = parse_qs(parts.query)
+        bearer = headers.get("Authorization", "").removeprefix("Bearer ")
+        if parts.path == "/auth/v1/user":
+            if self.auth_rejected:
+                return 401, {"message": "not authorized"}
+            return 200, {"id": self.tokens[bearer][0], "is_anonymous": False}
+        if not bearer:
+            return 200, ([{"id": ORG_A}] if self.anon_leak else [])
+        user, own = self.tokens[bearer]
+        if parts.path.endswith("/bm_organizations"):
+            requested = query.get("id", [""])[0].removeprefix("eq.")
+            rows = [{"id": own}] if not requested or requested == own else []
+            if self.leak and requested and requested != own:
+                rows = [{"id": requested}]
+            if self.missing_own and requested == own:
+                rows = []
+        elif parts.path.endswith("/bm_memberships"):
+            requested = query["organization_id"][0].removeprefix("eq.")
+            rows = ([{"organization_id": own, "user_id": user}]
+                    if requested == own else [])
+        else:
+            raise AssertionError("Unexpected endpoint: " + parts.path)
+        return 200, rows
+
+
+class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
+    def run_probe(self, transport=None, **replacements):
+        transport = transport or FakeTransport()
+        args = dict(base=URL, publishable_key=KEY,
+                    token_a=next(iter(transport.tokens)),
+                    token_b=list(transport.tokens)[1],
+                    org_a=ORG_A, org_b=ORG_B, get=transport)
+        args.update(replacements)
+        return probe_readonly_rls(**args), transport
+
+    def test_full_two_user_positive_and_negative_matrix_is_review_only(self):
+        result, fake = self.run_probe()
+        self.assertEqual(result["state"], "requires-independent-review")
+        self.assertIs(result["releaseAuthorized"], False)
+        self.assertIs(result["h01Accepted"], False)
+        self.assertEqual(len(result["checks"]), 13)
+        self.assertTrue(all(row["passed"] for row in result["checks"]))
+        self.assertEqual(len(fake.requests), 13)
+        self.assertEqual(sum(url.endswith("/auth/v1/user") for url, _ in fake.requests), 2)
+        self.assertNotIn("Authorization", fake.requests[-1][1])
+        # No JWT, project hostname, recipient or tenant identity is emitted.
+        rendered = json.dumps(result)
+        for secret in (KEY, URL, USER_A, USER_B, ORG_A, ORG_B,
+                       *fake.tokens):
+            self.assertNotIn(secret, rendered)
+        self.assertIn("session-revocation", result["notTested"])
+        self.assertIn("write-boundary", result["notTested"])
+
+    def test_positive_controls_prevent_false_green_on_empty_or_closed_api(self):
+        fake = FakeTransport()
+        fake.missing_own = True
+        result, fake = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(len(fake.requests), 2)
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_cross_tenant_data_is_blocking_even_with_positive_own_reads(self):
+        fake = FakeTransport()
+        fake.leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_anonymous_visibility_is_not_a_success(self):
+        fake = FakeTransport()
+        fake.anon_leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "anonymous-organizations")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_auth_failure_stops_before_tenant_queries(self):
+        fake = FakeTransport()
+        fake.auth_rejected = True
+        result, fake = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(len(fake.requests), 1)
+        self.assertEqual(result["checks"][0]["name"], "user-1-auth")
+
+    def test_rejects_nonuser_expired_duplicate_and_anonymous_tokens_before_http(self):
+        invalid = [
+            {"token_a": token(USER_A, role="service_role")},
+            {"token_a": token(USER_A, role="anon")},
+            {"token_a": token(USER_A, is_anonymous=True)},
+            {"token_a": token(USER_A, exp=1)},
+            {"token_a": "service-key"},
+            {"token_b": token(USER_A)},
+            {"token_a": token(USER_A), "token_b": token(USER_A)},
+        ]
+        for changes in invalid:
+            with self.subTest(changes=list(changes)):
+                fake = FakeTransport()
+                with self.assertRaises(ValueError):
+                    self.run_probe(fake, **changes)
+                self.assertEqual(fake.requests, [])
+
+    def test_rejects_wrong_origin_secret_keys_and_reused_orgs_before_http(self):
+        invalid = [
+            {"base": "http://" + "a"*20 + ".supabase.co"},
+            {"base": URL + "/rest/v1"},
+            {"base": URL + "?token=secret"},
+            {"base": "https://"+ "a"*20 + ".supabase.co.evil.test"},
+            {"base": "https://localhost"},
+            {"publishable_key": "sb_secret_" + "x"*30},
+            {"publishable_key": "service_role"},
+            {"org_b": ORG_A},
+            {"org_a": "not-a-uuid"},
+        ]
+        for changes in invalid:
+            with self.subTest(changes=list(changes)):
+                fake = FakeTransport()
+                with self.assertRaises(ValueError):
+                    self.run_probe(fake, **changes)
+                self.assertEqual(fake.requests, [])
+
+    def test_without_explicit_live_optin_cli_never_connects(self):
+        with patch("sys.argv", ["item6_rls_readonly_probe"]), patch(
+                "ci.item6_rls_readonly_probe._get",
+                side_effect=AssertionError("Unexpected live HTTP")):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(main(), 2)
+            self.assertIn("no network by default", output.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
