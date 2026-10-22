@@ -95,6 +95,74 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'import "../../../../../../outside/server";')
         self.verify("escaped repository root")
 
+    def test_default_server_rendered_home_and_route_group_pages_fail_closed(self):
+        self.write("lib/follow-up-assessment.ts", "export const helper=true;")
+        self.write("app/page.tsx", 'import "../lib/follow-up-assessment";')
+        self.write("app/(backoffice)/bids/page.tsx",
+                   'import "../../../lib/follow-up-assessment";')
+        self.verify("app/page.tsx", "app/(backoffice)/bids/page.tsx")
+
+    def test_layout_template_and_loading_components_cannot_use_offline_models(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const helper=true;")
+        self.write("app/layout.tsx", 'import "../lib/synthetic-dispatch-reservation";')
+        self.write("app/(private)/template.tsx",
+                   'import "../../lib/synthetic-dispatch-reservation";')
+        self.write("app/(private)/loading.tsx",
+                   'import "../../lib/synthetic-dispatch-reservation";')
+        self.verify("app/layout.tsx", "app/(private)/template.tsx",
+                    "app/(private)/loading.tsx")
+
+    def test_pages_router_non_api_ssr_entries_also_fail_closed(self):
+        self.write("lib/buyer-view-grant.ts", "export const x=true;")
+        self.write("pages/quote.tsx", 'import "../lib/buyer-view-grant";')
+        self.write("src/pages/deals/list.tsx",
+                   'import "../../../lib/buyer-view-grant";')
+        self.verify("pages/quote.tsx", "src/pages/deals/list.tsx")
+
+    def test_next_proxy_and_src_proxy_are_live_entrypoints(self):
+        self.write("lib/synthetic-webhook-contact-hold.ts", "export const x=true;")
+        self.write("proxy.ts", 'import "./lib/synthetic-webhook-contact-hold";')
+        self.write("src/proxy.ts",
+                   'import "../lib/synthetic-webhook-contact-hold";')
+        self.verify("proxy.ts", "src/proxy.ts")
+
+    def test_preview_exemption_is_only_for_the_named_fictional_page(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   'import "../../lib/synthetic-dispatch-reservation";')
+        self.write("app/delivery-lab/layout.tsx",
+                   'import "../../lib/synthetic-dispatch-reservation";')
+        self.write("app/delivery-lab/api/route.ts",
+                   'import "../../../lib/synthetic-dispatch-reservation";')
+        self.verify("app/delivery-lab/layout.tsx",
+                    "app/delivery-lab/api/route.ts")
+
+    def test_preview_cannot_add_a_server_action_even_with_exact_page_name(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   '"use server";\nimport "../../lib/synthetic-dispatch-reservation";')
+        self.verify("app/delivery-lab/page.tsx")
+
+    def test_transitive_component_import_reachable_from_server_page_is_rejected(self):
+        self.write("lib/buyer-response-draft.ts", "export const x=true;")
+        self.write("app/components/preview-widget.tsx",
+                   'import "../../lib/buyer-response-draft";')
+        self.verify()  # an unreferenced module is not a live entrypoint
+        self.write("app/page.tsx",
+                   'import "./components/preview-widget";')
+        self.verify("app/page.tsx")
+
+    def test_src_app_page_and_error_fallback_entries_are_live(self):
+        self.write("lib/delivery-event-projection.ts", "export const x=true;")
+        self.write("src/app/page.tsx",
+                   'import "../../lib/delivery-event-projection";')
+        self.write("src/app/(portal)/error.tsx",
+                   'import "../../../lib/delivery-event-projection";')
+        self.write("src/app/(portal)/not-found.tsx",
+                   'import "../../../lib/delivery-event-projection";')
+        self.verify("src/app/page.tsx", "src/app/(portal)/error.tsx",
+                    "src/app/(portal)/not-found.tsx")
+
     def test_real_repository_remains_safe_without_live_api_entrypoints(self):
         repo = Path(__file__).resolve().parents[1]
         self.assertEqual(findings(repo), [])
