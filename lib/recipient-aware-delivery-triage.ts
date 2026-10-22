@@ -37,6 +37,32 @@ export function classifySimulatedRecipientAwareTriage(
     intent, events, policy, previousAttempts, nowUtc, dealEvents,
   );
   const prior = reviewSimulatedRecipientContactHistory(intent, history, nowUtc);
+  // The aggregate CRM already rejects a reservation made at or after a
+  // recipient's stop in a different proposal. Individual triage must not
+  // silently classify the same contradictory evidence as ordinary suppression.
+  // Both streams have been validated by the independent evaluators above.
+  const stopKinds = new Set([
+    "recipient_replied", "recipient_opted_out",
+    "provider_bounced", "provider_complained",
+  ]);
+  const currentReserved = events.find(event => event.kind === "reserved")?.observedAt;
+  const currentStops = events.filter(event => stopKinds.has(event.kind))
+    .map(event => event.observedAt);
+  for (const stream of history) {
+    const historicalStops = stream.events.filter(event => stopKinds.has(event.kind))
+      .map(event => event.observedAt);
+    if (currentReserved !== undefined
+      && historicalStops.some(stoppedAt => currentReserved >= stoppedAt)) {
+      throw new TypeError("Cross-proposal simulated reservation conflicts with contact-stop chronology");
+    }
+    if (currentStops.length) {
+      const historicalReserved = stream.events.find(event => event.kind === "reserved")?.observedAt;
+      if (historicalReserved !== undefined
+        && currentStops.some(stoppedAt => historicalReserved >= stoppedAt)) {
+        throw new TypeError("Cross-proposal simulated reservation conflicts with contact-stop chronology");
+      }
+    }
+  }
   if (prior.suppression.length) {
     return {
       ...current,
