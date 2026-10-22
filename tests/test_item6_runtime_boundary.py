@@ -187,6 +187,33 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'export {x} from "./outbound-preflight";')
         self.verify("lib/exported-action.ts imports offline-only lib/outbound-preflight.ts")
 
+    def test_ecmascript_bom_before_module_directive_cannot_hide_action(self):
+        self.write("lib/buyer-view-grant.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   '\ufeff/* header */ "use server";'
+                   ' import {x} from "../lib/buyer-view-grant";')
+        self.verify("src/actions.ts imports offline-only lib/buyer-view-grant.ts")
+
+    def test_ecmascript_bom_inside_function_action_cannot_hide_import(self):
+        self.write("src/lib/buyer-response-draft.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   'export async function submit(){\ufeff"use server";'
+                   ' return import\ufeff("./lib/buyer-response-draft"); }')
+        self.verify("src/actions.ts imports offline-only src/lib/buyer-response-draft.ts")
+
+    def test_ecmascript_bom_between_static_import_tokens_is_not_invisible(self):
+        self.write("lib/outbound-preflight.ts", "export const x=true;")
+        self.write("app/api/submit/route.ts",
+                   'import\ufeff{x}\ufefffrom\ufeff"../../../lib/outbound-preflight";')
+        self.verify("app/api/submit/route.ts imports offline-only lib/outbound-preflight.ts")
+
+    def test_bom_and_leading_comment_remove_preview_action_exemption(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   '\ufeff// note\n"use server";'
+                   ' import "../../lib/synthetic-dispatch-reservation";')
+        self.verify("app/delivery-lab/page.tsx imports offline-only lib/synthetic-dispatch-reservation.ts")
+
     def test_leading_module_block_comment_does_not_hide_server_action(self):
         self.write("lib/buyer-view-grant.ts", "export const x=true;")
         self.write("src/actions.ts",
