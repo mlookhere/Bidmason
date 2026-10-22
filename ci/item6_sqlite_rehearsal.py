@@ -6,6 +6,7 @@ permission, or a substitute for the production PostgreSQL integration gates.
 """
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import sqlite3
@@ -19,6 +20,7 @@ _FAKE_RECIPIENT = re.compile(r"[a-z0-9][a-z0-9.+_-]{0,63}@[a-z0-9-]+(?:\.[a-z0-9
 _SIGNAL_KINDS = frozenset({"replied", "opted_out", "bounced", "complained"})
 _CLOSURE_KINDS = frozenset({"won", "lost"})
 _T = TypeVar("_T")
+_FIXTURE_TAG = "bidmason:fictional-item6-sqlite:v1"
 
 # Real/sensitive/customer addresses are deliberately excluded from this test model.
 def _identity(organization_id: str, proposal_id: str, recipient: str) -> None:
@@ -37,11 +39,27 @@ def _safe_fixture_path(path: Path) -> bool:
 
 def initialize_fixture_db(path: Path) -> None:
     """Create an isolated test database; never run this against a live project."""
-    if not _safe_fixture_path(path) or path.exists():
+    if not _safe_fixture_path(path):
         raise ValueError("Fixture database must be a new regular path")
-    with closing(sqlite3.connect(path)) as db:
+    # Atomically claim the pathname instead of racing on path.exists(). The
+    # marker is a defense against accidentally targeting other temp SQLite
+    # files; it does not authenticate an untrusted database or another user.
+    flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError as exc:
+        raise ValueError("Fixture database must be a new regular path") from exc
+    os.close(fd)
+    with closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True)) as db:
         db.executescript("""
         PRAGMA foreign_keys=ON;
+        CREATE TABLE rehearsal_fixture_identity (
+          schema_tag TEXT NOT NULL PRIMARY KEY
+            CHECK (schema_tag = 'bidmason:fictional-item6-sqlite:v1')
+        );
+        INSERT INTO rehearsal_fixture_identity VALUES
+          ('bidmason:fictional-item6-sqlite:v1');
         CREATE TABLE rehearsal_reservations (
           organization_id TEXT NOT NULL,
           idempotency_key TEXT NOT NULL,
@@ -74,7 +92,18 @@ def _transaction(path: Path, work: Callable[[sqlite3.Connection], _T]) -> _T:
         raise ValueError("Missing or invalid fictional transaction fixture")
     # Independent connections + BEGIN IMMEDIATE serialize reads and mutations.
     # Explicit COMMIT/ROLLBACK avoids half-written fictional contact decisions.
-    with closing(sqlite3.connect(path, timeout=15, isolation_level=None)) as db:
+    # mode=rw refuses to create a new database if the original path vanished
+    # after the initial path check. A foreign SQLite file must not be used.
+    with closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True,
+                                 timeout=15, isolation_level=None)) as db:
+        try:
+            markers = db.execute(
+                "SELECT schema_tag FROM rehearsal_fixture_identity"
+            ).fetchall()
+        except sqlite3.DatabaseError as exc:
+            raise ValueError("Not an initialized rehearsal fixture") from exc
+        if markers != [(_FIXTURE_TAG,)]:
+            raise ValueError("Not an initialized rehearsal fixture")
         db.execute("PRAGMA busy_timeout=15000")
         db.execute("BEGIN IMMEDIATE")
         try:
