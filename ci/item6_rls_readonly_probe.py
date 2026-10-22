@@ -93,6 +93,17 @@ def _get(url: str, headers: dict[str, str]) -> tuple[int, object]:
         raise ValueError("Malformed authentication or PostgREST response") from exc
 
 
+def _anonymous_non_disclosure(status: int, rows: object) -> bool:
+    """An anon role with no table SELECT grant may return HTTP 401 or 403.
+
+    The signed-in positive controls must have passed first. Denial is accepted
+    only for anonymous checks, never as evidence of authenticated isolation.
+    """
+    return (status == 200 and rows == []) or (
+        status in (401, 403) and rows is None
+    )
+
+
 def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: str,
                        org_a: str, org_b: str,
                        revision_a: str, revision_b: str, get=_get) -> dict:
@@ -160,18 +171,18 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
     anonymous_headers = {"apikey": publishable_key, "Accept": "application/json"}
     status, rows = get(base + "/rest/v1/bm_organizations?select=id&limit=100",
                        anonymous_headers)
-    cases["anonymous-organizations"] = status == 200 and rows == []
+    cases["anonymous-organizations"] = _anonymous_non_disclosure(status, rows)
     if not cases["anonymous-organizations"]:
         return _result(cases)
     status, rows = get(base + "/rest/v1/bm_memberships?select=organization_id,user_id&limit=100",
                        anonymous_headers)
-    cases["anonymous-memberships"] = status == 200 and rows == []
+    cases["anonymous-memberships"] = _anonymous_non_disclosure(status, rows)
     if not cases["anonymous-memberships"]:
         return _result(cases)
     status, rows = get(
         base + "/rest/v1/bm_brief_revisions?select=id,organization_id&limit=100",
         anonymous_headers)
-    cases["anonymous-brief-revisions"] = status == 200 and rows == []
+    cases["anonymous-brief-revisions"] = _anonymous_non_disclosure(status, rows)
     return _result(cases)
 
 
