@@ -346,10 +346,12 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.write("app/page.tsx", 'import {fake} from "external-package";')
         self.verify()
 
+    # Match logical file components: Windows may canonicalize TemporaryDirectory
+    # roots to a different absolute spelling than the fixture Path objects.
     def test_symlinked_live_route_is_not_trusted_as_scanned_source(self):
         entry = self.write("app/api/send/route.ts", "export const GET = () => null;")
         with patch.object(Path, "is_symlink",
-                          autospec=True, side_effect=lambda p: p == entry):
+                          autospec=True, side_effect=lambda p: p.name == "route.ts" and p.parent.name == "send"):
             self.verify("app/api/send/route.ts: unreviewed symlinked source path")
 
     def test_symlinked_local_helper_is_not_assumed_to_resolve_safely(self):
@@ -357,20 +359,20 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.write("app/api/ping/route.ts",
                    'import {x} from "../../../lib/safe-looking-helper";')
         with patch.object(Path, "is_symlink",
-                          autospec=True, side_effect=lambda p: p == helper):
+                          autospec=True, side_effect=lambda p: p.name == "safe-looking-helper.ts"):
             self.verify("lib/safe-looking-helper.ts: unreviewed symlinked source path")
 
     def test_symlinked_source_directory_blocks_even_without_visible_children(self):
         self.write("src/lib/ordinary-helper.ts", "export const ok = true;")
         suspect = self.root / "src/lib"
         with patch.object(Path, "is_symlink",
-                          autospec=True, side_effect=lambda p: p == suspect):
+                          autospec=True, side_effect=lambda p: p.name == "lib" and p.parent.name == "src"):
             self.verify("src/lib: unreviewed symlinked source path")
 
     def test_symlinked_root_proxy_is_a_runtime_boundary_violation(self):
         proxy = self.write("proxy.ts", "export const proxy = () => null;")
         with patch.object(Path, "is_symlink",
-                          autospec=True, side_effect=lambda p: p == proxy):
+                          autospec=True, side_effect=lambda p: p.name == "proxy.ts"):
             self.verify("proxy.ts: unreviewed symlinked source path")
 
     def test_real_repository_remains_safe_without_live_api_entrypoints(self):
