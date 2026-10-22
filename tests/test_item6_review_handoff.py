@@ -122,6 +122,12 @@ class ReviewPacketTests(unittest.TestCase):
                 "operator | hidden extra column",
                 "`inline-code`",
                 "review\trecipient",
+                "review\u202erelease authorized",
+                "recipient\u200b@example.test",
+                "recipient\uff20example.test",
+                "operator\u00a0role",
+                "approve\u2066reject\u2069",
+                "operator\u001b[32m",
             ):
                 with self.subTest(cell=cell_index, unsafe=unsafe):
                     columns = lines[row_index].split(" | ")
