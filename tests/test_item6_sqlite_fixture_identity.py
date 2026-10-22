@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ci.item6_sqlite_rehearsal import (
     initialize_fixture_db, reserve_fictional, fictional_counts,
@@ -70,6 +71,44 @@ class FixtureIdentityTests(unittest.TestCase):
         self.assertEqual(reserve_fictional(path, ORG, PROPOSAL, ADDRESS, KEY), "reserved-simulation-only")
         self.assertEqual(mark_fictional_handoff_unknown(path, ORG, PROPOSAL, ADDRESS, KEY), "outcome-unknown-simulation-only")
         self.assertEqual(fictional_counts(path, ORG), (0, 0, 0))
+
+    def test_fixture_marker_is_checked_inside_the_same_immediate_lock(self):
+        path = self.root / "locked-identity.sqlite3"
+        initialize_fixture_db(path)
+        connect = sqlite3.connect
+        inspected = []
+
+        class InspectionConnection(sqlite3.Connection):
+            def execute(self, statement, *args, **kwargs):
+                if statement == "SELECT schema_tag FROM rehearsal_fixture_identity":
+                    inspected.append(self.in_transaction)
+                return super().execute(statement, *args, **kwargs)
+
+        def instrumented_connect(*args, **kwargs):
+            return connect(*args, factory=InspectionConnection, **kwargs)
+
+        with patch("ci.item6_sqlite_rehearsal.sqlite3.connect",
+                   side_effect=instrumented_connect):
+            self.assertEqual(
+                reserve_fictional(path, ORG, PROPOSAL, ADDRESS, KEY),
+                "reserved-simulation-only")
+        self.assertEqual(inspected, [True])
+
+    def test_bad_marker_rollback_releases_immediate_lock_without_a_write(self):
+        path = self.root / "replaced-marker.sqlite3"
+        initialize_fixture_db(path)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("DELETE FROM rehearsal_fixture_identity")
+            db.commit()
+        with self.assertRaisesRegex(ValueError, "rehearsal fixture"):
+            reserve_fictional(path, ORG, PROPOSAL, ADDRESS, KEY)
+        # A rejected transaction must not strand a write lock for the next
+        # process, nor persist the attempted fictional reservation.
+        with closing(sqlite3.connect(path, isolation_level=None, timeout=1)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            self.assertEqual(db.execute(
+                "SELECT COUNT(*) FROM rehearsal_reservations").fetchone(), (0,))
+            db.execute("ROLLBACK")
 
     def test_clearing_fixture_marker_fails_closed_even_for_existing_reservation(self):
         path = self.root / "altered.sqlite3"
