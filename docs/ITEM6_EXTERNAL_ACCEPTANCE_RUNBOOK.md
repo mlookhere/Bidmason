@@ -199,6 +199,22 @@ reviewed real resolver and import graph are implemented. It is **not**
 proof of complete static analysis, actual Auth/RLS, consent or production
 send/view authorization. H01–H13 remain blocked.
 
+### Leading comments cannot conceal executable server directives
+
+The Item 6 static boundary now treats ordinary leading block and line comments
+as lexical whitespace before a module-level or function-scoped `"use server"`
+directive. A header comment before a server action must **not** prevent
+inspection of its transitive dependency graph, including offline-only synthetic
+helpers; the narrow `/delivery-lab` exception is also removed if its page gains
+such a directive. Negative regression cases cover both directive forms and a
+commented preview; a safe local import remains permitted. These guards are
+still conservative regular-expression source analysis, **not** a complete
+TypeScript/JavaScript parser or proof of runtime isolation.
+
+All existing H01–H13 live, independently reviewed release requirements remain
+**unverified**; no sending, buyer access, production approval or release is
+authorized by a passing static check.
+
 ## Deterministic external reviewer handoff — still BLOCKED
 
 Runbook table cells describing reviewer roles and negative tests must remain
