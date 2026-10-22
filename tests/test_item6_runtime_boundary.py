@@ -227,7 +227,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.write("src/lib/barrel.ts",
                    'export {\n  ' + names
                    + '\n} from "./recipient-suppression-history";')
-        self.write("src/app/page.tsx", 'import "../../lib/barrel";')
+        self.write("src/app/page.tsx", 'import "../lib/barrel";')
         self.verify("imports offline-only src/lib/recipient-suppression-history.ts")
 
     def test_long_type_only_import_does_not_hide_offline_code(self):
