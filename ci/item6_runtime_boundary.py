@@ -83,7 +83,7 @@ APP_ENTRY_STEMS = {
 # when they have no conventional page/route component. Numbered image files
 # (for example icon1.tsx) also generate publicly reachable endpoints.
 METADATA_STEMS = {"robots", "sitemap", "manifest"}
-METADATA_IMAGE = re.compile(r"(?:icon|apple-icon|opengraph-image|twitter-image)\\d*\\Z")
+METADATA_IMAGE = re.compile(r"(?:icon|apple-icon|opengraph-image|twitter-image)\d*\Z")
 GLOBAL_STEMS = {"middleware", "instrumentation", "proxy"}
 
 
