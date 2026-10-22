@@ -197,3 +197,27 @@ revoked confirmations and terminal closures, concurrent snapshot consistency,
 and bad fixture/tenant inputs. This is not an authenticated operator dashboard,
 a production Postgres/RLS query or proof of live provider events. H01–H13
 external and human release holds remain outstanding.
+
+ 
+### Fail-closed fictional pending-evidence consistency
+
+The aggregate snapshot also reports **`inconsistentPendingReservations`**
+and a **`pendingEvidenceState`** that is either
+`consistent-simulation-only` or `inconsistent-needs-review`. These fields
+are distinct from the delivery counts. They flag **currently pending**
+fictional reservations that contradict the same-tenant state: recorded
+contact-stop or consent-withdrawal events, a terminal proposal closure, or
+(for **reviewed** reservations only) missing or mismatched independent
+operator/contractor revision receipts, a newer partial review, missing
+recipient consent, missing contractor-exact-recipient confirmation, or
+confirmation revocation. Tests for manually corrupted temporary fixtures
+demonstrate detection rather than falsely presenting a healthy count.
+
+Raw *unreviewed* CAS fixture rows deliberately do not need reviewer receipts:
+the raw fixture remains an isolated transaction test, not permission to
+contact. An **already unknown** outcome may legitimately coexist with later
+opt-out/withdrawal/closure and is not counted as a corrupted *pending* row.
+Only counts are returned; individual identity or evidence details remain
+redacted. The checker never updates rows, releases holds, infers actual
+customer consent, or asserts that even a "consistent" fictional reservation
+would be safe to send. This is **not** a live database integrity monitor.
