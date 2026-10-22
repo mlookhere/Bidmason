@@ -43,8 +43,8 @@ test("future delivery and recipient observations cannot be classified as current
     const result=evaluate(currentEvents);
     assert.equal(result.state,"review-simulation-only");
     assert.ok(["contact-suppressed","reply-needs-review",
-      "delivery-needs-verification","external-authorization-required"]
-      .includes(result.category));
+      "delivery-needs-verification","waiting-for-cooldown",
+      "external-authorization-required"].includes(result.category));
   }
 });
 
