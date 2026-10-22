@@ -116,13 +116,15 @@ test("subsecond timestamps cannot escape the exact five-minute freshness window"
       assert.equal(verify(raw,signed(raw,instant),instant).state,"blocked");
     }
   }
-  // The event-header check must also use milliseconds when the signed
-  // header sits at the extreme edge of the independent receive allowance.
-  const futureHeader=instant+300;
-  const eventAfterHeader=body({...event,observedAt:
-    new Date((futureHeader+300)*1000+1).toISOString()});
-  assert.equal(verify(eventAfterHeader,signed(eventAfterHeader,futureHeader),instant)
-    .state,"blocked");
+  // Isolate the event-header rule: event and receipt differ by only 1ms,
+  // but header and event differ by 300.001s in each direction.
+  for (const direction of [-1,1]) {
+    const headerTime=instant+direction*300;
+    const beyondHeader=body({...event,observedAt:
+      new Date(baseMs-direction).toISOString()});
+    assert.equal(verify(beyondHeader,signed(beyondHeader,headerTime),instant)
+      .state,"blocked");
+  }
 });
 
 test("changed tenant, recipient, revision key and unsupported reserved events are blocked",()=>{
