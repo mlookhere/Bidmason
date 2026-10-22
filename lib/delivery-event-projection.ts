@@ -116,7 +116,12 @@ export function projectSimulatedDeliveryEvents(
         delivery = "reserved";
         break;
       case "provider_accepted":
-        if (delivery !== "reserved") throw new TypeError("Unexpected provider acceptance");
+        // A recipient stop after reservation but before acceptance must not
+        // allow a *new* fictional provider handoff. Late delivered/complaint
+        // callbacks for work accepted earlier are assessed separately below.
+        if (delivery !== "reserved" || suppression.size > 0) {
+          throw new TypeError("Unexpected or suppressed provider acceptance");
+        }
         delivery = "accepted";
         break;
       case "provider_delivered":
