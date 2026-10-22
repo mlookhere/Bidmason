@@ -25,7 +25,7 @@ UNSAFE = (
 # Every core PR check must remain an unconditional, failure-propagating job.
 # Additional slice gates become mandatory when their executable marker exists.
 CORE_JOBS = ("fast", "pr", "security", "web-build", "win-fast", "pdf-qa", "browser-e2e")
-NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \\t]+(if|continue-on-error):(?:[ \\t]|$)")
+NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \t]+(if|continue-on-error):(?:[ \t]|$)")
 
 
 MERGED_SLICE_GATES = (
@@ -78,7 +78,7 @@ def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
         if block is None:
             problems.append(f"missing {name} job for {marker}")
         elif not re.search(
-            r"(?m)^[ \\t]+run:[ \\t]*" + re.escape(command) + r"[ \\t]*$",
+            r"(?m)^[ \t]+run:[ \t]*" + re.escape(command) + r"[ \t]*$",
             block,
         ):
             problems.append(f"missing substantive {name} run command for {marker}")
