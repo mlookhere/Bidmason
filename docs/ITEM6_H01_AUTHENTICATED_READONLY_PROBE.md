@@ -5,7 +5,7 @@
 
 ## Preconditions
 
-An authorized staging operator must first provision **two different test users and two distinct synthetic organizations**, each user a member of exactly one organization. Both organization rows and matching memberships must exist and be visible to their own real user sessions. The currently observed empty BidMason environment does **not** satisfy these preconditions. Obtain short-lived signed-in user access JWTs through normal Auth, and a **publishable**, not secret/service-role, API key. Never provision users, membership, credentials or data with this probe. Do not use genuine customer records or grant service bypass privileges.
+An authorized staging operator must first provision **two different test users and two distinct synthetic organizations**, each user a member of exactly one organization, **plus one synthetic brief revision row in each organization**. Both organization rows, matching memberships and exact tenant-scoped revision IDs must exist and be visible to their own real user sessions. Do not create customer-like proposal content; use invented test-only documents and hashes. The currently observed empty BidMason environment does **not** satisfy these preconditions. Obtain short-lived signed-in user access JWTs through normal Auth, and a **publishable**, not secret/service-role, API key. Never provision users, membership, credentials or data with this probe. Do not use genuine customer records or grant service bypass privileges.
 
 Provide these environment variables **in a protected execution session**, without committing them, printing them, or placing tokens in command arguments:
 
@@ -15,6 +15,7 @@ Provide these environment variables **in a protected execution session**, withou
 | `BIDMASON_H01_PUBLISHABLE_KEY` | Project publishable key (`sb_publishable_...`); no secret, service-role or legacy privileged key |
 | `BIDMASON_H01_USER_A_JWT` / `BIDMASON_H01_USER_B_JWT` | Two different unexpired authenticated Supabase Auth user JWTs |
 | `BIDMASON_H01_ORG_A` / `BIDMASON_H01_ORG_B` | Different UUIDs for the synthetic organizations belonging respectively to users A and B |
+| `BIDMASON_H01_REVISION_A` / `BIDMASON_H01_REVISION_B` | Different UUIDs identifying the one seeded **synthetic** `bm_brief_revisions` record per organization; must belong respectively to A and B |
 
 ## Invocation
 
@@ -24,16 +25,17 @@ python -m ci.item6_rls_readonly_probe --live-readonly
 
 Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships** paths. Redirects and environment proxies are disabled. The input URL must exactly equal the canonical lowercase HTTPS origin (no whitespace, control characters, path, query, port or fragment); URL parsing that would silently normalize those bytes is rejected before either JWT is sent. A redirect response, oversized body or malformed JSON is never accepted as proof of isolation. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
 
-The 16-case read matrix verifies:
+The 23-case read matrix verifies:
 
 - Both bearer sessions resolve through Auth to distinct actual users (not only unverified JWT payload claims), **before either user can make a tenant data request**.
 - For each user: own synthetic organization visible, other synthetic organization invisible, tenant enumeration limited to that user's single synthetic organization.
 - For each user: own exact membership visible, the **other authenticated user's actual membership** in the other organization invisible, and unfiltered membership enumeration limited to that user's single synthetic membership.
-- Anonymous organization and membership listings reveal no synthetic tenants or identities.
+- Each user: its own exact synthetic brief revision is accessible; the other user's revision is inaccessible; unfiltered revision enumeration exposes only its own record. The probe selects only `id,organization_id`, **never proposal document JSON, source hashes, or customer details**.
+- Anonymous organization, membership and brief revision listings reveal no synthetic tenants, identities or revision records.
 
 Each test expects HTTP 200 and an exact, minimal JSON array. A missing own record, inaccessible API, leaked other-tenant row, malformed response, bad token, wrong hostname or disallowed key **fails**; it cannot be interpreted as a pass because a denied read returned no data.
 
-The output contains only test names, booleans and non-authorizing state. Even when 16/16 pass, the result is `state: requires-independent-review`, `h01Accepted: false` and `releaseAuthorized: false`. Errors are printed generically without credentials, tenant IDs or provider bodies. Keep raw system logs under restricted access; obtain separate authorized reviewer signoff and exact execution evidence before H01 may advance.
+The output contains only test names, booleans and non-authorizing state. Even when 23/23 pass, the result is `state: requires-independent-review`, `h01Accepted: false` and `releaseAuthorized: false`. Errors are printed generically without credentials, tenant IDs or provider bodies. Keep raw system logs under restricted access; obtain separate authorized reviewer signoff and exact execution evidence before H01 may advance.
 
 ## Still mandatory
 
