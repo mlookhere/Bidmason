@@ -22,6 +22,14 @@ The response contains only:
 
 No grant token/ID, email, recipient, proposal or organization UUID, response fingerprint, note text, signed URL, PDF, personal information or commercial amount appears in the output. Every hypothetical response goes to **operator review**, never automatic follow-up or reply.
 
+## Company-level cross-stream replay detection
+
+`summarizeSyntheticBuyerInboxBatch` combines up to **20 fully supplied fictional streams** and at most **500 total response records** for **one explicitly named synthetic organization**. It executes the existing per-stream validator unchanged, then independently checks that **no event UUID or signed grant ID appears in another stream**. A record duplicated across two proposals or separate revisions blocks the **entire company rollup**, even if both streams are individually valid. Different grants for a single proposal contribute to response counts without inflating `distinctProposals`.
+
+All streams must have exactly `identity` and `events`, and each `identity.organizationId` must equal the batch's requested organization. Sparse, decorated, accessor-based, cross-tenant and forged records are rejected, rather than producing partial totals. The batch output adds only `streamsReviewed` and `distinctProposals`; it still contains **no IDs, grant fingerprints, recipient information, note text or link**, and always sets all three non-authorizing booleans to `false`. It does **not** prove all streams were collected, that any event was received, or that a grant was issued by a real buyer-facing service.
+
+`tests-web/synthetic-buyer-inbox-batch.test.mjs` exercises successful redacted multiple-proposal counts, duplicate event UUID across streams, reused signed grant ID across streams, foreign-organization scope, revoked and forged evidence, unsafe responses, and hostile arrays/accessors. No live CRM, message provider, browser route or database write is involved.
+
 ## Testing
 
 `tests-web/synthetic-buyer-inbox.test.mjs` runs offline adversarial cases for independent signed grant counts, nonbinding decline, duplicate event IDs, repeated grants, late/future/backdated and malformed times, invalid signatures/expired/revoked/cross-tenant claims, unsafe draft content and approval/send attempts, hostile accessor/sparse/decorated arrays, mismatched identity/revision and output redaction.
