@@ -36,7 +36,7 @@ test("direct signed verifier snapshots event bytes before decoding and hashing",
   const raw=body(event);
   const originallySigned=Buffer.from(raw);
   const head=signed(raw);
-  const altered=body({...event,kind:"provider_accepted"});
+  const altered=body({...event,kind:"provider_accepted",recipient:event.recipient+"x"});
   assert.equal(altered.length,raw.length);
 
   // The caller can mutate the original buffer immediately after the HMAC
@@ -67,7 +67,7 @@ test("direct receipt digest remains bound to signed bytes after decode mutation"
   const raw=body(event);
   const original=Buffer.from(raw);
   const head=signed(raw);
-  const mutated=body({...event,kind:"provider_accepted"});
+  const mutated=body({...event,kind:"provider_accepted",recipient:event.recipient+"x"});
   assert.equal(mutated.length,raw.length);
   const Decoder=globalThis.TextDecoder;
   let decodes=0;
