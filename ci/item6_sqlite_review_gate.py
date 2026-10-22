@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ci.item6_sqlite_rehearsal import (
     _DRY_KEY, _UUID, _identity, _reserve_in_transaction, _transaction,
-    _assert_unused_fictional_event_id,
+    _assert_unused_fictional_event_id, _fictional_event_id_conflict_count,
 )
 
 _DIGEST = re.compile(r"[a-f0-9]{64}\Z")
@@ -414,6 +414,11 @@ def _review_gate_in_transaction(
         "WHERE organization_id=? AND recipient=?",
         (organization_id, recipient)).fetchone():
         return "blocked-unconfirmed-consent"
+    # Even valid-looking local reviewer receipts are not trustworthy if
+    # another event UUID has been reused across tenant evidence families.
+    # Fail closed before reserving or advancing a reviewed handoff.
+    if _fictional_event_id_conflict_count(db, organization_id):
+        return "blocked-event-evidence-inconsistent"
     return None
 
 
