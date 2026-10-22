@@ -31,6 +31,13 @@ export function classifySimulatedDeliveryTriage(
   const delivery = projectSimulatedDeliveryEvents(intent,events);
   const followUp = assessSimulatedFollowUp(intent,events,policy,previousAttempts,nowUtc,dealEvents);
   const deal = projectSyntheticDealOutcome(intent,dealEvents,nowUtc);
+  // A follow-up assessor can surface a future event as a blocker, but the
+  // operator-facing triage must not classify unobserved delivery, reply or
+  // suppression events as current evidence. Mirror the company-wide CRM's
+  // fail-closed as-of boundary, including a millisecond-accurate comparison.
+  if (delivery.timeline.some(event => event.observedAt > nowUtc)) {
+    throw new TypeError("Future simulated current-proposal triage observation");
+  }
   const {idempotencyKey,...identity} = intent;
   if(deliveryIdempotencyKey(identity)!==idempotencyKey)
     throw new TypeError("Invalid simulated triage identity");
