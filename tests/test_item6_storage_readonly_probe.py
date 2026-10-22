@@ -9,6 +9,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 from ci.item6_rls_readonly_probe import _NoRedirect
@@ -43,13 +44,33 @@ class StorageTransport:
         self.public_key_leak = False
         self.missing_own = False
         self.bad_auth = False
+        self.missing_membership = False
+        self.foreign_membership_leak = False
+        self.membership_error = False
 
     def get(self, url, headers):
-        self.calls.append(("GET-AUTH", url, headers))
+        self.calls.append(("GET-AUTH" if "/auth/v1/user" in url else "GET-MEMBER",
+                           url, headers))
         bearer = headers.get("Authorization", "").removeprefix("Bearer ")
         if self.bad_auth:
             return 401, None
-        return 200, {"id": self.tokens[bearer], "is_anonymous": False}
+        if "/auth/v1/user" in url:
+            return 200, {"id": self.tokens[bearer], "is_anonymous": False}
+        if not urlsplit(url).path.endswith("/rest/v1/bm_memberships"):
+            raise AssertionError("Unexpected read-only endpoint")
+        if self.membership_error:
+            return 500, None
+        user = self.tokens[bearer]
+        own = ORG_A if user == USER_A else ORG_B
+        foreign = ORG_B if own == ORG_A else ORG_A
+        filters = parse_qs(urlsplit(url).query)
+        requested = filters["organization_id"][0].removeprefix("eq.")
+        if requested == own and not self.missing_membership:
+            return 200, [{"organization_id": own, "user_id": user}]
+        if requested == foreign and self.foreign_membership_leak:
+            return 200, [{"organization_id": foreign,
+                          "user_id": USER_B if user == USER_A else USER_A}]
+        return 200, []
 
     def peek(self, url, headers):
         self.calls.append(("GET-RANGE", url, headers))
@@ -80,8 +101,8 @@ class H02StorageReadOnlyTests(unittest.TestCase):
     def test_positive_controls_and_negative_reads_are_non_authorizing(self):
         result, fake = self.run_probe()
         self.assertEqual(result["state"], "requires-independent-review")
-        self.assertEqual(len(result["checks"]), 12)
-        self.assertEqual(len(fake.calls), 12)
+        self.assertEqual(len(result["checks"]), 16)
+        self.assertEqual(len(fake.calls), 16)
         self.assertTrue(all(row["passed"] for row in result["checks"]))
         self.assertIs(result["h02Accepted"], False)
         self.assertIs(result["releaseAuthorized"], False)
@@ -90,13 +111,42 @@ class H02StorageReadOnlyTests(unittest.TestCase):
         for secret in (*fake.tokens, PATH_A, PATH_B, USER_A, USER_B, URL, KEY):
             self.assertNotIn(secret, output)
 
+    def test_missing_own_membership_blocks_before_object_reads(self):
+        fake=StorageTransport()
+        fake.missing_membership=True
+        report, fixture=self.run_probe(fake)
+        self.assertEqual(report["state"],"blocked")
+        self.assertEqual(report["checks"][-1]["name"],"user-1-own-membership")
+        self.assertEqual(len(fixture.calls),3)
+        self.assertTrue(all(call[0] != "GET-RANGE" for call in fixture.calls))
+
+    def test_foreign_tenant_membership_disclosure_blocks(self):
+        fake=StorageTransport()
+        fake.foreign_membership_leak=True
+        report, fixture=self.run_probe(fake)
+        self.assertEqual(report["state"],"blocked")
+        self.assertEqual(report["checks"][-1]["name"],"user-1-foreign-memberships")
+        self.assertEqual(len(fixture.calls),4)
+        self.assertTrue(all(call[0] != "GET-RANGE" for call in fixture.calls))
+        query=parse_qs(urlsplit(fixture.calls[-1][1]).query)
+        self.assertEqual(query["organization_id"],["eq."+ORG_B])
+        self.assertNotIn("user_id",query)
+
+    def test_member_api_error_never_masquerades_as_denial(self):
+        fake=StorageTransport()
+        fake.membership_error=True
+        report, fixture=self.run_probe(fake)
+        self.assertEqual(report["state"],"blocked")
+        self.assertEqual(report["checks"][-1]["name"],"user-1-own-membership")
+        self.assertEqual(len(fixture.calls),3)
+
     def test_missing_own_positive_control_blocks(self):
         fake=StorageTransport()
         fake.missing_own=True
         report, fixture=self.run_probe(fake)
         self.assertEqual(report["state"], "blocked")
         self.assertEqual(report["checks"][-1]["name"], "user-1-own-object")
-        self.assertEqual(len(fixture.calls), 3)
+        self.assertEqual(len(fixture.calls), 7)
 
     def test_cross_tenant_object_leak_is_not_ignored(self):
         fake=StorageTransport()
