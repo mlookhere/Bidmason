@@ -115,6 +115,78 @@ def record_fictional_consent(
     return _transaction(path, act)
 
 
+
+def record_fictional_recipient_confirmation(
+    path: Path, organization_id: str, proposal_id: str, revision: int,
+    content_sha256: str, recipient: str, contractor_actor_id: str,
+    event_id: str,
+) -> str:
+    """An invented per-recipient, per-revision claim, never send permission."""
+    _identity(organization_id, proposal_id, recipient)
+    if (not _revision(revision) or not _digest(content_sha256)
+            or type(contractor_actor_id) is not str
+            or _UUID.fullmatch(contractor_actor_id) is None
+            or type(event_id) is not str or _UUID.fullmatch(event_id) is None):
+        raise ValueError("Invalid fictional recipient confirmation")
+
+    def act(db: sqlite3.Connection) -> str:
+        if db.execute(
+            "SELECT 1 FROM rehearsal_deal_closures WHERE organization_id=? "
+            "AND proposal_id=?", (organization_id, proposal_id)
+        ).fetchone():
+            return "blocked-closed-deal"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_contact_signals WHERE organization_id=? "
+            "AND recipient=?", (organization_id, recipient)
+        ).fetchone():
+            return "blocked-contact-hold"
+        newest = db.execute(
+            "SELECT MAX(revision) FROM rehearsal_review_receipts "
+            "WHERE organization_id=? AND proposal_id=?",
+            (organization_id, proposal_id)
+        ).fetchone()[0]
+        if newest is not None and newest > revision:
+            return "blocked-stale-revision"
+        review = db.execute(
+            "SELECT content_sha256 FROM rehearsal_review_receipts "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND role='contractor' AND actor_id=?",
+            (organization_id, proposal_id, revision, contractor_actor_id)
+        ).fetchone()
+        if review != (content_sha256,):
+            return "blocked-contractor-review-required"
+        if not db.execute(
+            "SELECT 1 FROM rehearsal_consent_confirmations "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)
+        ).fetchone():
+            return "blocked-unconfirmed-consent"
+        old = db.execute(
+            "SELECT content_sha256,contractor_actor_id,event_id "
+            "FROM rehearsal_recipient_confirmations "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND recipient=?",
+            (organization_id, proposal_id, revision, recipient)
+        ).fetchone()
+        if old is not None:
+            if old != (content_sha256, contractor_actor_id, event_id):
+                raise ValueError("Conflicting fictional recipient confirmation")
+            return "blocked-duplicate-recipient-confirmation"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_recipient_confirmations "
+            "WHERE organization_id=? AND event_id=?",
+            (organization_id, event_id)
+        ).fetchone():
+            raise ValueError("Conflicting fictional recipient event ID")
+        db.execute(
+            "INSERT INTO rehearsal_recipient_confirmations VALUES (?,?,?,?,?,?,?)",
+            (organization_id, proposal_id, revision, content_sha256, recipient,
+             contractor_actor_id, event_id)
+        )
+        return "fictional-recipient-confirmed"
+
+    return _transaction(path, act)
+
 def reserve_reviewed_fictional(
     path: Path, organization_id: str, proposal_id: str, revision: int,
     content_sha256: str, recipient: str, idempotency_key: str,
