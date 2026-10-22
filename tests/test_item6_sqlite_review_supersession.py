@@ -15,6 +15,7 @@ from ci.item6_sqlite_rehearsal import (
 from ci.item6_sqlite_review_gate import (
     record_fictional_consent, record_fictional_review, reserve_reviewed_fictional,
     record_fictional_recipient_confirmation,
+    mark_reviewed_fictional_handoff_unknown,
 )
 
 ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -96,7 +97,10 @@ class FictionalRevisionSupersessionTests(unittest.TestCase):
     def test_new_review_never_erases_unresolved_provider_handoff(self):
         self.ready_old()
         self.reserve(3)
-        mark_fictional_handoff_unknown(self.path, ORG, PROPOSAL, RECIPIENT, key("old"))
+        self.assertEqual(
+            mark_reviewed_fictional_handoff_unknown(
+                self.path, ORG, PROPOSAL, 3, HASH_OLD, RECIPIENT, key("old")),
+            "outcome-unknown-simulation-only")
         self.review(4, "operator", OPERATOR, content_hash=HASH_NEW)
         self.assertEqual(fictional_unknown_count(self.path, ORG), 1)
         self.assertEqual(fictional_counts(self.path, ORG), (0, 0, 0))
