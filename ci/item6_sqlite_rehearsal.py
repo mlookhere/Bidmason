@@ -146,17 +146,20 @@ def _transaction(path: Path, work: Callable[[sqlite3.Connection], _T]) -> _T:
     # after the initial path check. A foreign SQLite file must not be used.
     with closing(sqlite3.connect(path.as_uri() + "?mode=rw", uri=True,
                                  timeout=15, isolation_level=None)) as db:
-        try:
-            markers = db.execute(
-                "SELECT schema_tag FROM rehearsal_fixture_identity"
-            ).fetchall()
-        except sqlite3.DatabaseError as exc:
-            raise ValueError("Not an initialized rehearsal fixture") from exc
-        if markers != [(_FIXTURE_TAG,)]:
-            raise ValueError("Not an initialized rehearsal fixture")
         db.execute("PRAGMA busy_timeout=15000")
+        # Authenticate the fictional schema marker *inside* the same reserved
+        # transaction as the work. Reading before BEGIN IMMEDIATE left a
+        # check/use window where another connection could replace the marker.
         db.execute("BEGIN IMMEDIATE")
         try:
+            try:
+                markers = db.execute(
+                    "SELECT schema_tag FROM rehearsal_fixture_identity"
+                ).fetchall()
+            except sqlite3.DatabaseError as exc:
+                raise ValueError("Not an initialized rehearsal fixture") from exc
+            if markers != [(_FIXTURE_TAG,)]:
+                raise ValueError("Not an initialized rehearsal fixture")
             result = work(db)
             db.execute("COMMIT")
             return result
