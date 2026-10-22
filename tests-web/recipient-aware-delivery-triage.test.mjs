@@ -141,6 +141,57 @@ test("historical reservations cannot postdate a current reply or permanent stop"
 });
 
 
+test("individual triage and CRM reject follow-ups after a different proposal's stop",()=>{
+  const current=make(0);
+  const nextDayAttempt={
+    attemptId:"77777777-7777-4777-8777-777777777777",
+    organizationId:ORG,idempotencyKey:current.intent.idempotencyKey,
+    recipient:EMAIL,recordedAt:"2026-10-21T08:02:00.000Z",
+  };
+  const withAttempt={...current,previousAttempts:[nextDayAttempt]};
+  const diagnostic=/Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology/;
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const prior=make(1,kind==="provider_bounced"
+      ?["reserved","provider_accepted",kind]
+      :["reserved","provider_accepted","provider_delivered",kind],
+      ORG,EMAIL,1);
+    const history=[{intent:prior.intent,events:prior.events}];
+    // Within this proposal the attempt is timely; only the OTHER
+    // proposal's earlier recipient stop makes the combined history invalid.
+    assert.equal(classifySimulatedDeliveryTriage(current.intent,current.events,
+      POLICY,[nextDayAttempt],NOW).state,"review-simulation-only");
+    assert.throws(()=>triage(withAttempt,history),diagnostic,kind);
+    assert.throws(()=>summarize([withAttempt],[history]),diagnostic,kind);
+  }
+});
+
+test("historical stop and follow-up attempt boundary is inclusive without false positives",()=>{
+  const current=make(0),prior=past("recipient_opted_out");
+  const due="2026-10-21T08:02:00.000Z";
+  const attempt={
+    attemptId:"77777777-7777-4777-8777-777777777777",
+    organizationId:ORG,idempotencyKey:current.intent.idempotencyKey,
+    recipient:EMAIL,recordedAt:due,
+  };
+  const withAttempt={...current,previousAttempts:[attempt]};
+  const at=(instant)=>[{intent:prior.intent,events:prior.events.map((event,index)=>({
+    ...event,observedAt:index===3?instant:event.observedAt,
+  }))}];
+  for(const instant of [due,"2026-10-21T08:01:59.999Z"]){
+    assert.throws(()=>triage(withAttempt,at(instant)),
+      /Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology/);
+  }
+  const laterStop=at("2026-10-21T08:02:00.001Z");
+  const result=triage(withAttempt,laterStop);
+  assert.equal(result.category,"contact-suppressed");
+  assert.equal(result.contactAuthorized,false);
+  const crm=summarize([withAttempt],[laterStop]);
+  assert.equal(crm.attention.stopContact,1);
+  assert.equal(crm.reviewedCases,1);
+  assert.equal(triage(current,at(due)).contactAuthorized,false);
+});
+
 test("review and CRM reject hidden late reservations between two historical proposals",()=>{
   const stopped=past("recipient_opted_out");
   const later=make(2,["reserved","provider_accepted","provider_delivered"],
