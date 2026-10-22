@@ -1221,3 +1221,13 @@ sending route, or lift an existing hold. H01–H13 production tenant Auth/RLS,
 verified provider signatures/consent, durable transactional idempotency
 and written human go/no-go still block release. No CI gate, API,
 dependency, provider or database behavior was added or weakened.
+
+## Source-backed Item 6 external release evidence inventory
+
+The current source-derived, **all-unverified** production dependency record
+is [ITEM6_RELEASE_EVIDENCE.md](ITEM6_RELEASE_EVIDENCE.md) with a strict JSON
+manifest and adversarial Python regression checks. Passing simulation CI
+only confirms the inventory stays fail-closed; it can never authorize a
+production provider, customer delivery, buyer portal or release. The real
+Phase 3 tracker work (BM-015b, BM-029 through BM-034 and DEC-06) and all
+human/tenant/legal/security go-live requirements remain outstanding.

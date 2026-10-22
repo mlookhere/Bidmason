@@ -1,0 +1,84 @@
+{
+  "schema": "bidmason.item6.evidence.v1",
+  "releaseState": "blocked",
+  "criteria": [
+    {
+      "id": "tenant-auth-and-rls",
+      "source": "MASTER_PLAN:3",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "private-tenant-storage",
+      "source": "MASTER_PLAN:3",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "approved-company-policy",
+      "source": "MASTER_PLAN:4",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "exact-revision-approvals",
+      "source": "BM-015b",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "recipient-consent",
+      "source": "BM-031",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "email-provider-and-domain",
+      "source": "DEC-06",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "signed-webhook-replay",
+      "source": "BM-030",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "transactional-dispatch-uniqueness",
+      "source": "BM-029",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "recipient-stop-contact",
+      "source": "BM-031",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "buyer-view-response-authorization",
+      "source": "BM-033",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "crm-recovery-and-observability",
+      "source": "BM-032",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "live-adversarial-safety-tests",
+      "source": "BM-034",
+      "status": "unverified",
+      "evidence": []
+    },
+    {
+      "id": "independent-reviews-and-go-no-go",
+      "source": "MASTER_PLAN:8",
+      "status": "unverified",
+      "evidence": []
+    }
+  ]
+}
