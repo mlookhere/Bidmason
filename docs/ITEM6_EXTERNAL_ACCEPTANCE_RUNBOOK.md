@@ -195,6 +195,17 @@ send/view authorization. H01–H13 remain blocked.
 
 ## Deterministic external reviewer handoff — still BLOCKED
 
+Runbook table cells describing reviewer roles and negative tests must remain
+**plain-text instructions**. The handoff generator rejects embedded URI schemes,
+web addresses, email addresses, Markdown links, HTML tags, inline code, extra
+table separators and control characters in these cells rather than echoing
+potentially sensitive information into the shareable packet. Source-controlled
+text is not a safe evidence store; real references and reviewer identities
+belong in access-controlled operational records. This filter reduces common
+accidental leakage, but does not constitute complete PII detection or review
+approval.
+
+
 An offline handoff generator now joins the **exact 13 manifest criterion IDs**
 to this runbook's responsible review roles, required artifacts, and live
 negative tests without inferring that any criterion is satisfied.
