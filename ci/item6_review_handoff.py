@@ -99,8 +99,8 @@ def render_markdown(packet: dict) -> str:
         "",
         "**Not verified or approved. No sending, buyer access or release is authorized.**",
         "",
-        f"Manifest SHA-256: \`{packet['manifestSha256']}\`",
-        f"Runbook SHA-256: \`{packet['runbookSha256']}\`",
+        f"Manifest SHA-256: `{packet['manifestSha256']}`",
+        f"Runbook SHA-256: `{packet['runbookSha256']}`",
         f"Requirements: {packet['required']} | Unverified: {packet['unverified']} "
         f"| Submitted only: {packet['submittedForIndependentReview']}",
         "",
@@ -108,7 +108,7 @@ def render_markdown(packet: dict) -> str:
     for item in packet["requirements"]:
         output += [
             f"## [ ] {item['criterion']} — {item['id']}",
-            f"Source: \`{item['source']}\`",
+            f"Source: `{item['source']}`",
             f"Owner role / required artifact: {item['ownerRoleAndArtifact']}",
             f"Mandatory live negative validation: {item['mandatoryLiveNegativeValidation']}",
             f"Evidence: {item['evidenceStatus']} "
