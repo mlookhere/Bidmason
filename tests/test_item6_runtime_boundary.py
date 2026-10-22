@@ -199,6 +199,35 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    "\'use server\'; import {x} from \"../lib/normal-helper\";")
         self.verify()
 
+    def test_inline_function_scoped_server_action_cannot_import_synthetic(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const fake=true;")
+        self.write("lib/actions.ts",
+                   'export async function reserve(){ "use server";'
+                   ' return import("./synthetic-dispatch-reservation"); }')
+        self.verify("lib/actions.ts imports offline-only lib/synthetic-dispatch-reservation.ts")
+
+    def test_inline_function_scoped_action_with_leading_comment_blocks(self):
+        self.write("src/lib/buyer-view-grant.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   'export async function view(){ /* audit note */ "use server";'
+                   ' return require("./lib/buyer-view-grant"); }')
+        self.verify("src/actions.ts imports offline-only src/lib/buyer-view-grant.ts")
+
+    def test_inline_function_server_directive_removes_preview_exemption(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   'export default async function Page(){ "use server";'
+                   ' return import("../../lib/synthetic-dispatch-reservation"); }')
+        self.verify("app/delivery-lab/page.tsx imports offline-only lib/synthetic-dispatch-reservation.ts")
+
+    def test_plain_string_and_safe_inline_action_do_not_create_false_violation(self):
+        self.write("lib/ordinary-helper.ts", "export const ok=true;")
+        self.write("lib/ordinary-action.ts",
+                   'const description = "{ use server; }"; '
+                   'export async function run(){ "use server";'
+                   ' return import("./ordinary-helper"); }')
+        self.verify()
+
     def test_preview_cannot_add_a_server_action_even_with_exact_page_name(self):
         self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
         self.write("app/delivery-lab/page.tsx",
