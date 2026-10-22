@@ -199,6 +199,17 @@ reviewed real resolver and import graph are implemented. It is **not**
 proof of complete static analysis, actual Auth/RLS, consent or production
 send/view authorization. H01–H13 remain blocked.
 
+### TypeScript module variants remain inside the offline-only boundary
+
+The Item 6 static import guard follows executable `.mts` and `.cts`
+modules and extensionless `index.cts` barrels, in addition to existing TS,
+TSX, JS, JSX, MJS and CJS source files. A live route or server action cannot
+re-export a fictional delivery model through these extensions while escaping
+the existing transitive import policy. Adversarial tests cover both module
+types, a server-action module, extensionless barrels and a permitted safe
+dependency. The guard remains a conservative scanner, not a complete
+language parser or actual runtime authorization.
+
 ### ECMAScript BOM whitespace cannot conceal an executable import
 
 JavaScript treats U+FEFF as lexical whitespace, but Python's regular-expression
