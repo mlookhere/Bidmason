@@ -29,7 +29,7 @@ REQUIRED = {
     "independent-reviews-and-go-no-go": "MASTER_PLAN:8",
 }
 STATUSES = {"unverified", "submitted-for-independent-review"}
-REFERENCE = re.compile(r"https://[^\\s<>]{1,500}\\Z")
+REFERENCE = re.compile(r"https://[^\s<>]{1,500}\Z")
 
 
 def _unique_object(pairs):
