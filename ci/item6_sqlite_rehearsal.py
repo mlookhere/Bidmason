@@ -255,6 +255,11 @@ def mark_fictional_handoff_unknown(
             (organization_id, recipient)).fetchone():
             return "blocked-contact-hold"
         if db.execute(
+            "SELECT 1 FROM rehearsal_consent_revocations "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)).fetchone():
+            return "blocked-consent-withdrawn"
+        if db.execute(
             "SELECT 1 FROM rehearsal_deal_closures WHERE organization_id=? AND proposal_id=?",
             (organization_id, proposal_id)).fetchone():
             return "blocked-closed-deal"
