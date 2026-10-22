@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+SOURCE_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 EXCLUDED_DIRS = {".git", ".next", "node_modules", ".venv", "__pycache__", "dist", "build"}
 # These modules explicitly accept fabricated, caller-supplied facts or run
 # volatile in-memory state. None can establish actual send/view authorization.
