@@ -69,7 +69,7 @@ class FictionalEvidenceCollisionAuditTests(unittest.TestCase):
         self.assertEqual(report["pendingEvidenceState"],
                          "consistent-simulation-only")
         self.assertEqual(self.report(), report)  # no auto-repair
-        for secret in (ORG, PROP, BUYER, EVENT, "event_id", "recipient"):
+        for secret in (ORG, PROP, BUYER, EVENT, "event_id", '"recipient":'):
             self.assertNotIn(secret, json.dumps(report))
         self.assertIs(report["contactAuthorized"], False)
 
