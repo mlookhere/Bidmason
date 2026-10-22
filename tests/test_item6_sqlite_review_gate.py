@@ -13,6 +13,7 @@ from ci.item6_sqlite_rehearsal import (
 from ci.item6_sqlite_review_gate import (
     record_fictional_review, record_fictional_consent, reserve_reviewed_fictional,
     record_fictional_recipient_confirmation,
+    revoke_fictional_recipient_confirmation,
 )
 
 ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -261,6 +262,67 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(self.confirm(), "blocked-contact-hold")
         self.assertEqual(self.reserve(), "blocked-contact-hold")
         self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 1))
+
+    def revoke(self, recipient=RECIPIENT, revision=3, proposal=PROPOSAL,
+               org=ORG, event=DEAL_EVENT):
+        return revoke_fictional_recipient_confirmation(
+            self.db, org, proposal, revision, recipient, event)
+
+    def test_revocation_invalidates_pending_reviewed_claim_and_is_sticky(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.assertEqual(self.revoke(), "fictional-confirmation-revoked")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 1, 0))
+        self.assertEqual(self.reserve(seed="after-revoke"),
+                         "blocked-recipient-confirmation-revoked")
+        self.assertEqual(self.confirm(), "blocked-recipient-confirmation-revoked")
+        self.assertEqual(self.revoke(), "blocked-duplicate-confirmation-revocation")
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional confirmation revocation"):
+            self.revoke(event=CONSENT_EVENT)
+
+    def test_revocation_does_not_affect_another_fictional_recipient(self):
+        second = "second@fictional.example"
+        self.both()
+        self.consent()
+        self.consent(recipient=second, event=DEAL_EVENT)
+        self.confirm()
+        self.confirm(recipient=second)
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.assertEqual(self.reserve(recipient=second, seed="second"),
+                         "reserved-simulation-only")
+        self.assertEqual(self.revoke(event=CONSENT_EVENT), "fictional-confirmation-revoked")
+        self.assertEqual(fictional_counts(self.db, ORG), (1, 1, 0))
+        self.assertEqual(self.reserve(recipient=second, seed="other-key"),
+                         "blocked-existing-recipient-reservation")
+
+    def test_revocation_requires_exact_existing_confirmation_and_unique_event(self):
+        self.assertEqual(self.revoke(), "blocked-no-matching-recipient-confirmation")
+        self.both()
+        self.consent()
+        self.confirm()
+        self.assertEqual(self.revoke(), "fictional-confirmation-revoked")
+        self.consent(recipient="second@fictional.example", event=DEAL_EVENT)
+        self.confirm(recipient="second@fictional.example")
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional revocation event ID"):
+            self.revoke(recipient="second@fictional.example")
+        self.assertEqual(self.revoke(recipient="second@fictional.example",
+                                     event=CONSENT_EVENT),
+                         "fictional-confirmation-revoked")
+
+    def test_revocation_racing_reservation_never_leaves_pending_work(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            reservation = pool.submit(self.reserve)
+            revocation = pool.submit(self.revoke)
+            reservation.result()
+            self.assertEqual(revocation.result(), "fictional-confirmation-revoked")
+        self.assertEqual(fictional_counts(self.db, ORG)[0], 0)
+        self.assertEqual(self.reserve(seed="retry"),
+                         "blocked-recipient-confirmation-revoked")
 
     def test_invalid_revision_digest_actor_or_real_recipient_rejected(self):
         for revision in (0, -1, True, 1.25, 1000001):
