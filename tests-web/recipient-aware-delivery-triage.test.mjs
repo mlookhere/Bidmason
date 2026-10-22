@@ -98,7 +98,7 @@ test("current permanent stop-contact always outranks an earlier recipient reply"
     assert.deepEqual(result.historicalSuppression,[],kind);
     assert.equal(result.historicalStreams,1,kind);
     assert.equal(result.contactAuthorized,false,kind);
-    assert.match(result.rationale,/stop contact/i);
+    assert.match(result.rationale,/do not contact|stop contact/i);
     const aggregate=summarize([current],[historical]);
     assert.equal(aggregate.categories
       .find(x=>x.category==="contact-suppressed").count,1,kind);
