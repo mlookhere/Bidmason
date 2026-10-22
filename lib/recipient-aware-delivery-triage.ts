@@ -37,6 +37,16 @@ export function classifySimulatedRecipientAwareTriage(
     intent, events, policy, previousAttempts, nowUtc, dealEvents,
   );
   const prior = reviewSimulatedRecipientContactHistory(intent, history, nowUtc);
+  // Each evaluator independently validates same-stream exact replays. An ID
+  // reused across current and historical proposals is never independent
+  // provider evidence, even if its event body happens to look identical.
+  // The company-wide CRM also refuses these cross-stream ID collisions.
+  const currentIds = new Set(events.map(event => event.eventId));
+  for (const stream of history) {
+    if (stream.events.some(event => currentIds.has(event.eventId))) {
+      throw new TypeError("Cross-proposal simulated recipient event ID collision");
+    }
+  }
   // The aggregate CRM already rejects a reservation made at or after a
   // recipient's stop in a different proposal. Individual triage must not
   // silently classify the same contradictory evidence as ordinary suppression.
