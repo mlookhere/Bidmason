@@ -216,13 +216,19 @@ def mark_fictional_handoff_unknown(
 
     def act(db: sqlite3.Connection) -> str:
         claim = db.execute(
-            "SELECT state FROM rehearsal_reservations "
+            "SELECT state,reviewed_revision,reviewed_sha256 "
+            "FROM rehearsal_reservations "
             "WHERE organization_id=? AND proposal_id=? AND recipient=? AND idempotency_key=?",
             (organization_id, proposal_id, recipient, idempotency_key)).fetchone()
         if claim is None or claim[0] == "invalidated":
             return "blocked-no-matching-reservation"
         if claim[0] == "outcome_unknown":
             return "blocked-unknown-outcome-existing"
+        # Only the strict reviewed handoff may act on a reviewed reservation.
+        # This low-level fixture helper has no authority to recheck approval,
+        # exact-recipient confirmation, and consent inside its transaction.
+        if claim[1] is not None or claim[2] is not None:
+            return "blocked-reviewed-reservation-use-strict-handoff"
         if db.execute(
             "SELECT 1 FROM rehearsal_contact_signals WHERE organization_id=? AND recipient=?",
             (organization_id, recipient)).fetchone():
