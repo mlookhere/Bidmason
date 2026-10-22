@@ -192,3 +192,36 @@ permitted settings. This is a conservative stopgap until an independently
 reviewed real resolver and import graph are implemented. It is **not**
 proof of complete static analysis, actual Auth/RLS, consent or production
 send/view authorization. H01–H13 remain blocked.
+
+## Deterministic external reviewer handoff — still BLOCKED
+
+An offline handoff generator now joins the **exact 13 manifest criterion IDs**
+to this runbook's responsible review roles, required artifacts, and live
+negative tests without inferring that any criterion is satisfied.
+
+Use `python3 ci/item6_review_handoff.py --format check` for the mandatory
+CI consistency check, `--format markdown` for a private review checklist,
+or `--format json` for a machine-readable evidence *inventory*. All three
+modes validate the manifest's existing **blocked-only** schema and the
+complete numbered H01–H13 table before producing any output. The normal
+fast, PR and security gates include the consistency check alongside the
+original release manifest and runtime import guards; no prior stage is
+removed or made optional.
+
+The output supplies deterministic SHA-256 fingerprints for canonical
+manifest JSON and exact runbook bytes so a reviewer can identify what
+source guidance was examined. The fingerprints are **not** GitHub commit
+attestations, independently authenticated evidence, authorization or a
+human signature. The handoff includes the required source labels, owner
+roles and mandatory failure-mode tests. It provides only **counts** of
+untrusted submitted evidence links, never their URLs or customer data.
+An entry that has been `submitted-for-independent-review` is still
+explicitly `independentlyVerified: false`. This generator has no
+`approved`, `ready` or `send` output and cannot clear H01–H13.
+
+When operational reviewers begin collecting restricted artifacts, they
+must verify the actual connected environment, signed authority, exact
+source revision, negative tests and independent decisions **outside**
+this repository. Never attach secrets or real customer evidence to
+the versioned handoff. A consistent review packet is not a substitute
+for a real production-side gate or the written H13 go/no-go.
