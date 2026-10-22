@@ -42,7 +42,14 @@ FROM = re.compile(
 SIDE_EFFECT = re.compile(r"\bimport" + GAP + r"(['\"])([^'\"\r\n]+)\1")
 CALL = re.compile(r"\b(?:import|require)" + GAP + r"\(" + GAP + r"([^)]*?)\s*\)")
 LITERAL = re.compile(r"^(['\"])([^'\"]+)\1$")
-SERVER_ACTION = re.compile(r"(?m)^\s*['\"]use server['\"]\s*;?\s*$")
+# A module-level server directive is a JS directive-prologue statement,
+# not necessarily a whole line: 'use server'; export ... is still executable.
+# Honor block/line comments without swallowing later executable statements.
+SERVER_ACTION = re.compile(
+    r"(?m)^[ \t]*['\"]use server['\"]"
+    r"(?:[ \t]|/\*(?:(?!\*/)[\s\S])*\*/)*"
+    r"(?:;|(?://[^\r\n]*)?$)"
+)
 
 
 # This exact public development preview deliberately renders offline models.
