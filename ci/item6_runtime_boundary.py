@@ -29,12 +29,16 @@ FORBIDDEN = (
 # statements and bypassed the offline-only dependency boundary. Stop at the
 # statement's first semicolon, never silently stop scanning at a byte budget.
 # This is a conservative source scanner rather than a complete TS/JS parser.
+# JavaScript treats block comments as lexical space. Ignoring them between
+# import/from/require tokens misses real static and dynamic dependencies.
+# Keep this separator narrow: the scanner does not claim full JS parsing.
+GAP = r"(?:\s|/\*[\s\S]*?\*/)*"
 FROM = re.compile(
-    r"\b(?:import|export)\s+(?:(?!;)[\s\S])*?\bfrom\s*"
-    r"(['\"])([^'\"\r\n]+)\1"
+    r"\b(?:import|export)\s+(?:(?!;)[\s\S])*?\bfrom" + GAP
+    + r"(['\"])([^'\"\r\n]+)\1"
 )
-SIDE_EFFECT = re.compile(r"\bimport\s*(['\"])([^'\"\r\n]+)\1")
-CALL = re.compile(r"\b(?:import|require)\s*\(\s*([^)]*?)\s*\)")
+SIDE_EFFECT = re.compile(r"\bimport" + GAP + r"(['\"])([^'\"\r\n]+)\1")
+CALL = re.compile(r"\b(?:import|require)" + GAP + r"\(" + GAP + r"([^)]*?)\s*\)")
 LITERAL = re.compile(r"^(['\"])([^'\"]+)\1$")
 SERVER_ACTION = re.compile(r"(?m)^\s*['\"]use server['\"]\s*;?\s*$")
 
