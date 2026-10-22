@@ -30,7 +30,10 @@ UNSAFE_INSTRUCTION = re.compile(
 
 def _plain_instruction(value: str) -> bool:
     return (bool(value.strip()) and len(value) <= 800
-            and all(ord(char) >= 32 for char in value)
+            # This project's reviewer checklist is English/ASCII. Disallow
+            # bidi overrides, zero-width joiners and Unicode lookalikes that
+            # can visually disguise contact details or approval language.
+            and all(32 <= ord(char) <= 126 for char in value)
             and UNSAFE_INSTRUCTION.search(value) is None)
 
 
