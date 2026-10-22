@@ -108,6 +108,29 @@ class ReviewPacketTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             review_packet(self.manifest, "\n".join(target).encode())
 
+    def test_review_instructions_never_echo_links_emails_or_markup(self):
+        lines = self.runbook.decode().splitlines()
+        row_index = next(i for i, line in enumerate(lines) if line.startswith("| H01 |"))
+        for cell_index in (3, 4):
+            for unsafe in (
+                "https://evidence.example.test/private-buyer",
+                "mailto:buyer@example.test",
+                "buyer@example.test",
+                "www.evidence.example.test/private",
+                "[customer record](relative-path)",
+                "<img src=x onerror=alert(1)>",
+                "operator | hidden extra column",
+                "`inline-code`",
+                "review\trecipient",
+            ):
+                with self.subTest(cell=cell_index, unsafe=unsafe):
+                    columns = lines[row_index].split(" | ")
+                    columns[cell_index] = unsafe
+                    tampered = lines.copy()
+                    tampered[row_index] = " | ".join(columns)
+                    with self.assertRaises(ValueError):
+                        review_packet(self.manifest, "\n".join(tampered).encode())
+
     def test_invalid_manifest_and_fabricated_verification_cannot_generate(self):
         for mutation in (
             lambda m: m.update(releaseState="ready"),
