@@ -113,10 +113,12 @@ export function verifySyntheticWebhookFixture(
   // Both the signature timestamp and the signed event time must be fresh
   // relative to actual receipt. Otherwise two separate five-minute tolerances
   // permit a synthetic event almost ten minutes old or in the future.
-  const observedSeconds = Math.floor(observed / 1000);
+  // Never truncate the signed event timestamp to whole seconds: otherwise
+  // 300.001–300.999-second drift appears to meet a 300-second limit.
+  const maxSkewMs = 300_000;
   if (!Number.isFinite(observed) || new Date(observed).toISOString() !== item.observedAt
-      || Math.abs(observedSeconds - sentAt) > 300
-      || Math.abs(observedSeconds - nowSeconds) > 300) {
+      || Math.abs(observed - sentAt * 1000) > maxSkewMs
+      || Math.abs(observed - nowSeconds * 1000) > maxSkewMs) {
     return {state: "blocked", reason: "Inconsistent synthetic event time"};
   }
   const hash = createHash("sha256").update(rawBody).digest("hex");
