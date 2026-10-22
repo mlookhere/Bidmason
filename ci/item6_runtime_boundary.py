@@ -32,7 +32,9 @@ FORBIDDEN = (
 # JavaScript treats block comments as lexical space. Ignoring them between
 # import/from/require tokens misses real static and dynamic dependencies.
 # Keep this separator narrow: the scanner does not claim full JS parsing.
-GAP = r"(?:\s|/\*[\s\S]*?\*/)*"
+# Consume a complete block comment only through its FIRST closing delimiter;
+# do not misinterpret intervening executable import tokens as comment text.
+GAP = r"(?:\s|/\*(?:(?!\*/)[\s\S])*\*/)*"
 FROM = re.compile(
     r"\b(?:import|export)" + GAP + r"(?:(?!;)[\s\S])*?\bfrom" + GAP
     + r"(['\"])([^'\"\r\n]+)\1"
