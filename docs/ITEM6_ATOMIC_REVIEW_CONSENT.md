@@ -378,3 +378,28 @@ only; it is not a durable event registry, authenticated CRM, provider
 decision, or actual sale. No write-capable routes, messages or customer
 records are introduced. H01–H13 and the draft/non-release constraints
 remain unchanged.
+
+## Stop-before-acceptance chronology in fictional provider events
+
+The TypeScript `projectSimulatedDeliveryEvents` timeline now refuses a
+**new fictional provider acceptance after the recipient has already
+opted out**, even if the same local reservation was recorded earlier.
+A reservation is not sending authority, and an intervening opt-out cannot
+be silently bypassed by a subsequent provider-acceptance event. The
+reducer raises `Unexpected or suppressed provider acceptance`.
+
+For a distinct case where the provider **accepted before** the opt-out,
+later *status callbacks* (including a reported delivery or complaint)
+remain representable: the prior acceptance may have had an unknown
+external outcome. This does not lift the suppression, assume a send
+was permissible, or manufacture delivery. Both strict arrival-order
+and signed-time reconciliation of HMAC-valid **fictional** callbacks
+use the same reducer after their existing signature/chronology checks.
+Four targeted JavaScript regression tests cover forbidden post-stop
+acceptance, idempotent stop evidence, valid later status observation,
+and signed callback reordering without losing stop chronology.
+
+These events and signatures are exclusively internal tests. No
+authorized provider integration, actual consent, dispatch outbox,
+customer activity or release approval is represented here.
+All H01–H13 live-environment requirements remain unverified.
