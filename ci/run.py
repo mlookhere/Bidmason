@@ -9,9 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = {
-    "fast": ("tests", "source-integrity", "publish", "item6-release-evidence"),
-    "pr": ("tests", "source-integrity", "publish", "workflow", "security", "item6-release-evidence"),
-    "security": ("tests", "source-integrity", "publish", "workflow", "security", "item6-release-evidence"),
+    "fast": ("tests", "source-integrity", "publish", "item6-release-evidence", "item6-runtime-boundary"),
+    "pr": ("tests", "source-integrity", "publish", "workflow", "security", "item6-release-evidence", "item6-runtime-boundary"),
+    "security": ("tests", "source-integrity", "publish", "workflow", "security", "item6-release-evidence", "item6-runtime-boundary"),
     "web": ("web",),
     "pdf": ("pdf",),
 }
@@ -28,6 +28,7 @@ def main() -> int:
         "workflow": [sys.executable, "ci/workflow_policy.py"],
         "security": [sys.executable, "ci/security.py"],
         "item6-release-evidence": [sys.executable, "ci/item6_release_evidence.py"],
+        "item6-runtime-boundary": [sys.executable, "ci/item6_runtime_boundary.py"],
         "web": [sys.executable, "ci/web.py"],
         "pdf": [sys.executable, "ci/pdf_qa.py"],
     }
