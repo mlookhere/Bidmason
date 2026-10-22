@@ -12,6 +12,8 @@ verified as of this runbook's creation.
 
 **H01 opt-in live read matrix:** [two-user authenticated read-only probe](ITEM6_H01_AUTHENTICATED_READONLY_PROBE.md) supplies 27 explicit positive/cross-tenant/anonymous GET checks, including **foreign-organization enumeration** for both memberships and brief revisions (not just the named counterpart ID), unfiltered own-tenant enumeration and one own/other synthetic brief revision per tenant. An authorized staging operator must first provision two independently authenticated synthetic tenants and one invented brief revision per tenant; no proposal documents or hashes are returned. Offline CI exercises only a fake transport. Read-only probe output is **not** sufficient to satisfy H01: cross-tenant writes, missing membership, revoked-session tests, H02 storage and independent approval remain mandatory.
 
+**H02 opt-in private-object diagnostic:** [two-user read-only Storage Range probe](ITEM6_H02_STORAGE_READONLY_PROBE.md) executes at most eight authorized synthetic checks (two Auth identity lookups plus own/other/anonymous byte-range GETs). It refuses network by default and never creates objects or signs URLs. Successful GETs are **not H02 acceptance**: tenant upload/write limits, signed URL lifecycle, revocation and independent security review still require separately evidenced staging tests.
+
 ## How to assemble a review packet
 
 1. **Identify the actual environment.** Record the intended authenticated
