@@ -39,6 +39,7 @@ class StorageTransport:
         self.calls = []
         self.foreign_leak = False
         self.anon_leak = False
+        self.public_leak = False
         self.missing_own = False
         self.bad_auth = False
 
@@ -52,6 +53,8 @@ class StorageTransport:
     def peek(self, url, headers):
         self.calls.append(("GET-RANGE", url, headers))
         bearer = headers.get("Authorization", "").removeprefix("Bearer ")
+        if "/storage/v1/object/public/" in url:
+            return (206, True) if self.public_leak else (404, False)
         if not bearer:
             return (206, True) if self.anon_leak else (403, False)
         user = self.tokens[bearer]
@@ -74,8 +77,8 @@ class H02StorageReadOnlyTests(unittest.TestCase):
     def test_positive_controls_and_negative_reads_are_non_authorizing(self):
         result, fake = self.run_probe()
         self.assertEqual(result["state"], "requires-independent-review")
-        self.assertEqual(len(result["checks"]), 8)
-        self.assertEqual(len(fake.calls), 8)
+        self.assertEqual(len(result["checks"]), 10)
+        self.assertEqual(len(fake.calls), 10)
         self.assertTrue(all(row["passed"] for row in result["checks"]))
         self.assertIs(result["h02Accepted"], False)
         self.assertIs(result["releaseAuthorized"], False)
@@ -105,6 +108,30 @@ class H02StorageReadOnlyTests(unittest.TestCase):
         report, _=self.run_probe(fake)
         self.assertEqual(report["state"], "blocked")
         self.assertEqual(report["checks"][-1]["name"], "anonymous-object-1")
+
+    def test_public_storage_url_leak_blocks_even_if_authenticated_path_denies(self):
+        fake=StorageTransport()
+        fake.public_leak=True
+        report, fixture=self.run_probe(fake)
+        self.assertEqual(report["state"],"blocked")
+        self.assertEqual(report["checks"][-1]["name"],"public-object-1")
+        self.assertFalse(report["checks"][-1]["passed"])
+        self.assertTrue(fixture.calls[-1][1].endswith("/public/bm-evidence/"+PATH_A))
+        self.assertNotIn("Authorization",fixture.calls[-1][2])
+
+    def test_public_route_server_errors_are_not_negative_security_proof(self):
+        for status in (200, 206, 302, 400, 500):
+            with self.subTest(status=status):
+                fake=StorageTransport()
+                def peek(url,headers):
+                    if "/storage/v1/object/public/" in url:
+                        return (status,False)
+                    return fake.peek(url,headers)
+                result=probe_readonly_storage(
+                    URL,KEY,list(fake.tokens)[0],list(fake.tokens)[1],
+                    PATH_A,PATH_B,get=fake.get,peek=peek)
+                self.assertEqual(result["state"],"blocked")
+                self.assertEqual(result["checks"][-1]["name"],"public-object-1")
 
     def test_auth_fail_closed_before_storage_request(self):
         fake=StorageTransport()
