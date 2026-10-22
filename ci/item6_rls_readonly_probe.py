@@ -144,6 +144,9 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
             ("other-membership", "bm_memberships",
              {"select": "organization_id,user_id", "organization_id": "eq." + other,
               "user_id": "eq." + users[1-index]}, []),
+            ("foreign-organization-memberships", "bm_memberships",
+             {"select": "organization_id,user_id",
+              "organization_id": "eq." + other, "limit": "100"}, []),
             ("enumerate-memberships", "bm_memberships",
              {"select": "organization_id,user_id", "limit": "100"},
              [{"organization_id": own, "user_id": user}]),
@@ -157,6 +160,9 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
             ("other-brief-revision", "bm_brief_revisions",
              {"select": "id,organization_id", "id": "eq." + revisions[1-index],
               "organization_id": "eq." + other}, []),
+            ("foreign-organization-brief-revisions", "bm_brief_revisions",
+             {"select": "id,organization_id",
+              "organization_id": "eq." + other, "limit": "100"}, []),
             ("enumerate-brief-revisions", "bm_brief_revisions",
              {"select": "id,organization_id", "limit": "100"},
              [{"id": revisions[index], "organization_id": own}]),
@@ -192,8 +198,9 @@ def _result(cases: dict[str, bool]) -> dict:
         for index in (1, 2)
         for case in ("own-organization", "other-organization",
                      "enumerate-organizations", "own-membership",
-                     "other-membership", "enumerate-memberships",
-                     "own-brief-revision", "other-brief-revision",
+                     "other-membership", "foreign-organization-memberships",
+                     "enumerate-memberships", "own-brief-revision",
+                     "other-brief-revision", "foreign-organization-brief-revisions",
                      "enumerate-brief-revisions")
     ), "anonymous-organizations", "anonymous-memberships",
         "anonymous-brief-revisions")
