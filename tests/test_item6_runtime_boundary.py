@@ -183,7 +183,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
     def test_server_action_asi_directive_with_line_comment_is_scanned(self):
         self.write("lib/outbound-preflight.ts", "export const x=true;")
         self.write("lib/exported-action.ts",
-                   "\'use server\' // harmless note\\n"
+                   "\'use server\' // harmless note\n"
                    'export {x} from "./outbound-preflight";')
         self.verify("lib/exported-action.ts imports offline-only lib/outbound-preflight.ts")
 
