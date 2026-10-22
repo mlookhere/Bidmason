@@ -437,7 +437,12 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
     def test_missing_denial_response_stream_is_not_proof_of_empty_body(self):
         class Unknown:
             def open(self, req, timeout):
-                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+                # HTTPError(fp=None) silently replaces None with an empty
+                # BytesIO, so explicitly simulate a missing/uninspectable fp.
+                denied = urllib.error.HTTPError(
+                    req.full_url, 403, "Forbidden", {}, io.BytesIO(b""))
+                denied.fp = None
+                raise denied
         with patch("ci.item6_rls_readonly_probe.urllib.request.build_opener",
                    return_value=Unknown()):
             result = _get(URL + "/rest/v1/bm_memberships", {"apikey": KEY})
