@@ -306,6 +306,34 @@ def record_fictional_contact_signal(
     return _transaction(path, act)
 
 
+# These five fake event families form one tenant-local namespace; each
+# table's UNIQUE event_id alone cannot reject replay under a different kind.
+_EVENT_TABLES = (
+    "rehearsal_deal_closures",
+    "rehearsal_consent_confirmations",
+    "rehearsal_consent_revocations",
+    "rehearsal_recipient_confirmations",
+    "rehearsal_recipient_confirmation_revocations",
+)
+
+
+def _assert_unused_fictional_event_id(
+    db: sqlite3.Connection, organization_id: str, event_id: str,
+) -> None:
+    """Prevent one invented event identity being reinterpreted as another kind.
+
+    Call after same-scope idempotent replay checks and before the first INSERT,
+    inside the caller's BEGIN IMMEDIATE transaction. Tables are static literals,
+    never caller-provided identifiers. No real provider event identity exists.
+    """
+    for table in _EVENT_TABLES:
+        if db.execute(
+            f"SELECT 1 FROM {table} WHERE organization_id=? AND event_id=?",
+            (organization_id, event_id),
+        ).fetchone():
+            raise ValueError("Conflicting fictional event identity across ledgers")
+
+
 def close_fictional_deal(
     path: Path, organization_id: str, proposal_id: str,
     recipient: str, event_id: str, kind: str,
@@ -332,6 +360,7 @@ def close_fictional_deal(
             (organization_id, event_id)).fetchone()
         if seen_proposal is not None:
             raise ValueError("Conflicting fictional terminal event ID reuse")
+        _assert_unused_fictional_event_id(db, organization_id, event_id)
         db.execute("INSERT INTO rehearsal_deal_closures VALUES (?,?,?,?)",
                    (organization_id, proposal_id, event_id, kind))
         changed = db.execute(
