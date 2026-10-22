@@ -1017,3 +1017,28 @@ recipient histories, provide durable event deduplication, infer consent, or
 authorize a message. No new dependencies, routes, data stores, credentials,
 provider integration or CI-gate modifications were introduced. H01–H13
 tenant, transactional, legal, security and human release gates remain blocked.
+
+## Immutable historical revision reconciliation in fictional CRM summaries
+
+The single-tenant `summarizeSyntheticDeliveryReview` now compares the
+**proposal ID, revision and exact recipient** across all validated current
+and historical streams. If two such claims produce different dry-run
+idempotency keys (including modified source, policy, content or QA hashes),
+the entire review fails closed. Previous checks rejected contradictory
+current entries and event-ID collisions, but distinct event IDs could hide
+two incompatible immutable versions in separate historical collections.
+
+Identical fictional historical claims may be reused by different cases,
+and a current proposal may appear as another case's exact earlier history.
+A genuinely distinct revision remains independent, and different recipients
+are not assumed to share one dispatch key. Required Node regression tests
+cover both history orderings, conflict against the current entry, valid
+repeated evidence and legitimate revision changes. The existing current-
+current duplicate and event-ID checks remain intact.
+
+These are untrusted, invented offline records: a passing check cannot
+authenticate source history, prove tenant scope or consent, create real
+immutable persistence or authorize contact. Production H01-H13 RLS/Auth,
+transactional consistency, provider signature, approval and human release
+gates remain blocked. No API, sender, external provider, database,
+credentials, build configuration or CI gates were added or weakened.

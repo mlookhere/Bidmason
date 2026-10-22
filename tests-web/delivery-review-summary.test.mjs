@@ -136,6 +136,42 @@ test("historical event IDs agree with current and repeated history claims",()=>{
     [[history],[changed]]),/Conflicting synthetic CRM event ID across streams/);
 });
 
+test("historical proposal revisions cannot silently change fingerprints across cases",()=>{
+  const first=make(0),second=make(1),earlier=make(4);
+  const asHistory=({intent,events})=>({intent,events});
+  const {idempotencyKey: _earlierKey, ...earlierFields}=earlier.intent;
+  const alteredIdentity={...earlierFields,sourceSha256:"e".repeat(64)};
+  const alteredKey=deliveryIdempotencyKey(alteredIdentity);
+  const altered={intent:{...alteredIdentity,idempotencyKey:alteredKey},
+    events:make(5).events.map(event=>({...event,idempotencyKey:alteredKey}))};
+  for(const matrix of [[[asHistory(earlier)],[altered]],[[altered],[asHistory(earlier)]]]){
+    assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first,second],now,matrix),
+      /Conflicting synthetic CRM revision across streams/);
+  }
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[asHistory(earlier)],[asHistory(earlier)]]).reviewedCases,2);
+  // The same exact proposal revision is allowed in another review's history.
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[],[asHistory(first)]]).reviewedCases,2);
+  // An altered copy of a current revision is invalid as earlier evidence.
+  const {idempotencyKey: _firstKey, ...currentFields}=first.intent;
+  const modifiedCurrent={...currentFields,qaSha256:"e".repeat(64)};
+  const currentKey=deliveryIdempotencyKey(modifiedCurrent);
+  const conflicting={intent:{...modifiedCurrent,idempotencyKey:currentKey},
+    events:make(5).events.map(event=>({...event,idempotencyKey:currentKey}))};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[],[conflicting]]),/Conflicting synthetic CRM revision across streams/);
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[second,first],now,
+    [[conflicting],[]]),/Conflicting synthetic CRM revision across streams/);
+  // An actual distinct revision with fresh event IDs is not a contradiction.
+  const nextRevision={...earlierFields,revision:2};
+  const newKey=deliveryIdempotencyKey(nextRevision);
+  const validRevision={intent:{...nextRevision,idempotencyKey:newKey},
+    events:make(5).events.map(event=>({...event,idempotencyKey:newKey}))};
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[asHistory(earlier)],[validRevision]]).reviewedCases,2);
+});
+
 test("empty, oversized, sparse and decorated collections are rejected",()=>{
   for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
     assert.throws(()=>summary(entries),/Invalid simulated review batch/);

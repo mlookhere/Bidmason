@@ -82,6 +82,19 @@ export function summarizeSyntheticDeliveryReview(
   }
   const seen = new Set<string>();
   const revisionRecipients = new Set<string>();
+  const revisionClaims = new Map<string,string>();
+  const recordRevision = (intent: DeliveryIntent) => {
+    // One immutable proposal revision/recipient must have one dry-run identity,
+    // whether encountered as current or as earlier evidence in another case.
+    const revisionId = JSON.stringify([
+      intent.proposalId, intent.revision, intent.recipient,
+    ]);
+    const previous = revisionClaims.get(revisionId);
+    if (previous !== undefined && previous !== intent.idempotencyKey) {
+      throw new TypeError("Conflicting synthetic CRM revision across streams");
+    }
+    revisionClaims.set(revisionId, intent.idempotencyKey);
+  };
   const eventClaims = new Map<string,{claim:string; current:boolean}>();
   const recordEventIds = (stream: SyntheticRecipientHistory, current: boolean) => {
     for (const event of stream.events) {
@@ -133,10 +146,12 @@ export function summarizeSyntheticDeliveryReview(
       throw new TypeError("Conflicting simulated proposal revision in CRM summary");
     }
     revisionRecipients.add(revisionRecipient);
-    // Check the union of current and historical streams. Identical historical
-    // evidence can be reused, but one event ID cannot claim different events.
+    // Compare immutable revision claims after per-stream validation, including
+    // earlier evidence which may be repeated in multiple fictional cases.
+    recordRevision(entry.intent);
     recordEventIds({intent: entry.intent, events: entry.events}, true);
     for (const history of historicalStreams?.[seen.size - 1] ?? []) {
+      recordRevision(history.intent);
       recordEventIds(history, false);
     }
     counts.set(result.category, (counts.get(result.category) ?? 0) + 1);
