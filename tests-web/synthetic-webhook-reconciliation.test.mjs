@@ -101,6 +101,31 @@ test("bounce/complaint/opt-out remain sticky after reordering",()=>{
   assert.equal(bounced.projection.delivery,"bounced");
 });
 
+test("signed fictional opt-out before acceptance rejects both callback order modes",()=>{
+  const optOut=signed(event("recipient_opted_out",1));
+  const laterAcceptance=signed(event("provider_accepted",2));
+  assert.throws(()=>projectSignedSyntheticWebhookBatch(intent,reservation,
+    [optOut,laterAcceptance],secret),/suppressed provider acceptance/);
+  // A valid HMAC and callbacks arriving in reverse order must not conceal
+  // stop-before-acceptance once signed timestamps are reconciled.
+  assert.throws(()=>reconcile([laterAcceptance,optOut]),
+    /suppressed provider acceptance/);
+  const onlyStop=reconcile([optOut]);
+  assert.deepEqual(onlyStop.projection.suppression,["opted_out"]);
+  assert.equal(onlyStop.projection.delivery,"reserved");
+});
+
+test("signed delivery status after acceptance and opt-out remains reviewable",()=>{
+  const accepted=signed(event("provider_accepted",1));
+  const stopped=signed(event("recipient_opted_out",2));
+  const delivered=signed(event("provider_delivered",3));
+  const result=reconcile([delivered,stopped,accepted]);
+  assert.equal(result.projection.delivery,"reported_delivered");
+  assert.deepEqual(result.projection.suppression,["opted_out"]);
+  assert.equal(result.state,"simulation-only");
+  assert.equal(Object.hasOwn(result,"contactAuthorized"),false);
+});
+
 test("tampering, cross-tenant or revision evidence never benefits from sorting",()=>{
   const valid=signed(event("provider_accepted",1));
   const altered={...valid,rawBody:Buffer.from(JSON.stringify(event("provider_delivered",1)))};
