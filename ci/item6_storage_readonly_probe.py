@@ -58,8 +58,9 @@ def _input(base: str, key: str, tokens: tuple[str, str],
     if type(key) is not str or not KEY.fullmatch(key):
         raise ValueError("Only publishable API keys are permitted")
     if (len(paths) != 2 or any(type(p) is not str or not PATH.fullmatch(p) for p in paths)
-            or paths[0] == paths[1]):
-        raise ValueError("Two distinct canonical synthetic object paths are required")
+            or paths[0] == paths[1]
+            or paths[0].split("/", 1)[0] == paths[1].split("/", 1)[0]):
+        raise ValueError("Two distinct tenant-scoped synthetic object paths are required")
     if len(tokens) != 2:
         raise ValueError("Two signed-in users required")
     users = tuple(_claims(token) for token in tokens)
