@@ -16,6 +16,11 @@ from ci.item6_sqlite_rehearsal import (
     record_fictional_contact_signal, reserve_fictional,
 )
 
+from ci.item6_sqlite_review_gate import (
+    record_fictional_consent, revoke_fictional_consent,
+)
+from ci.item6_sqlite_hold_summary import fictional_hold_summary
+
 ORG="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 OTHER="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 PROPOSAL="cccccccc-cccc-4ccc-8ccc-cccccccccccc"
@@ -138,6 +143,71 @@ class OfflineUncertainHandoffTests(unittest.TestCase):
         self.assertEqual(fictional_unknown_count(self.path,ORG),0)
         self.assertEqual(self.unknown(),"outcome-unknown-simulation-only")
         self.assertEqual(fictional_unknown_count(self.path,ORG),1)
+
+    def test_withdrawn_consent_cancels_raw_reserved_handoff_without_ambiguity(self):
+        self.assertEqual(record_fictional_consent(self.path,ORG,RECIPIENT,EVENT),
+                         "fictional-consent-recorded")
+        self.assertEqual(self.reserve(),"reserved-simulation-only")
+        self.assertEqual(revoke_fictional_consent(
+            self.path,ORG,RECIPIENT,"11111111-1111-4111-8111-111111111111"),
+            "fictional-consent-withdrawn")
+        self.assertEqual(self.unknown(),"blocked-no-matching-reservation")
+        self.assertEqual(fictional_counts(self.path,ORG),(0,1,0))
+        self.assertEqual(fictional_unknown_count(self.path,ORG),0)
+
+    def test_restored_corrupt_raw_claim_still_cannot_handoff_after_withdrawal(self):
+        record_fictional_consent(self.path,ORG,RECIPIENT,EVENT)
+        self.reserve()
+        revoke_fictional_consent(
+            self.path,ORG,RECIPIENT,"11111111-1111-4111-8111-111111111111")
+        # Deliberately bypass application transitions in the CI-only SQLite
+        # fixture: the handoff must independently enforce the sticky hold.
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("UPDATE rehearsal_reservations SET state='reserved' "
+                       "WHERE organization_id=? AND recipient=?",
+                       (ORG,RECIPIENT))
+            db.commit()
+        self.assertEqual(self.unknown(),"blocked-consent-withdrawn")
+        self.assertEqual(fictional_unknown_count(self.path,ORG),0)
+        self.assertEqual(fictional_counts(self.path,ORG),(1,0,0))
+        audit=fictional_hold_summary(self.path,ORG)
+        self.assertEqual(audit["inconsistentPendingReservations"],1)
+        self.assertEqual(audit["pendingEvidenceState"],"inconsistent-needs-review")
+        self.assertIs(audit["contactAuthorized"],False)
+
+    def test_withdrawal_is_tenant_scoped_at_legacy_handoff_boundary(self):
+        record_fictional_consent(self.path,ORG,RECIPIENT,EVENT)
+        self.reserve()
+        self.assertEqual(self.reserve(seed="other",org=OTHER),"reserved-simulation-only")
+        revoke_fictional_consent(
+            self.path,ORG,RECIPIENT,"11111111-1111-4111-8111-111111111111")
+        self.assertEqual(self.unknown(),"blocked-no-matching-reservation")
+        self.assertEqual(self.unknown(seed="other",org=OTHER),
+                         "outcome-unknown-simulation-only")
+        self.assertEqual(fictional_unknown_count(self.path,ORG),0)
+        self.assertEqual(fictional_unknown_count(self.path,OTHER),1)
+
+    def test_withdrawal_races_raw_handoff_without_reopening_reserved_work(self):
+        for _ in range(8):
+            with tempfile.TemporaryDirectory() as directory:
+                path=Path(directory)/"race-withdrawal.sqlite3"
+                initialize_fixture_db(path)
+                record_fictional_consent(path,ORG,RECIPIENT,EVENT)
+                reserve_fictional(path,ORG,PROPOSAL,RECIPIENT,key("race"))
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    a=pool.submit(mark_fictional_handoff_unknown,path,
+                                  ORG,PROPOSAL,RECIPIENT,key("race"))
+                    b=pool.submit(revoke_fictional_consent,path,ORG,RECIPIENT,
+                                  "11111111-1111-4111-8111-111111111111")
+                    result=a.result()
+                    self.assertEqual(b.result(),"fictional-consent-withdrawn")
+                self.assertIn(result,("outcome-unknown-simulation-only",
+                                      "blocked-no-matching-reservation"))
+                self.assertEqual(fictional_counts(path,ORG)[0],0)
+                self.assertLessEqual(fictional_unknown_count(path,ORG),1)
+                self.assertEqual(reserve_fictional(
+                    path,ORG,PROPOSAL,RECIPIENT,key("retry")),
+                    "blocked-consent-withdrawn")
 
     def test_tenant_scope_ambiguous_holds_never_block_other_tenants(self):
         self.reserve()
