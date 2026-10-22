@@ -163,3 +163,37 @@ customer permission, live unsubscribe processing, an auditable permission
 source, or a PostgreSQL migration. The state is conservative: no re-consent
 flow exists, and no real provider or sending operation was enabled. All
 H01–H13 real external and human gates remain outstanding.
+
+## Redacted fictional hold snapshot
+
+`ci/item6_sqlite_hold_summary.py` adds an **offline, read-only**
+`fictional_hold_summary` for exercising operator reconciliation visibility.
+It queries the existing disposable SQLite fixture in one `BEGIN IMMEDIATE`
+transaction and requires an exact fabricated tenant UUID. Every count is
+restricted to that tenant. The returned shape deliberately contains **no
+tenant ID, recipient address, proposal ID, reviewer, event ID, raw message,
+contact fingerprint, idempotency key, or provider claim**:
+
+- `pendingReservations` and `invalidatedReservations`: local reservation
+  rows by state, not actual dispatched or cancelled messages.
+- `unknownOutcomeHolds`: unresolved simulated handoffs requiring manual
+  external reconciliation; these are *not* delivered-message counts.
+- `consentWithdrawals`: invented recipient-level withdrawal records.
+- `recipientConfirmationRevocations`: invented per-recipient/revision
+  contractor approval revocations, not the same scope as consent.
+- `suppressedRecipients`: **distinct** fictional recipients with one or
+  more contact stop/reply signals; multiple kinds are not double-counted.
+- `closedProposals`: fictional won/lost proposal closure records.
+
+The output always has `state="review-simulation-only"` and
+`contactAuthorized=false`. Categories may overlap, so their totals **must
+not** be added to derive a number of unique customers. The fictional
+operator view neither clears `outcome_unknown` nor issues approvals,
+tokens, notifications, reconsents or sends.
+
+Seven mandatory Python test cases cover the empty safe shape, tenant isolation,
+distinct suppression recipients, overlapping unknown-outcome/withdrawal holds,
+revoked confirmations and terminal closures, concurrent snapshot consistency,
+and bad fixture/tenant inputs. This is not an authenticated operator dashboard,
+a production Postgres/RLS query or proof of live provider events. H01–H13
+external and human release holds remain outstanding.
