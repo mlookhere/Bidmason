@@ -143,7 +143,13 @@ test("earlier fictional recipient reply prevents a new reservation until human r
 });
 
 test("permanent opt-out outranks earlier reply and no reservation occurs",()=>{
-  const priorReply=history("recipient_replied")[0];
+  // The reply occurred before the later bounce. The older fixture placed
+  // the reply's reservation AFTER the bounce and therefore contradicted
+  // the shared recipient stop chronology; do not weaken that new guard.
+  const source=history("recipient_replied")[0];
+  const priorReply={intent:source.intent,events:source.events.map(event=>({
+    ...event,observedAt:event.observedAt.replace("2026-10-20","2026-10-18"),
+  }))};
   const bounceIdentity=make({revision:1,proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff"});
   const bounceEvents=["reserved","provider_accepted","provider_bounced"].map((kind,index)=>({
     eventId:String(index+101).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
