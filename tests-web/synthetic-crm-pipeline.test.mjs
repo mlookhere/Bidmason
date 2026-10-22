@@ -72,7 +72,8 @@ test("different recipients of one proposal cannot double-count its outcome",()=>
 test("missing, decorated, sparse or accessor-backed deal matrices fail closed",()=>{
   for(const value of [undefined,null,[],[[]],[[],[],[],[]],
     new Array(3),[[],[],[],"decoration"]]){
-    assert.throws(()=>run(entries,value),/Full synthetic CRM outcome matrix required/);
+    assert.throws(()=>summarizeSyntheticCrmPipeline(ORG,entries,NOW,value),
+      /Full synthetic CRM outcome matrix required/);
   }
   const decorated=[[],[],[]];decorated.extra=true;
   assert.throws(()=>run(entries,decorated),/Full synthetic CRM outcome matrix required/);
