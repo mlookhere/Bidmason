@@ -32,7 +32,11 @@ security/privacy/legal/operations review plus a written go/no-go.
   responsible humans and operational tests.
 - `ci/item6_release_evidence.py` refuses incomplete manifests, missing
   or duplicated criteria, extra privilege fields, false release states,
-  forged "passed" statuses, and malformed submissions. Its only possible
+  forged "passed" statuses, and malformed submissions. Manifest reads
+  are limited to 128 KiB and reject symlinked files; submitted references
+  require stable HTTPS DNS links (no userinfo, private/local IP literals,
+  unusual ports, query credentials, control characters or forged hosts).
+  URL syntax is not independent evidence verification. Its only possible
   successfully validated result is `blocked` with
   `releaseAuthorized: false`. It reads local JSON and makes **no**
   network, provider or database requests.

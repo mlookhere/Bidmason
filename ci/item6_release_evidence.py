@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs" / "ITEM6_RELEASE_EVIDENCE.json"
@@ -29,7 +30,28 @@ REQUIRED = {
     "independent-reviews-and-go-no-go": "MASTER_PLAN:8",
 }
 STATUSES = {"unverified", "submitted-for-independent-review"}
-REFERENCE = re.compile(r"https://[^\s<>]{1,500}\Z")
+MAX_MANIFEST_BYTES = 128 * 1024
+DNS_HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z", re.I)
+SAFE_FRAGMENT = re.compile(r"[a-zA-Z0-9_./%~-]{0,120}\Z")
+
+
+def _reference_url(value):
+    """Only stable HTTPS DNS links; never trust a link as proof of approval."""
+    if (type(value) is not str or len(value) > 600 or not value.startswith("https://")
+            or "\\" in value or any(ord(c) < 33 or ord(c) > 126 or c in "<>" for c in value)):
+        return False
+    try:
+        parts = urlsplit(value)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return False
+    return (parts.scheme == "https" and hostname is not None
+            and DNS_HOST.fullmatch(hostname) is not None
+            and parts.username is None and parts.password is None
+            and port in (None, 443) and not parts.query
+            and SAFE_FRAGMENT.fullmatch(parts.fragment) is not None)
+
 
 
 def _unique_object(pairs):
@@ -43,8 +65,13 @@ def _unique_object(pairs):
 
 def load(path: Path = MANIFEST):
     """Read untrusted JSON; duplicate keys must not silently replace blockers."""
-    return json.loads(path.read_text(encoding="utf-8"),
-                      object_pairs_hook=_unique_object)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Missing or symlinked Item 6 evidence manifest")
+    with path.open("rb") as manifest:
+        raw = manifest.read(MAX_MANIFEST_BYTES + 1)
+    if len(raw) > MAX_MANIFEST_BYTES:
+        raise ValueError("Oversized Item 6 evidence manifest")
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
 
 
 def evaluate(value):
@@ -70,7 +97,7 @@ def evaluate(value):
         references = entry["evidence"]
         if type(references) is not list or len(references) > 10:
             raise ValueError("Invalid Item 6 evidence references")
-        if any(type(item) is not str or not REFERENCE.fullmatch(item)
+        if any(not _reference_url(item)
                for item in references) or len(set(references)) != len(references):
             raise ValueError("Malformed or repeated Item 6 evidence reference")
         if entry["status"] == "unverified" and references:

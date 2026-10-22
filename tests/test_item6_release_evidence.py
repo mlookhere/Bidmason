@@ -4,8 +4,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from ci.item6_release_evidence import REQUIRED, evaluate, load
+from ci.item6_release_evidence import REQUIRED, MAX_MANIFEST_BYTES, evaluate, load
 from ci.run import STAGES
 
 
@@ -129,6 +130,37 @@ class Item6EvidenceTests(unittest.TestCase):
             path.write_text('{"releaseState":"blocked","releaseState":"ready"}')
             with self.assertRaisesRegex(ValueError, "Duplicate"):
                 load(path)
+
+    def test_malformed_https_evidence_refs_fail_closed(self):
+        bad = (
+            "https://", "https:///report", "https://localhost/report",
+            "https://127.0.0.1/report", "https://[::1]/report",
+            "https://operator:secret@example.test/report",
+            "https://github.com@evil.test/report", "https://example.test:8080/report",
+            "https://github.com/report?token=private", "https://github.com\\@evil.test/report",
+            "https://github.com/report\nspoofed", "https://github.com/report#access=private",
+            "https://invalid..test/report",
+        )
+        for url in bad:
+            with self.subTest(url=url), self.assertRaisesRegex(ValueError, "reference"):
+                evaluate(self.changed(lambda manifest: manifest["criteria"][0].update(
+                    status="submitted-for-independent-review", evidence=[url])))
+        valid = self.changed(lambda manifest: manifest["criteria"][0].update(
+            status="submitted-for-independent-review",
+            evidence=["https://github.com/mlookhere/Bidmason/issues/7#issuecomment-123"]))
+        self.assertIs(evaluate(valid)["releaseAuthorized"], False)
+
+    def test_manifest_file_is_bounded_and_symlinks_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            path.write_bytes(b" " * (MAX_MANIFEST_BYTES + 1))
+            with self.assertRaisesRegex(ValueError, "Oversized"):
+                load(path)
+            path.write_text(json.dumps(self.original), encoding="utf-8")
+            with patch.object(Path, "is_symlink", lambda candidate: candidate == path):
+                with self.assertRaisesRegex(ValueError, "symlinked"):
+                    load(path)
+            self.assertEqual(evaluate(load(path))["state"], "blocked")
 
     def test_bad_reference_and_missing_schema_are_rejected(self):
         for ref in ("javascript:alert(1)", "http://example.test", 
