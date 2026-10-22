@@ -43,10 +43,9 @@ def _entrypoints(root: Path) -> list[Path]:
             continue
         rel = p.relative_to(root).as_posix()
         pieces = rel.split("/")
-        is_route = (len(pieces) >= 3
-                    and pieces[:1] in (["app"], ["pages"])
-                    and (pieces[0] == "app" and p.stem == "route"
-                         or pieces[:2] == ["pages", "api"]))
+        is_route = ((len(pieces) >= 2 and pieces[0] == "app"
+                     and p.stem == "route")
+                    or (len(pieces) >= 3 and pieces[:2] == ["pages", "api"]))
         is_src_route = (len(pieces) >= 4 and pieces[0] == "src"
                         and (pieces[1] == "app" and p.stem == "route"
                              or pieces[1:3] == ["pages", "api"]))
