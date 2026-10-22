@@ -45,9 +45,10 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         return record_fictional_consent(self.db, org, recipient, event)
 
     def confirm(self, recipient=RECIPIENT, revision=3, digest=HASH,
-                actor=CONTRACTOR, org=ORG, proposal=PROPOSAL, seed="confirm"):
-        event = str(uuid5(NAMESPACE_DNS,
-                          f"{org}/{proposal}/{revision}/{recipient}/{seed}"))
+                actor=CONTRACTOR, org=ORG, proposal=PROPOSAL, seed="confirm",
+                event=None):
+        event = event or str(uuid5(NAMESPACE_DNS,
+                                   f"{org}/{proposal}/{revision}/{recipient}/{seed}"))
         return record_fictional_recipient_confirmation(
             self.db, org, proposal, revision, digest, recipient, actor, event)
 
@@ -241,8 +242,10 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.consent()
         self.confirm()
         self.consent(recipient="other@fictional.example", event=DEAL_EVENT)
+        original_event = str(uuid5(
+            NAMESPACE_DNS, f"{ORG}/{PROPOSAL}/3/{RECIPIENT}/confirm"))
         with self.assertRaisesRegex(ValueError, "Conflicting fictional recipient event ID"):
-            self.confirm(recipient="other@fictional.example")
+            self.confirm(recipient="other@fictional.example", event=original_event)
         self.assertEqual(
             self.reserve(recipient="other@fictional.example", seed="other"),
             "blocked-missing-recipient-confirmation")
