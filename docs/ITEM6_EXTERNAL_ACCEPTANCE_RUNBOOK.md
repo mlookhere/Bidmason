@@ -122,7 +122,7 @@ simulations. The preview exception is confined to the exact
 `app/delivery-lab/page.tsx` (or future `src/` equivalent), provided it
 does **not** declare a server action. A shared layout, nested route handler,
 or newly introduced public page under that URL receives no exception.
-Twenty-five negative/positive Python tests cover direct and transitive imports,
+Thirty negative/positive Python tests cover direct and transitive imports,
 aliases, server actions, dynamic imports, middleware/proxy,
 server-rendered pages and shared layouts, scoped pages/API routes,
 unresolved modules and narrow preview isolation, including both
@@ -148,3 +148,21 @@ simultaneous protection of both source layouts, an unrelated permitted
 `src/lib` module, and preservation of the tightly scoped fictional
 preview exception. This remains static source containment only and
 does not grant provider, tenant or customer authority.
+
+### Long ESM import statements cannot evade the static boundary
+
+The import walk no longer stops searching for an ESM `from` clause after
+800 characters. A valid multiline named import, type-only import or
+re-export may exceed this arbitrary cutoff; the previous bounded regex
+could silently miss a dependency on an offline-only module. The static
+scanner now searches to the statement boundary instead of assuming
+long lists are not meaningful imports. Five additional regression tests
+exercise long direct imports, transitive re-exports, type-only imports,
+a later forbidden import after a long safe one, and a long unrelated
+local module that must remain permitted.
+
+This is still conservative regex-based source validation rather than
+complete ECMAScript/TypeScript parsing. A passing scan does not
+demonstrate real runtime isolation, provider authentication, RLS,
+consent, or permission to contact customers. The existing H01–H13
+release restrictions remain intact.
