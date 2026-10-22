@@ -58,7 +58,21 @@ export default function DeliveryLab() {
                   <div><dt>Operator review</dt><dd>{item.report.attention.operatorReview}</dd></div>
                   <div><dt>Deferred</dt><dd>{item.report.attention.deferred}</dd></div>
                 </dl>
-                <p className="lab-summary-caption">Simulation only. No contact authorization or live tenant access.</p>
+                <h4 className="lab-summary-subheading">Fictional pipeline</h4>
+                <p className="lab-summary-caption">
+                  Case-level delivery reports; proposal-level deal outcomes. No verified provider events.
+                </p>
+                <dl className="lab-summary-counts">
+                  <div><dt>Reported delivered · cases</dt><dd>{item.pipeline.delivery.reportedDelivered}</dd></div>
+                  <div><dt>Bounced · cases</dt><dd>{item.pipeline.delivery.bounced}</dd></div>
+                  <div><dt>Won · unique proposals</dt><dd>{item.pipeline.deals.won}</dd></div>
+                  <div><dt>Lost · unique proposals</dt><dd>{item.pipeline.deals.lost}</dd></div>
+                  <div><dt>Unverified · unique proposals</dt><dd>{item.pipeline.deals.unverified}</dd></div>
+                  <div><dt>Total unique proposals</dt><dd>{item.pipeline.distinctProposals}</dd></div>
+                </dl>
+                <p className="lab-summary-caption">
+                  Simulation only. Incomplete fictional evidence; no contact authorization or live tenant access.
+                </p>
               </article>
             ))}
           </div>
