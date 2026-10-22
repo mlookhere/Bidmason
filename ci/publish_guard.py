@@ -27,7 +27,7 @@ LAB_IMPORTS = {
         "./outbound-preflight.ts", "./follow-up-assessment.ts",
         "./delivery-event-projection.ts", "./recipient-aware-delivery-triage.ts",
         "./recipient-suppression-history.ts", "./delivery-review-summary.ts",
-        "./synthetic-deal-outcome.ts",
+        "./synthetic-deal-outcome.ts", "./synthetic-crm-pipeline.ts",
     },
 }
 LAB_IMPORT = re.compile(
@@ -80,6 +80,10 @@ LAB_TRANSITIVE_IMPORTS = {
     },
     "lib/synthetic-deal-outcome.ts": {
         "./outbound-preflight.ts", "./delivery-event-projection.ts",
+    },
+    "lib/synthetic-crm-pipeline.ts": {
+        "./delivery-review-summary.ts", "./delivery-event-projection.ts",
+        "./synthetic-deal-outcome.ts", "./recipient-suppression-history.ts",
     },
 }
 LAB_REEXPORT = re.compile(r"\bexport\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s*['\"]", re.S)
