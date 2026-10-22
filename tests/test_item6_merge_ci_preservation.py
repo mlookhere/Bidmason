@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from ci.workflow_policy import (
-    ROOT, WORKFLOW, MERGED_SLICE_GATES, _job_blocks, findings,
+    ROOT, WORKFLOW, CORE_JOB_COMMANDS, MERGED_SLICE_GATES, _job_blocks, findings,
     merged_gate_findings,
 )
 
@@ -86,6 +86,31 @@ class PreservedSliceCiTests(unittest.TestCase):
         self.assertIn(
             "conditional or nonblocking required job: fast (if)",
             merged_gate_findings(step_guard, self.root),
+        )
+
+    def test_each_core_runner_must_be_executable_in_its_own_job(self):
+        for name, command in CORE_JOB_COMMANDS.items():
+            with self.subTest(job=name):
+                original = f"        run: {command}\n"
+                self.assertIn(original, self.workflow)
+                # Keep the command text in the source to prove that a broad
+                # string search would miss the silently disabled runner.
+                altered = self.workflow.replace(
+                    original, "        run: echo skipped\n", 1,
+                ) + f"\n# run: {command}\n"
+                self.assertIn(
+                    f"missing substantive core {name} run command",
+                    merged_gate_findings(altered, self.root),
+                )
+
+    def test_core_runner_cannot_move_to_another_job(self):
+        command = CORE_JOB_COMMANDS["fast"]
+        altered = self.workflow.replace(
+            f"        run: {command}\n", "        run: echo skipped\n", 1,
+        ) + f"\n      - name: Misplaced fast runner\n        run: {command}\n"
+        self.assertIn(
+            "missing substantive core fast run command",
+            merged_gate_findings(altered, self.root),
         )
 
     def test_inherited_slice_runner_cannot_hide_a_failure(self):
