@@ -46,9 +46,9 @@ def _entrypoints(root: Path) -> list[Path]:
         is_route = ((len(pieces) >= 2 and pieces[0] == "app"
                      and p.stem == "route")
                     or (len(pieces) >= 3 and pieces[:2] == ["pages", "api"]))
-        is_src_route = (len(pieces) >= 4 and pieces[0] == "src"
-                        and (pieces[1] == "app" and p.stem == "route"
-                             or pieces[1:3] == ["pages", "api"]))
+        is_src_route = (len(pieces) >= 3 and pieces[0] == "src"
+                        and ((pieces[1] == "app" and p.stem == "route")
+                             or (len(pieces) >= 4 and pieces[1:3] == ["pages", "api"])))
         is_global = rel in {f"{base}{name}{suffix}"
                             for base in ("", "src/")
                             for name in ("middleware", "instrumentation")
