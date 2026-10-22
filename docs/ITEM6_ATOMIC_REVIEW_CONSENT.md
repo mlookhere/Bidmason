@@ -386,7 +386,9 @@ The TypeScript `projectSimulatedDeliveryEvents` timeline now refuses a
 opted out**, even if the same local reservation was recorded earlier.
 A reservation is not sending authority, and an intervening opt-out cannot
 be silently bypassed by a subsequent provider-acceptance event. The
-reducer raises `Unexpected or suppressed provider acceptance`.
+reducer raises `Unexpected provider acceptance after recipient stop-contact`.
+An unrelated duplicate or impossible provider acceptance continues to raise
+the existing `Unexpected provider acceptance` error.
 
 For a distinct case where the provider **accepted before** the opt-out,
 later *status callbacks* (including a reported delivery or complaint)
