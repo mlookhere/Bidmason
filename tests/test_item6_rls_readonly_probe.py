@@ -49,6 +49,8 @@ class FakeTransport:
         self.revision_missing = False
         self.anon_revision_leak = False
         self.reject_auth_user = None
+        self.anon_denials = {}
+        self.auth_table_denial = None
 
     def __call__(self, url, headers):
         self.requests.append((url, headers))
@@ -60,6 +62,9 @@ class FakeTransport:
                 return 401, {"message": "not authorized"}
             return 200, {"id": self.tokens[bearer][0], "is_anonymous": False}
         if not bearer:
+            for table, denied in self.anon_denials.items():
+                if parts.path.endswith("/" + table):
+                    return denied
             if parts.path.endswith("/bm_brief_revisions"):
                 return 200, ([{"id": REV_B, "organization_id": ORG_B}]
                              if self.anon_revision_leak else [])
@@ -68,6 +73,8 @@ class FakeTransport:
                              if self.anon_member_leak else [])
             return 200, ([{"id": ORG_A}] if self.anon_leak else [])
         user, own = self.tokens[bearer]
+        if self.auth_table_denial is not None:
+            return self.auth_table_denial
         if parts.path.endswith("/bm_organizations"):
             requested = query.get("id", [""])[0].removeprefix("eq.")
             rows = [{"id": own}] if not requested or requested == own else []
@@ -224,6 +231,42 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(result["state"], "blocked")
         self.assertEqual(result["checks"][-1]["name"], "anonymous-organizations")
         self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_anonymous_postgrest_permission_denials_do_not_false_fail(self):
+        tables = ("bm_organizations", "bm_memberships", "bm_brief_revisions")
+        for table in tables:
+            for http_status in (401, 403):
+                with self.subTest(table=table, http_status=http_status):
+                    fake = FakeTransport()
+                    fake.anon_denials[table] = (http_status, None)
+                    result, checked = self.run_probe(fake)
+                    self.assertEqual(len(checked.requests), 23)
+                    self.assertEqual(result["state"], "requires-independent-review")
+                    self.assertIs(result["releaseAuthorized"], False)
+                    self.assertIs(result["h01Accepted"], False)
+                    self.assertEqual(len(result["checks"]), 23)
+                    self.assertTrue(all(c["passed"] for c in result["checks"]))
+
+    def test_anonymous_server_errors_and_nonempty_denial_are_not_evidence(self):
+        for table in ("bm_organizations", "bm_memberships", "bm_brief_revisions"):
+            for returned in ((500, None), (400, None), (302, None),
+                             (401, [{"id": ORG_A}]), (403, []),
+                             (200, [{"id": ORG_A}])):
+                with self.subTest(table=table, response=returned[0]):
+                    fake = FakeTransport()
+                    fake.anon_denials[table] = returned
+                    result, _ = self.run_probe(fake)
+                    self.assertEqual(result["state"], "blocked")
+                    self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_authenticated_permission_denial_is_not_cross_tenant_proof(self):
+        for status in (401, 403):
+            fake = FakeTransport()
+            fake.auth_table_denial = (status, None)
+            result, _ = self.run_probe(fake)
+            self.assertEqual(result["state"], "blocked")
+            self.assertEqual(result["checks"][-1]["name"], "user-1-own-organization")
+            self.assertFalse(result["checks"][-1]["passed"])
 
     def test_auth_failure_stops_before_tenant_queries(self):
         fake = FakeTransport()
