@@ -57,6 +57,15 @@ def record_fictional_review(
         db.execute("INSERT INTO rehearsal_review_receipts VALUES (?,?,?,?,?,?)",
                    (organization_id, proposal_id, revision, content_sha256,
                     role, actor_id))
+        # The first newly recorded review of a later revision supersedes any
+        # still-pending reviewed reservations of earlier revisions in this
+        # SAME transaction. An outcome_unknown row may already represent an
+        # external side effect and must remain unresolved and held.
+        db.execute(
+            "UPDATE rehearsal_reservations SET state='invalidated' "
+            "WHERE organization_id=? AND proposal_id=? "
+            "AND state='reserved' AND reviewed_revision < ?",
+            (organization_id, proposal_id, revision))
         return "fictional-review-recorded"
 
     return _transaction(path, act)
@@ -135,6 +144,7 @@ def reserve_reviewed_fictional(
         # Shared core CAS inside this SAME BEGIN IMMEDIATE transaction, so a
         # concurrent opt-out or won/lost closure cannot interleave here.
         return _reserve_in_transaction(
-            db, organization_id, proposal_id, recipient, idempotency_key)
+            db, organization_id, proposal_id, recipient, idempotency_key,
+            reviewed_revision=revision, reviewed_sha256=content_sha256)
 
     return _transaction(path, act)

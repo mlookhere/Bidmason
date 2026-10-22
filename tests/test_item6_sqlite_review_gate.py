@@ -92,8 +92,10 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(self.reserve(seed="new"), "blocked-stale-revision")
         self.assertEqual(self.reserve(revision=4, seed="new"), "blocked-missing-independent-reviews")
         self.review("contractor", CONTRACTOR, revision=4)
-        # An existing live recipient lock still wins after valid new review.
-        self.assertEqual(self.reserve(revision=4, seed="new"), "blocked-existing-recipient-reservation")
+        # The first newer review atomically invalidated the older unsent lock.
+        # The complete new review can reserve, but never send.
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 1, 0))
+        self.assertEqual(self.reserve(revision=4, seed="new"), "reserved-simulation-only")
 
     def test_fake_consent_event_identity_and_stop_contact(self):
         self.both()

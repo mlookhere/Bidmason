@@ -66,6 +66,10 @@ def initialize_fixture_db(path: Path) -> None:
           proposal_id TEXT NOT NULL,
           recipient TEXT NOT NULL,
           state TEXT NOT NULL CHECK (state IN ('reserved', 'invalidated', 'outcome_unknown')),
+          reviewed_revision INTEGER CHECK (reviewed_revision BETWEEN 1 AND 1000000),
+          reviewed_sha256 TEXT,
+          CHECK ((reviewed_revision IS NULL AND reviewed_sha256 IS NULL)
+              OR (reviewed_revision IS NOT NULL AND reviewed_sha256 IS NOT NULL)),
           PRIMARY KEY (organization_id, idempotency_key)
         );
         CREATE UNIQUE INDEX rehearsal_one_live_recipient
@@ -152,17 +156,20 @@ def reserve_fictional(
 def _reserve_in_transaction(
     db: sqlite3.Connection, organization_id: str, proposal_id: str,
     recipient: str, idempotency_key: str,
+    reviewed_revision: int | None = None,
+    reviewed_sha256: str | None = None,
 ) -> str:
     """Shared fictional CAS; caller MUST already hold BEGIN IMMEDIATE."""
     existing = db.execute(
-        "SELECT proposal_id, recipient FROM rehearsal_reservations "
+        "SELECT proposal_id, recipient, reviewed_revision, reviewed_sha256 "
+        "FROM rehearsal_reservations "
         "WHERE organization_id=? AND idempotency_key=?",
         (organization_id, idempotency_key)).fetchone()
     if existing is not None:
         # An idempotency replay is only the SAME immutable delivery claim.
         # Reusing its key for another recipient or proposal is a conflict,
         # even when the earlier claim was invalidated or is outcome_unknown.
-        if existing != (proposal_id, recipient):
+        if existing != (proposal_id, recipient, reviewed_revision, reviewed_sha256):
             raise ValueError("Conflicting fictional idempotency key reuse")
         return "blocked-existing-key"
     if db.execute("SELECT 1 FROM rehearsal_contact_signals WHERE organization_id=? AND recipient=?",
@@ -174,8 +181,12 @@ def _reserve_in_transaction(
     if db.execute("SELECT 1 FROM rehearsal_reservations WHERE organization_id=? AND recipient=? AND state IN ('reserved','outcome_unknown')",
                   (organization_id, recipient)).fetchone():
         return "blocked-existing-recipient-reservation"
-    db.execute("INSERT INTO rehearsal_reservations VALUES (?,?,?,?, 'reserved')",
-               (organization_id, idempotency_key, proposal_id, recipient))
+    db.execute(
+        "INSERT INTO rehearsal_reservations "
+        "(organization_id,idempotency_key,proposal_id,recipient,state,"
+        "reviewed_revision,reviewed_sha256) VALUES (?,?,?,?, 'reserved',?,?)",
+        (organization_id, idempotency_key, proposal_id, recipient,
+         reviewed_revision, reviewed_sha256))
     return "reserved-simulation-only"
 
 
