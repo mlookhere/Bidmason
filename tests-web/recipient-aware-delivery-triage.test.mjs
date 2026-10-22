@@ -132,7 +132,10 @@ test("historical reservations cannot postdate a current reply or permanent stop"
     }
     const earlier=new Date(Date.parse(stoppedAt)-1).toISOString();
     const valid=triage(current,historyAt(earlier));
-    assert.equal(valid.category,"contact-suppressed",kind);
+    assert.equal(valid.category,kind==="recipient_replied"
+      ?"reply-needs-review":"contact-suppressed",kind);
+    assert.equal(valid.attention,kind==="recipient_replied"
+      ?"operator-review":"stop-contact",kind);
     assert.equal(valid.contactAuthorized,false);
   }
 });
