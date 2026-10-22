@@ -59,6 +59,8 @@ def review_packet(manifest: dict, runbook_bytes: bytes) -> dict:
         details[identifier] = (number, owner, negative)
     if set(details) != set(REQUIRED):
         raise ValueError("Missing acceptance runbook requirement")
+    if list(details) != list(REQUIRED):
+        raise ValueError("Out-of-order acceptance runbook requirements")
 
     by_id = {entry["id"]: entry for entry in manifest["criteria"]}
     rows_out = []
