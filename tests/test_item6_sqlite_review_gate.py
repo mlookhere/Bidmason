@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from uuid import uuid5, NAMESPACE_DNS
 
 from ci.item6_sqlite_rehearsal import (
     initialize_fixture_db, fictional_counts, record_fictional_contact_signal,
@@ -11,6 +12,7 @@ from ci.item6_sqlite_rehearsal import (
 )
 from ci.item6_sqlite_review_gate import (
     record_fictional_review, record_fictional_consent, reserve_reviewed_fictional,
+    record_fictional_recipient_confirmation,
 )
 
 ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -42,6 +44,13 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def consent(self, recipient=RECIPIENT, event=CONSENT_EVENT, org=ORG):
         return record_fictional_consent(self.db, org, recipient, event)
 
+    def confirm(self, recipient=RECIPIENT, revision=3, digest=HASH,
+                actor=CONTRACTOR, org=ORG, proposal=PROPOSAL, seed="confirm"):
+        event = str(uuid5(NAMESPACE_DNS,
+                          f"{org}/{proposal}/{revision}/{recipient}/{seed}"))
+        return record_fictional_recipient_confirmation(
+            self.db, org, proposal, revision, digest, recipient, actor, event)
+
     def reserve(self, revision=3, digest=HASH, recipient=RECIPIENT, seed="one",
                 org=ORG, proposal=PROPOSAL):
         return reserve_reviewed_fictional(self.db, org, proposal, revision,
@@ -62,6 +71,8 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def test_exact_two_reviewers_and_fictional_consent_permit_only_local_reservation(self):
         self.both()
         self.assertEqual(self.consent(), "fictional-consent-recorded")
+        self.assertEqual(self.reserve(), "blocked-missing-recipient-confirmation")
+        self.assertEqual(self.confirm(), "fictional-recipient-confirmed")
         self.assertEqual(self.reserve(), "reserved-simulation-only")
         self.assertEqual(self.reserve(), "blocked-existing-key")
         self.assertEqual(self.reserve(seed="two"), "blocked-existing-recipient-reservation")
@@ -84,6 +95,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(self.reserve(), "blocked-missing-independent-reviews")
         self.review("contractor", CONTRACTOR, digest=HASH)
         self.assertEqual(self.reserve(digest=OTHER_HASH), "blocked-review-content-mismatch")
+        self.confirm()
         self.assertEqual(self.reserve(), "reserved-simulation-only")
 
     def test_newer_partial_review_rejects_late_old_revision_receipts(self):
@@ -93,6 +105,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(self.reserve(revision=3), "blocked-stale-revision")
         self.review("contractor", CONTRACTOR, revision=4)
         self.consent()
+        self.confirm(revision=4)
         self.assertEqual(self.reserve(revision=4), "reserved-simulation-only")
 
     def test_competing_distinct_hash_receipts_cannot_both_commit(self):
@@ -116,6 +129,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def test_newer_partially_reviewed_revision_freezes_prior_version(self):
         self.both()
         self.consent()
+        self.confirm()
         self.assertEqual(self.reserve(), "reserved-simulation-only")
         self.review("operator", OPERATOR, revision=4)
         self.assertEqual(self.reserve(seed="new"), "blocked-stale-revision")
@@ -124,11 +138,14 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         # The first newer review atomically invalidated the older unsent lock.
         # The complete new review can reserve, but never send.
         self.assertEqual(fictional_counts(self.db, ORG), (0, 1, 0))
+        self.assertEqual(self.reserve(revision=4, seed="new"), "blocked-missing-recipient-confirmation")
+        self.confirm(revision=4)
         self.assertEqual(self.reserve(revision=4, seed="new"), "reserved-simulation-only")
 
     def test_fake_consent_event_identity_and_stop_contact(self):
         self.both()
         self.assertEqual(self.consent(), "fictional-consent-recorded")
+        self.confirm()
         self.assertEqual(self.consent(), "blocked-duplicate-consent")
         with self.assertRaisesRegex(ValueError, "Conflicting fictional consent"):
             self.consent(event=DEAL_EVENT)
@@ -143,6 +160,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def test_closed_deal_always_blocks_and_cannot_create_review_after_close(self):
         self.both()
         self.consent()
+        self.confirm()
         self.assertEqual(close_fictional_deal(self.db, ORG, PROPOSAL, RECIPIENT,
                                                DEAL_EVENT, "won"), ("closed-simulation-only", 0))
         self.assertEqual(self.reserve(), "blocked-closed-deal")
@@ -151,6 +169,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def test_tenant_and_proposal_scopes_are_distinct(self):
         self.both()
         self.consent()
+        self.confirm()
         self.assertEqual(self.reserve(org=OTHER), "blocked-missing-independent-reviews")
         self.assertEqual(self.reserve(proposal=OTHER_PROPOSAL), "blocked-missing-independent-reviews")
         self.assertEqual(self.reserve(recipient="other@fictional.example"), "blocked-unconfirmed-consent")
@@ -159,6 +178,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def test_stop_signal_racing_reviewed_reservation_cannot_leave_live_work(self):
         self.both()
         self.consent()
+        self.confirm()
         with ThreadPoolExecutor(max_workers=2) as pool:
             a = pool.submit(self.reserve)
             b = pool.submit(record_fictional_contact_signal, self.db, ORG, PROPOSAL,
@@ -171,6 +191,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
     def test_terminal_deal_racing_reviewed_reservation_cannot_leave_live_work(self):
         self.both()
         self.consent()
+        self.confirm()
         with ThreadPoolExecutor(max_workers=2) as pool:
             a = pool.submit(self.reserve)
             b = pool.submit(close_fictional_deal, self.db, ORG, PROPOSAL,
