@@ -23,10 +23,13 @@ FORBIDDEN = (
     "lib/buyer-response-draft",
 )
 # Handle ESM imports, exports, import type, multiline named imports and
-# side-effect imports. Comments are not a reliable source parser: conservative
-# false positives fail CI rather than silently admitting an unsafe dependency.
+# side-effect imports. Import specifier lists have no fixed legal length:
+# a previous 800-character limit silently missed valid long import/re-export
+# statements and bypassed the offline-only dependency boundary. Stop at the
+# statement's first semicolon, never silently stop scanning at a byte budget.
+# This is a conservative source scanner rather than a complete TS/JS parser.
 FROM = re.compile(
-    r"\b(?:import|export)\s+(?:(?!;)[\s\S]){0,800}?\bfrom\s*"
+    r"\b(?:import|export)\s+(?:(?!;)[\s\S])*?\bfrom\s*"
     r"(['\"])([^'\"\r\n]+)\1"
 )
 SIDE_EFFECT = re.compile(r"\bimport\s*(['\"])([^'\"\r\n]+)\1")
