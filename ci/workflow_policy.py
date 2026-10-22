@@ -25,7 +25,7 @@ UNSAFE = (
 # Every core PR check must remain an unconditional, failure-propagating job.
 # Additional slice gates become mandatory when their executable marker exists.
 CORE_JOBS = ("fast", "pr", "security", "web-build", "win-fast", "pdf-qa", "browser-e2e")
-NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \t]+(if|continue-on-error):(?:[ \t]|$)")
+NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \t]+(?:-[ \t]+)?(if|continue-on-error):(?:[ \t]|$)")
 
 
 MERGED_SLICE_GATES = (
