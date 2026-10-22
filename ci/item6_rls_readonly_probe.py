@@ -48,7 +48,9 @@ def _validate(base: str, publishable_key: str, tokens: tuple[str, str],
     parts = urlsplit(base)
     if (parts.scheme != "https" or parts.username or parts.password or parts.port
             or not parts.hostname or not HOST.fullmatch(parts.hostname)
-            or parts.path or parts.query or parts.fragment):
+            or base != "https://" + parts.hostname):
+        # urlsplit silently removes some control characters and leading
+        # whitespace. Require the exact original bytes to be canonical.
         raise ValueError("Unsafe or ambiguous Supabase endpoint")
     if type(publishable_key) is not str or not KEY.fullmatch(publishable_key):
         raise ValueError("A publishable key is required; secret/service keys prohibited")
