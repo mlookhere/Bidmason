@@ -40,6 +40,42 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'import {mock} from "../../../lib/synthetic-dispatch-reservation";')
         self.verify("imports offline-only lib/synthetic-dispatch-reservation.ts")
 
+    def test_public_metadata_handlers_cannot_import_offline_delivery(self):
+        self.write("lib/synthetic-dispatch-reservation.ts",
+                   "export const fictional = true;")
+        for stem in ("robots", "sitemap", "manifest"):
+            self.write(f"app/{stem}.ts",
+                       'import "../lib/synthetic-dispatch-reservation";')
+        self.verify("app/robots.ts", "app/sitemap.ts", "app/manifest.ts")
+
+    def test_generated_metadata_images_include_numbered_file_conventions(self):
+        self.write("src/lib/buyer-view-grant.ts", "export const unsafe = true;")
+        stems = ("icon1", "apple-icon2", "opengraph-image",
+                 "twitter-image3")
+        for stem in stems:
+            self.write(f"src/app/(marketing)/{stem}.tsx",
+                       'import "../../lib/buyer-view-grant";')
+        self.verify(*(f"src/app/(marketing)/{stem}.tsx" for stem in stems))
+
+    def test_metadata_route_follows_transitive_mts_code(self):
+        self.write("src/lib/synthetic-dispatch-reservation.cts",
+                   "export const fake = true;")
+        self.write("src/lib/seo-wrapper.mts",
+                   'export {fake} from "./synthetic-dispatch-reservation.cts";')
+        self.write("src/app/site/sitemap.ts",
+                   'import {fake} from "../../lib/seo-wrapper.mts";')
+        self.verify("src/app/site/sitemap.ts imports offline-only "
+                    "src/lib/synthetic-dispatch-reservation.cts")
+
+    def test_safe_metadata_routes_keep_working(self):
+        self.write("lib/normal-metadata.ts", "export const safe = true;")
+        self.write("src/lib/ordinary.ts", "export const safe = true;")
+        self.write("app/robots.ts",
+                   'import "../lib/normal-metadata";')
+        self.write("src/app/blog/opengraph-image.tsx",
+                   'import "../../lib/ordinary";')
+        self.verify()
+
     def test_top_level_app_route_and_page_api_are_both_checked(self):
         self.write("lib/outbound-preflight.ts", "export const mock=true;")
         self.write("app/route.ts", 'import "../lib/outbound-preflight";')
