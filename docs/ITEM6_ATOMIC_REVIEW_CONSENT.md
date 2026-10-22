@@ -352,3 +352,29 @@ uncertain states, suppressive action during a conflict, tenant isolation,
 and simultaneous corruption-versus-handoff serialization. These tests
 remain offline disposable SQLite only; the actual H01–H13 release
 acceptance requirements are still outstanding.
+
+## TypeScript in-memory terminal event identity and proposal isolation
+
+The separate `SyntheticDispatchReservationLedger` TypeScript CRM rehearsal
+previously keyed terminal decisions only by fictional **tenant + proposal**.
+An identical invented won/lost event UUID could therefore close a *different*
+proposal under that same tenant and clear its pending recipient reservations.
+This differed from the stricter SQLite terminal-event constraint.
+
+The TypeScript model now keeps a second volatile **tenant + terminal event ID
+→ owning proposal** index. After the event projector validates the exact
+fictional tenant, revision, event shape and observation time, a new proposal
+cannot reuse an event UUID already assigned to another proposal of the
+same tenant. A collision throws before recording the second closure or
+invalidating any of its reservations. The original proposal's exact duplicate
+claim is still idempotent; another tenant may reuse the UUID independently.
+The two in-memory maps update synchronously in the one call, with no
+asynchronous network or storage step.
+
+`tests-web/synthetic-deal-closure-reservation.test.mjs` includes three
+adversarial groups for cross-proposal replay with unchanged locks, tenant
+isolation and competing closure attempts. This is **in-memory consistency**
+only; it is not a durable event registry, authenticated CRM, provider
+decision, or actual sale. No write-capable routes, messages or customer
+records are introduced. H01–H13 and the draft/non-release constraints
+remain unchanged.
