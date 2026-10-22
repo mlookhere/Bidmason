@@ -186,3 +186,38 @@ test("duplicate case identities still fail when full recipient history supplied"
     {intent:first.intent,events:first.events},{intent:first.intent,events:first.events}
   ]),/Duplicate or current-proposal/);
 });
+
+const asHistory = ({intent,events}) => ({intent,events});
+
+test("CRM rollups reject event IDs reused across current and historical streams",()=>{
+  const current=make(0),other=make(2);
+  const prior=make(1,["reserved","provider_accepted","provider_delivered"],ORG,EMAIL,1);
+  const colliding={...prior,events:prior.events.map((event,i)=>i===0
+    ?{...event,eventId:current.events[0].eventId}:event)};
+  assert.throws(()=>summarize([current,other],[[asHistory(colliding)],[]]),
+    /Conflicting synthetic CRM event ID across streams/);
+  assert.throws(()=>summarize([other,current],[[],[asHistory(colliding)]]),
+    /Conflicting synthetic CRM event ID across streams/);
+  assert.equal(summarize([current,other],[[asHistory(prior)],[]]).reviewedCases,2);
+});
+
+test("CRM rollups detect conflicting historical event IDs while accepting shared exact history",()=>{
+  const first=make(0),second=make(2);
+  const prior=make(1,["reserved","provider_accepted","provider_delivered"],ORG,EMAIL,1);
+  const changed={...prior,events:prior.events.map((event,i)=>i===1
+    ?{...event,observedAt:"2026-10-20T08:01:01.000Z"}:event)};
+  assert.equal(summarize([first,second],[[asHistory(prior)],[asHistory(prior)]]).reviewedCases,2);
+  assert.throws(()=>summarize([first,second],[[asHistory(prior)],[asHistory(changed)]]),
+    /Conflicting synthetic CRM event ID across streams/);
+  assert.throws(()=>summarize([second,first],[[asHistory(changed)],[asHistory(prior)]]),
+    /Conflicting synthetic CRM event ID across streams/);
+
+  const otherRecipient="other@fictional.example";
+  const secondRecipient=make(2,undefined,ORG,otherRecipient);
+  const otherHistory=make(3,["reserved","provider_accepted","provider_delivered"],ORG,otherRecipient,1);
+  const collision={...otherHistory,events:otherHistory.events.map((event,i)=>i===0
+    ?{...event,eventId:prior.events[0].eventId}:event)};
+  assert.throws(()=>summarize([first,secondRecipient],[[asHistory(prior)],[asHistory(collision)]]),
+    /Conflicting synthetic CRM event ID across streams/);
+  assert.equal(summarize([first,secondRecipient],[[asHistory(prior)],[asHistory(otherHistory)]]).reviewedCases,2);
+});

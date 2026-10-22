@@ -82,7 +82,22 @@ export function summarizeSyntheticDeliveryReview(
   }
   const seen = new Set<string>();
   const revisionRecipients = new Set<string>();
-  const eventIds = new Set<string>();
+  const eventClaims = new Map<string,{claim:string; current:boolean}>();
+  const recordEventIds = (stream: SyntheticRecipientHistory, current: boolean) => {
+    for (const event of stream.events) {
+      const claim = JSON.stringify([
+        stream.intent.idempotencyKey, event.organizationId, event.recipient,
+        event.kind, event.observedAt,
+      ]);
+      const existing = eventClaims.get(event.eventId);
+      if (existing && existing.claim !== claim) {
+        throw new TypeError(existing.current && current
+          ? "Cross-proposal simulated review event ID collision"
+          : "Conflicting synthetic CRM event ID across streams");
+      }
+      if (!existing) eventClaims.set(event.eventId, {claim, current});
+    }
+  };
   const counts = new Map<DeliveryTriage["category"], number>(
     CATEGORIES.map(category => [category, 0]),
   );
@@ -118,13 +133,12 @@ export function summarizeSyntheticDeliveryReview(
       throw new TypeError("Conflicting simulated proposal revision in CRM summary");
     }
     revisionRecipients.add(revisionRecipient);
-    // Replays within one validated stream are harmless; a provider event ID
-    // reused by another proposal would corrupt a tenant-wide CRM rollup.
-    const streamIds = new Set(entry.events.map(event => event.eventId));
-    if ([...streamIds].some(id => eventIds.has(id))) {
-      throw new TypeError("Cross-proposal simulated review event ID collision");
+    // Check the union of current and historical streams. Identical historical
+    // evidence can be reused, but one event ID cannot claim different events.
+    recordEventIds({intent: entry.intent, events: entry.events}, true);
+    for (const history of historicalStreams?.[seen.size - 1] ?? []) {
+      recordEventIds(history, false);
     }
-    for (const id of streamIds) eventIds.add(id);
     counts.set(result.category, (counts.get(result.category) ?? 0) + 1);
     if (result.attention === "stop-contact") attention.stopContact++;
     else if (result.attention === "operator-review") attention.operatorReview++;

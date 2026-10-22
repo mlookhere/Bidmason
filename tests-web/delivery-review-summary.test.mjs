@@ -112,6 +112,30 @@ test("event IDs must not collide between distinct proposals in one tenant",()=>{
     [otherTenant],now).reviewedCases,1);
 });
 
+test("historical event IDs agree with current and repeated history claims",()=>{
+  const first=make(0),second=make(1),older=make(4);
+  const history={intent:older.intent,events:older.events};
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[history],[history]]).reviewedCases,2);
+  const collision=make(5);
+  const altered={intent:collision.intent,events:collision.events.map((event,i)=>
+    i===1?{...event,eventId:older.events[1].eventId}:event)};
+  for (const historyMatrix of [[[history],[altered]],[[altered],[history]]]){
+    assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first,second],now,
+      historyMatrix),/Conflicting synthetic CRM event ID across streams/);
+  }
+  const currentCollision={...history,events:history.events.map((event,i)=>
+    i===0?{...event,eventId:first.events[0].eventId}:event)};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[],[currentCollision]]),/Conflicting synthetic CRM event ID across streams/);
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[],[{intent:first.intent,events:first.events}]]).reviewedCases,2);
+  const changed={...history,events:history.events.map((event,i)=>
+    i===2?{...event,observedAt:"2026-10-20T08:03:00.000Z"}:event)};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first,second],now,
+    [[history],[changed]]),/Conflicting synthetic CRM event ID across streams/);
+});
+
 test("empty, oversized, sparse and decorated collections are rejected",()=>{
   for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
     assert.throws(()=>summary(entries),/Invalid simulated review batch/);

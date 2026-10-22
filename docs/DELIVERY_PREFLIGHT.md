@@ -993,3 +993,27 @@ storage nor authenticated approvals; real transactional tenant/recipient
 uniqueness, RLS, consent, provider evidence and all H01–H13 human release
 acceptance remain outstanding. No live endpoint, sending or persistence is
 added, and existing required CI gates remain unchanged.
+
+## Cross-stream event identity checks for fictional tenant CRM summaries
+
+When a full historical recipient-evidence matrix is supplied, the existing
+tenant-scoped `summarizeSyntheticDeliveryReview` now checks event IDs across
+**both** current delivery streams and all validated historical streams in the
+same tenant review. Earlier coverage detected collisions among current
+proposals but allowed two individually valid historical collections to make
+contradictory claims about the same provider event ID.
+
+Repeated **identical** history across multiple cases remains valid, including
+when a proposal's exact current stream is shared as an earlier stream of
+another fictional proposal. Reuse with a different proposal identity,
+recipient, event kind or UTC observation time now fails closed; the existing
+current-versus-current collision error remains stable. Added Node adversarial
+tests cover cross-scope reuse, opposing history order, same-proposal conflicting
+timestamps, separate fictional recipients, and exact replay acceptance.
+
+This remains only deterministic local, caller-provided synthetic review
+evidence: it cannot authenticate actual provider IDs, establish complete
+recipient histories, provide durable event deduplication, infer consent, or
+authorize a message. No new dependencies, routes, data stores, credentials,
+provider integration or CI-gate modifications were introduced. H01–H13
+tenant, transactional, legal, security and human release gates remain blocked.
