@@ -161,6 +161,13 @@ def record_fictional_recipient_confirmation(
             (organization_id, recipient)
         ).fetchone():
             return "blocked-unconfirmed-consent"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_recipient_confirmation_revocations "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND recipient=?",
+            (organization_id, proposal_id, revision, recipient)
+        ).fetchone():
+            return "blocked-recipient-confirmation-revoked"
         old = db.execute(
             "SELECT content_sha256,contractor_actor_id,event_id "
             "FROM rehearsal_recipient_confirmations "
@@ -186,6 +193,58 @@ def record_fictional_recipient_confirmation(
         return "fictional-recipient-confirmed"
 
     return _transaction(path, act)
+
+def revoke_fictional_recipient_confirmation(
+    path: Path, organization_id: str, proposal_id: str, revision: int,
+    recipient: str, event_id: str,
+) -> str:
+    """Revoke an invented delivery confirmation, never reconcile an actual send."""
+    _identity(organization_id, proposal_id, recipient)
+    if (not _revision(revision) or type(event_id) is not str
+            or _UUID.fullmatch(event_id) is None):
+        raise ValueError("Invalid fictional confirmation revocation")
+
+    def act(db: sqlite3.Connection) -> str:
+        prior = db.execute(
+            "SELECT event_id FROM rehearsal_recipient_confirmation_revocations "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND recipient=?",
+            (organization_id, proposal_id, revision, recipient)
+        ).fetchone()
+        if prior is not None:
+            if prior != (event_id,):
+                raise ValueError("Conflicting fictional confirmation revocation")
+            return "blocked-duplicate-confirmation-revocation"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_recipient_confirmation_revocations "
+            "WHERE organization_id=? AND event_id=?",
+            (organization_id, event_id)
+        ).fetchone():
+            raise ValueError("Conflicting fictional revocation event ID")
+        if not db.execute(
+            "SELECT 1 FROM rehearsal_recipient_confirmations "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND recipient=?",
+            (organization_id, proposal_id, revision, recipient)
+        ).fetchone():
+            return "blocked-no-matching-recipient-confirmation"
+        db.execute(
+            "INSERT INTO rehearsal_recipient_confirmation_revocations "
+            "VALUES (?,?,?,?,?)",
+            (organization_id, proposal_id, revision, recipient, event_id)
+        )
+        # Revoke only still-pending reviewed work. An uncertain provider handoff
+        # must stay held because its external side effect cannot be disproven.
+        db.execute(
+            "UPDATE rehearsal_reservations SET state='invalidated' "
+            "WHERE organization_id=? AND proposal_id=? AND recipient=? "
+            "AND reviewed_revision=? AND state='reserved'",
+            (organization_id, proposal_id, recipient, revision)
+        )
+        return "fictional-confirmation-revoked"
+
+    return _transaction(path, act)
+
 
 def _recipient_confirmed_in_transaction(
     db: sqlite3.Connection, organization_id: str, proposal_id: str,
