@@ -41,6 +41,12 @@ def record_fictional_review(
                       "WHERE organization_id=? AND proposal_id=?",
                       (organization_id, proposal_id)).fetchone():
             return "blocked-closed-deal"
+        newest = db.execute(
+            "SELECT MAX(revision) FROM rehearsal_review_receipts "
+            "WHERE organization_id=? AND proposal_id=?",
+            (organization_id, proposal_id)).fetchone()[0]
+        if newest is not None and newest > revision:
+            return "blocked-stale-review"
         existing = db.execute(
             "SELECT content_sha256,actor_id FROM rehearsal_review_receipts "
             "WHERE organization_id=? AND proposal_id=? AND revision=? AND role=?",
