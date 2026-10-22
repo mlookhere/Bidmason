@@ -168,6 +168,37 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.verify("app/delivery-lab/layout.tsx",
                     "app/delivery-lab/api/route.ts")
 
+    def test_server_action_directive_before_code_on_same_line_blocks_import(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/actions.ts",
+                   "\'use server\'; import {x} from \"../lib/synthetic-dispatch-reservation\";")
+        self.verify("app/actions.ts imports offline-only lib/synthetic-dispatch-reservation.ts")
+
+    def test_server_action_comment_separated_directive_and_reexport_block(self):
+        self.write("src/lib/buyer-view-grant.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   "\"use server\"/* comment */;export {x} from \"./lib/buyer-view-grant\";")
+        self.verify("src/actions.ts imports offline-only src/lib/buyer-view-grant.ts")
+
+    def test_server_action_asi_directive_with_line_comment_is_scanned(self):
+        self.write("lib/outbound-preflight.ts", "export const x=true;")
+        self.write("lib/exported-action.ts",
+                   "\'use server\' // harmless note\\n"
+                   'export {x} from "./outbound-preflight";')
+        self.verify("lib/exported-action.ts imports offline-only lib/outbound-preflight.ts")
+
+    def test_inline_server_directive_removes_named_preview_exemption(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   "\'use server\'; import {x} from \"../../lib/synthetic-dispatch-reservation\";")
+        self.verify("app/delivery-lab/page.tsx imports offline-only lib/synthetic-dispatch-reservation.ts")
+
+    def test_inline_server_directive_with_safe_import_is_not_blocked(self):
+        self.write("lib/normal-helper.ts", "export const x=true;")
+        self.write("app/actions.ts",
+                   "\'use server\'; import {x} from \"../lib/normal-helper\";")
+        self.verify()
+
     def test_preview_cannot_add_a_server_action_even_with_exact_page_name(self):
         self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
         self.write("app/delivery-lab/page.tsx",
