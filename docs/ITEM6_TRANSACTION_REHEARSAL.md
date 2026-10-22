@@ -47,3 +47,40 @@ reservation/rechecks and independently tested recovery; only then collect
 H01–H13 evidence in the existing release inventory. Never connect this
 SQLite simulation to the app or interpret `reserved-simulation-only` as a
 ready-to-send verdict.
+
+
+## Uncertain provider-handoff recovery rehearsal — fictional only
+
+A crash after a provider request begins but before its result is durably
+recorded is **not** safely equivalent to "never sent." The isolated SQLite
+fixture now models this ambiguous boundary without contacting any provider.
+A previously reserved fictional row can transition exactly once to
+outcome_unknown using mark_fictional_handoff_unknown; a second claim
+returns a blocked/no-op verdict. This state survives process restart and
+blocks a new dry-run reservation for the same tenant and recipient, even for
+a different proposal. The original tenant/key uniqueness remains intact,
+and the partial unique active-recipient index now covers **both** reserved
+and outcome_unknown. There is **no** method to send, mark delivered,
+release uncertainty, or automatically retry.
+
+Later caller-provided reply/opt-out/bounce/complaint or won/lost events
+invalidate only unattempted reserved rows, never retroactively reclassify
+outcome_unknown into an unsent or delivered event. Stop-contact and
+closure conditions still block future fictional reservations. The
+read-only fictional_unknown_count returns only a per-tenant aggregate,
+not recipient, proposal or key information. Eight additional Python
+negative/recovery tests cover exact claim identity, subprocess restart,
+same/other proposal conflicts, contact and terminal-deal signals,
+22 concurrent claimants, opposing racing mutations, tenant isolation,
+and process exit without a database commit. They run through the existing
+required ci/tests.py discovery in Linux fast/pr/security and Windows;
+no existing CI or release threshold is changed.
+
+**Do not equate this with an outbox or real crash recovery.** There is no
+real provider, delivery attempt, signed provider receipt, durable
+PostgreSQL RLS, authenticated user/tenant, approved revision, verified
+consent or independent evidence. Production must separately resolve an
+uncertain send with the selected provider's authenticated idempotency and
+status APIs, log/reconcile ambiguous outcomes, and test crashes at every
+actual DB/provider boundary. A fictional rollback/restart test does not
+prove H07/H08/H09/H11; H01–H13 all remain unverified and release blocked.
