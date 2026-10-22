@@ -27,11 +27,20 @@ const make=(index,kinds=["reserved","provider_accepted","provider_delivered"],co
 };
 const summary=(records,time=now)=>summarizeSyntheticDeliveryReview(org,records,time);
 const count=(s,kind)=>s.categories.find(x=>x.category===kind).count;
+const recipientCase=(entry,recipient)=>{
+  const {idempotencyKey: _unused,...identity}=entry.intent;
+  const updated={...identity,recipient};
+  const idempotencyKey=deliveryIdempotencyKey(updated);
+  return {...entry,intent:{...updated,idempotencyKey},
+    events:entry.events.map(event=>({...event,recipient,idempotencyKey})),
+    previousAttempts:entry.previousAttempts.map(attempt=>({...attempt,recipient,idempotencyKey}))};
+};
 
 test("multiple fictional deliveries aggregate non-authoritative priorities without identifiers",()=>{
   const data=[make(0),make(1,["reserved","provider_accepted","provider_bounced"]),
     make(2,["reserved","provider_accepted","provider_delivered","recipient_replied"]),
-    make(3,["reserved","provider_accepted","provider_delivered"],"unknown")];
+    make(3,["reserved","provider_accepted","provider_delivered"],"unknown")]
+    .map((entry,index)=>recipientCase(entry,`buyer-${index}@fictional.example`));
   const result=summary(data);
   assert.equal(result.state,"review-simulation-only");
   assert.equal(result.reviewedCases,4);
@@ -278,6 +287,54 @@ test("follow-up attempt IDs are unique across fictional proposals within a tenan
   const outside="99999999-9999-4999-8999-999999999999";
   const separate=withAttempt(make(1,undefined,"confirmed",outside),id);
   assert.equal(summarizeSyntheticDeliveryReview(outside,[separate],now).reviewedCases,1);
+});
+
+test("recipient-wide stop-contact signals reconcile all reviewed fictional proposals",()=>{
+  const clean=make(0),bounced=make(1,["reserved","provider_accepted","provider_bounced"]);
+  const replied=make(2,["reserved","provider_accepted","provider_delivered","recipient_replied"]);
+  for (const records of [[clean,bounced],[bounced,clean]]) {
+    const result=summary(records);
+    assert.deepEqual(result.attention,{stopContact:2,operatorReview:0,deferred:0});
+    assert.equal(count(result,"contact-suppressed"),2);
+    assert.equal(count(result,"external-authorization-required"),0);
+  }
+  for (const records of [[clean,replied],[replied,clean]]) {
+    const result=summary(records);
+    assert.deepEqual(result.attention,{stopContact:0,operatorReview:2,deferred:0});
+    assert.equal(count(result,"reply-needs-review"),2);
+    assert.equal(count(result,"contact-suppressed"),0);
+  }
+  for (const records of [[clean,bounced,replied],[replied,bounced,clean]]) {
+    const result=summary(records);
+    assert.deepEqual(result.attention,{stopContact:3,operatorReview:0,deferred:0});
+    assert.equal(count(result,"contact-suppressed"),3);
+    for (const value of [org,clean.intent.recipient,"dryrun_",clean.intent.proposalId])
+      assert.equal(JSON.stringify(result).includes(value),false);
+  }
+  // Two distinct fictional recipients cannot suppress each other.
+  const unrelated=recipientCase(bounced,"another@fictional.example");
+  const separate=summary([clean,unrelated]);
+  assert.equal(count(separate,"contact-suppressed"),1);
+  assert.equal(count(separate,"external-authorization-required"),1);
+});
+
+test("historical stop-contact evidence propagates to same-recipient cases in CRM batch",()=>{
+  const first=make(0),second=make(1);
+  const earlier=make(4,["reserved","provider_accepted","provider_delivered","recipient_opted_out"]);
+  const history={intent:earlier.intent,events:earlier.events};
+  const result=summarizeSyntheticDeliveryReview(org,[first,second],now,[[history],[]]);
+  assert.equal(count(result,"contact-suppressed"),2);
+  assert.deepEqual(result.attention,{stopContact:2,operatorReview:0,deferred:0});
+  const reversed=summarizeSyntheticDeliveryReview(org,[second,first],now,[[],[history]]);
+  assert.deepEqual(result,reversed);
+  const other=recipientCase(second,"another@fictional.example");
+  const separate=summarizeSyntheticDeliveryReview(org,[first,other],now,[[history],[]]);
+  assert.equal(count(separate,"contact-suppressed"),1);
+  assert.equal(count(separate,"external-authorization-required"),1);
+  const differentTenant="99999999-9999-4999-8999-999999999999";
+  const outside=make(2,undefined,"confirmed",differentTenant);
+  assert.equal(summarizeSyntheticDeliveryReview(differentTenant,[outside],now)
+    .attention.stopContact,0);
 });
 
 test("empty, oversized, sparse and decorated collections are rejected",()=>{

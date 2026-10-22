@@ -126,9 +126,9 @@ test("historical bounce plus complaint aggregate into one stop-contact case",()=
     {intent:complained.intent,events:complained.events}],[]];
   const report=summarize([entry,other],history);
   assert.equal(report.reviewedCases,2);
-  assert.deepEqual(report.attention,{stopContact:1,operatorReview:1,deferred:0});
-  assert.equal(report.categories.find(x=>x.category==="contact-suppressed").count,1);
-  assert.equal(report.categories.find(x=>x.category==="external-authorization-required").count,1);
+  assert.deepEqual(report.attention,{stopContact:2,operatorReview:0,deferred:0});
+  assert.equal(report.categories.find(x=>x.category==="contact-suppressed").count,2);
+  assert.equal(report.categories.find(x=>x.category==="external-authorization-required").count,0);
   const json=JSON.stringify(report);
   for(const forbidden of [EMAIL,ORG,"dryrun_",IDS[0],"provider_accepted"])
     assert.equal(json.includes(forbidden),false);

@@ -128,6 +128,11 @@ export function summarizeSyntheticDeliveryReview(
     CATEGORIES.map(category => [category, 0]),
   );
   const attention = {stopContact: 0, operatorReview: 0, deferred: 0};
+  // Reconcile known fictional recipient signals across all case records,
+  // regardless of which proposal supplied the evidence. Do not infer that
+  // the supplied batch is a complete or authorized recipient history.
+  const reviewed: {recipient: string; result: DeliveryTriage}[] = [];
+  const recipientHolds = new Map<string, "stop-contact" | "reply-review">();
   for (const entry of entries) {
     if (!ownData(entry, ENTRY_FIELDS)) {
       throw new TypeError("Invalid simulated review entry");
@@ -175,9 +180,26 @@ export function summarizeSyntheticDeliveryReview(
       recordRevision(history.intent);
       recordEventIds(history, false);
     }
-    counts.set(result.category, (counts.get(result.category) ?? 0) + 1);
-    if (result.attention === "stop-contact") attention.stopContact++;
-    else if (result.attention === "operator-review") attention.operatorReview++;
+    reviewed.push({recipient: entry.intent.recipient, result});
+    const hold = recipientHolds.get(entry.intent.recipient);
+    if (result.category === "contact-suppressed") {
+      recipientHolds.set(entry.intent.recipient, "stop-contact");
+    } else if (result.category === "reply-needs-review" && !hold) {
+      recipientHolds.set(entry.intent.recipient, "reply-review");
+    }
+  }
+  // A stop-contact or reply signal already observed in another proposal for
+  // this exact tenant and recipient must not be concealed by a clean-looking
+  // case. This changes only redacted counts; it creates no contact authority.
+  for (const {recipient, result} of reviewed) {
+    const hold = recipientHolds.get(recipient);
+    const category = hold === "stop-contact" ? "contact-suppressed"
+      : hold === "reply-review" ? "reply-needs-review" : result.category;
+    const priority = hold === "stop-contact" ? "stop-contact"
+      : hold === "reply-review" ? "operator-review" : result.attention;
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+    if (priority === "stop-contact") attention.stopContact++;
+    else if (priority === "operator-review") attention.operatorReview++;
     else attention.deferred++;
   }
   // No identifying tokens, recipient addresses, event histories or consent

@@ -1088,3 +1088,28 @@ synthetic caller-supplied strings, not a trustworthy provider audit or
 durable tenant-unique constraint. Authenticated event origins, RLS,
 transactional persistence and H01-H13 release acceptance remain
 unverified and blocking; a review can never authorize sending.
+
+## Known recipient-wide contact holds in one fictional CRM batch
+
+The tenant-local `summarizeSyntheticDeliveryReview` now reconciles already
+validated **current and supplied historical** stop-contact or reply observations
+across *all* reviewed proposal records for an identical fictional recipient.
+Previously a bounce, complaint, opt-out or reply discovered for one proposal
+could leave a second proposal for the same recipient counted as merely
+internally due. The new two-pass redacted summary first validates **every**
+case, replay and immutable identity, and then applies the strongest known
+recipient hold to that recipient's cases: **stop-contact outranks reply-review**,
+which outranks a clean-looking current case. The result is order-independent;
+unrelated recipients never inherit a hold. Source events and IDs are never
+exposed by the returned aggregate.
+
+Regression coverage checks opposite orderings, a current bounce or reply,
+mixed reply/stop-contact, a prior-proposal opt-out supplied for only one of
+two cases, isolated recipients and tenants, and the existing fictional
+public-demo grouping. The fixture-only batch is not a complete contact
+history and does **not** prove independent provider origin, consent,
+recipient ownership, durable suppression or actual review authorization.
+Missing recipient history is **never** contact clearance. No sender,
+provider, live API, queue, database, customer data, new dependency or
+required CI-gate change was introduced. H01-H13 Auth/RLS, signed provider
+evidence, durable transactional holds and human go/no-go remain blocked.
