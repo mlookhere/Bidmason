@@ -121,6 +121,50 @@ test("event IDs must not collide between distinct proposals in one tenant",()=>{
     [otherTenant],now).reviewedCases,1);
 });
 
+test("fictional CRM UUIDs cannot be reused across delivery, reminders and deal closure",()=>{
+  const first=make(0),second=make(1),older=make(2);
+  const closed=(eventId)=>({
+    eventId,organizationId:org,proposalId:second.intent.proposalId,
+    revision:1,kind:"won",observedAt:"2026-10-21T10:00:00.000Z",
+  });
+  const attempt=(record,eventId)=>({
+    ...record,previousAttempts:[{
+      attemptId:eventId,organizationId:record.intent.organizationId,
+      idempotencyKey:record.intent.idempotencyKey,
+      recipient:record.intent.recipient,
+      recordedAt:"2026-10-21T09:00:00.000Z",
+    }],
+  });
+  const error=/Cross-family synthetic CRM evidence UUID collision/;
+  const collision=closed(first.events[1].eventId);
+  for(const [entries,outcomes] of [
+    [[first,second],[[],[collision]]],
+    [[second,first],[[collision],[]]],
+  ]) assert.throws(()=>summarizeSyntheticDeliveryReview(
+    org,entries,now,undefined,outcomes),error);
+
+  // The same UUID hidden inside a *historical* stream must also fail.
+  assert.throws(()=>summarizeSyntheticDeliveryReview(
+    org,[first,second],now,[[{intent:older.intent,events:older.events}],[]],
+    [[],[closed(older.events[0].eventId)]]),error);
+
+  // Distinct evidence types cannot reuse a reminder attempt UUID either.
+  const reminderId="88888888-8888-4888-8888-888888888888";
+  assert.throws(()=>summarizeSyntheticDeliveryReview(
+    org,[attempt(first,reminderId),second],now,undefined,
+    [[],[closed(reminderId)]]),error);
+  assert.throws(()=>summary([
+    attempt(first,second.events[0].eventId),second,
+  ]),error);
+
+  // Independent UUIDs preserve the existing fictional counting behavior.
+  const good=summarizeSyntheticDeliveryReview(
+    org,[attempt(first,reminderId),second],now,undefined,
+    [[],[closed("99999999-9999-4999-8999-999999999999")]]);
+  assert.equal(good.reviewedCases,2);
+  assert.equal(good.categories.reduce((sum,item)=>sum+item.count,0),2);
+});
+
 test("historical event IDs agree with current and repeated history claims",()=>{
   const first=make(0),second=make(1),older=make(4);
   const history={intent:older.intent,events:older.events};
