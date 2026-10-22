@@ -102,12 +102,48 @@ test("supplied response replay history blocks a duplicate simulated draft",()=>{
   const record=review({draft:DRAFT,responded:[grant.grantId]});
   assert.equal(record.view,"signed-claims-only");
   assert.equal(record.response,"blocked");
+  assert.equal(record.reason,"response-already-in-supplied-history");
   assert.equal(record.responseSubmitted,false);
   const otherGrant=createBuyerViewGrant(IDENTITY,SECRET,NOW,120);
   const another=review({token:otherGrant,draft:DRAFT,
     responded:[grant.grantId]});
   assert.equal(another.response,"draft-internal-only");
   assert.equal(another.responseSubmitted,false);
+});
+
+test("supplied prior response cannot be disguised as no draft requested",()=>{
+  const verified=verifyBuyerViewGrant(TOKEN,IDENTITY,SECRET,NOW);
+  assert.equal(verified.state,"signed-claims-only");
+  const result=review({responded:[verified.grantId]});
+  assert.deepEqual(result,{
+    state:"portal-simulation-only",view:"signed-claims-only",
+    response:"blocked",reason:"response-already-in-supplied-history",
+    contentAccessible:false,responseSubmitted:false,
+    contactAuthorized:false,dataComplete:false,
+  });
+  const output=JSON.stringify(result);
+  for(const secret of [verified.grantId,TOKEN,IDENTITY.organizationId,
+    IDENTITY.proposalId,DRAFT.note])assert.equal(output.includes(secret),false);
+  assert.equal(review({responded:[verified.grantId],draft:DRAFT}).reason,
+    "response-already-in-supplied-history");
+  const unrelated=createBuyerViewGrant(IDENTITY,SECRET,NOW,120);
+  assert.equal(review({token:unrelated,responded:[verified.grantId]}).response,
+    "not-requested");
+  assert.equal(review({token:unrelated,responded:[verified.grantId],
+    draft:DRAFT}).response,"draft-internal-only");
+});
+
+test("invalid view proof never reveals whether grant ID appears in supplied history",()=>{
+  const verified=verifyBuyerViewGrant(TOKEN,IDENTITY,SECRET,NOW);
+  assert.equal(verified.state,"signed-claims-only");
+  const wrong={...IDENTITY,revision:IDENTITY.revision+1};
+  for(const changed of [{identity:wrong},{now:NOW+120},{token:TOKEN+"!"}]){
+    const absent=review({...changed,responded:[]});
+    const present=review({...changed,responded:[verified.grantId]});
+    assert.deepEqual(present,absent);
+    assert.equal(present.reason,"grant-not-verified");
+    assert.equal(present.contentAccessible,false);
+  }
 });
 
 test("malicious note, hidden Unicode and untrusted fields fail closed",()=>{
