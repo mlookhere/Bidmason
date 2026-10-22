@@ -75,6 +75,68 @@ test("duplicate closure is idempotent; different terminal claim fails closed",()
   assert.equal(ledger.compareAndReserve(intent,0).reason,"proposal-closed");
 });
 
+test("one terminal event ID cannot close another proposal in the same tenant",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const first=make();
+  const second=make({proposalId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    recipient:"other@fictional.example"});
+  assert.equal(ledger.compareAndReserve(first,0).state,"reserved-simulation-only");
+  assert.equal(ledger.compareAndReserve(second,0).state,"reserved-simulation-only");
+  const event=close(first);
+  assert.equal(ledger.compareAndRecordDealClosure(first,[event],at).invalidatedReservations,1);
+  const before=ledger.snapshot(second);
+  assert.throws(()=>ledger.compareAndRecordDealClosure(second,[close(second)],at),
+    /Conflicting fictional terminal event identity across proposals/);
+  assert.deepEqual(ledger.snapshot(second),before);
+  assert.equal(before.reserved,true);
+  // Collision neither creates a second terminal outcome nor unlocks delivery.
+  assert.equal(ledger.compareAndReserve(second,1).reason,"recipient-already-reserved");
+  const fresh=close(second,{eventId:"88888888-8888-4888-8888-888888888888"});
+  assert.equal(ledger.compareAndRecordDealClosure(second,[fresh],at).invalidatedReservations,1);
+  assert.equal(ledger.snapshot(second).reserved,false);
+  assert.equal(ledger.compareAndRecordDealClosure(first,[event],at).reason,
+    "duplicate-deal-closure");
+});
+
+test("terminal event identity is scoped to tenant, not a global ID",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const first=make();
+  const other=make({organizationId:"99999999-9999-4999-8999-999999999999",
+    proposalId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"});
+  assert.equal(ledger.compareAndReserve(first,0).state,"reserved-simulation-only");
+  assert.equal(ledger.compareAndReserve(other,0).state,"reserved-simulation-only");
+  assert.equal(ledger.compareAndRecordDealClosure(first,[close(first)],at).invalidatedReservations,1);
+  assert.equal(ledger.compareAndRecordDealClosure(other,[close(other)],at).invalidatedReservations,1);
+  assert.equal(ledger.snapshot(first).reserved,false);
+  assert.equal(ledger.snapshot(other).reserved,false);
+  assert.equal(ledger.compareAndReserve(other,2).reason,"proposal-closed");
+});
+
+test("competing cross-proposal closure replays admit only one fictional winner",async()=>{
+  for(let i=0;i<32;i++){
+    const ledger=new SyntheticDispatchReservationLedger();
+    const first=make();
+    const other=make({proposalId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      recipient:"other@fictional.example"});
+    ledger.compareAndReserve(first,0);
+    ledger.compareAndReserve(other,0);
+    const ordered=i%2?[first,other]:[other,first];
+    const settled=await Promise.allSettled(ordered.map(item=>
+      Promise.resolve().then(()=>ledger.compareAndRecordDealClosure(item,[close(item)],at))));
+    assert.equal(settled.filter(x=>x.status==="fulfilled").length,1);
+    const rejected=settled.filter(x=>x.status==="rejected");
+    assert.equal(rejected.length,1);
+    assert.match(rejected[0].reason.message,/Conflicting fictional terminal event identity/);
+    assert.equal(ledger.snapshot(ordered[0]).reserved,false);
+    assert.equal(ledger.snapshot(ordered[1]).reserved,true);
+    assert.equal(ledger.snapshot(ordered[1]).version,1);
+    const unique=close(ordered[1],{eventId:"88888888-8888-4888-8888-888888888888"});
+    assert.equal(ledger.compareAndRecordDealClosure(ordered[1],[unique],at).state,
+      "closed-simulation-only");
+    assert.equal(ledger.snapshot(ordered[1]).reserved,false);
+  }
+});
+
 test("invalid, unverified, cross-tenant and getter-backed closure never changes reservation",()=>{
   const ledger=new SyntheticDispatchReservationLedger(),intent=make();
   ledger.compareAndReserve(intent,0);
