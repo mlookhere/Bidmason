@@ -191,6 +191,13 @@ export function summarizeSyntheticDeliveryReview(
     if (entry.intent.organizationId !== organizationId) {
       throw new TypeError("Cross-tenant simulated review entry");
     }
+    // Historical streams already refuse observations beyond nowUtc. Apply
+    // the same bound to current streams before their reply/opt-out evidence
+    // can create a company-wide recipient hold. An event that has not yet
+    // happened cannot justify a present-day CRM classification.
+    if (entry.events.some(event => event.observedAt > nowUtc)) {
+      throw new TypeError("Future simulated CRM current-stream observation");
+    }
     const key = entry.intent.idempotencyKey;
     if (seen.has(key)) {
       throw new TypeError("Duplicate simulated review identity");
