@@ -201,6 +201,64 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(fictional_counts(self.db, ORG)[0], 0)
         self.assertEqual(self.reserve(seed="retry"), "blocked-closed-deal")
 
+    def test_recipient_confirmation_requires_matching_contractor_and_consent(self):
+        self.both()
+        self.assertEqual(self.confirm(), "blocked-unconfirmed-consent")
+        self.consent()
+        self.assertEqual(
+            self.confirm(actor=OPERATOR), "blocked-contractor-review-required")
+        self.assertEqual(
+            self.confirm(digest=OTHER_HASH), "blocked-contractor-review-required")
+        self.assertEqual(self.confirm(), "fictional-recipient-confirmed")
+        self.assertEqual(self.confirm(), "blocked-duplicate-recipient-confirmation")
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional recipient confirmation"):
+            self.confirm(seed="replayed-different")
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+
+    def test_recipient_confirmation_is_not_shared_across_proposals_or_revisions(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        self.review("operator", OPERATOR, proposal=OTHER_PROPOSAL)
+        self.review("contractor", CONTRACTOR, proposal=OTHER_PROPOSAL)
+        self.assertEqual(
+            self.reserve(proposal=OTHER_PROPOSAL, seed="second-proposal"),
+            "blocked-missing-recipient-confirmation")
+        self.review("operator", OPERATOR, revision=4)
+        self.review("contractor", CONTRACTOR, revision=4)
+        self.assertEqual(
+            self.reserve(revision=4, seed="new-revision"),
+            "blocked-missing-recipient-confirmation")
+        self.assertEqual(
+            self.confirm(revision=3), "blocked-stale-revision")
+        self.confirm(revision=4)
+        self.assertEqual(
+            self.reserve(revision=4, seed="new-revision"),
+            "reserved-simulation-only")
+
+    def test_recipient_confirmation_event_cannot_cross_recipient_or_tenant(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        self.consent(recipient="other@fictional.example", event=DEAL_EVENT)
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional recipient event ID"):
+            self.confirm(recipient="other@fictional.example")
+        self.assertEqual(
+            self.reserve(recipient="other@fictional.example", seed="other"),
+            "blocked-missing-recipient-confirmation")
+        self.assertEqual(
+            self.reserve(org=OTHER), "blocked-missing-independent-reviews")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 0))
+
+    def test_stop_contact_refuses_new_recipient_confirmation(self):
+        self.both()
+        self.consent()
+        record_fictional_contact_signal(
+            self.db, ORG, PROPOSAL, RECIPIENT, "opted_out")
+        self.assertEqual(self.confirm(), "blocked-contact-hold")
+        self.assertEqual(self.reserve(), "blocked-missing-recipient-confirmation")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 1))
+
     def test_invalid_revision_digest_actor_or_real_recipient_rejected(self):
         for revision in (0, -1, True, 1.25, 1000001):
             with self.subTest(revision=revision), self.assertRaises(ValueError):
