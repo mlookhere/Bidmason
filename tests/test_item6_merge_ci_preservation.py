@@ -91,13 +91,16 @@ class PreservedSliceCiTests(unittest.TestCase):
     def test_inherited_slice_runner_cannot_hide_a_failure(self):
         marker, job, command = MERGED_SLICE_GATES[0]
         self.source(marker)
-        for clause in ("    if: false\n", "    continue-on-error: true\n",
-                       "    steps:\n      - if: false\n"):
-            with self.subTest(clause=clause):
+        for job_option, step in (
+            ("    if: false\n", f"      - run: {command}\n"),
+            ("    continue-on-error: true\n", f"      - run: {command}\n"),
+            ("", f"      - if: false\n        run: {command}\n"),
+            ("", f"      - name: SQL test\n        if: false\n        run: {command}\n"),
+            ("", f"      - name: SQL test\n        continue-on-error: true\n        run: {command}\n"),
+        ):
+            with self.subTest(job_option=job_option, step=step):
                 fake = (f"\n  {job}:\n    runs-on: ubuntu-latest\n"
-                        f"{clause}"
-                        f"    steps:\n      - name: Required SQL suite\n"
-                        f"        run: {command}\n")
+                        f"{job_option}    steps:\n{step}")
                 found = merged_gate_findings(self.workflow + fake, self.root)
                 self.assertTrue(
                     any(f"conditional or nonblocking required job: {job}" in x for x in found),
