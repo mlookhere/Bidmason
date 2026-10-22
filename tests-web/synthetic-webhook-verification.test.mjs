@@ -32,6 +32,68 @@ test("correct raw-body fixture HMAC is only an internal signature assessment",()
     assert.equal(Object.hasOwn(result,field),false);
 });
 
+test("direct signed verifier snapshots event bytes before decoding and hashing",()=>{
+  const raw=body(event);
+  const originallySigned=Buffer.from(raw);
+  const head=signed(raw);
+  const altered=body({...event,kind:"provider_accepted"});
+  assert.equal(altered.length,raw.length);
+
+  // The caller can mutate the original buffer immediately after the HMAC
+  // check, before the verifier constructs its UTF-8 decoder.
+  const Decoder=globalThis.TextDecoder;
+  let constructed=0;
+  globalThis.TextDecoder=class extends Decoder {
+    constructor(...args){
+      super(...args);
+      constructed++;
+      raw.set(altered);
+    }
+  };
+  try {
+    const result=verify(raw,head);
+    assert.equal(constructed,1);
+    assert.equal(result.state,"fixture-verified-only");
+    assert.equal(result.kind,event.kind);
+    assert.equal(result.bodySha256,createHash("sha256")
+      .update(originallySigned).digest("hex"));
+    assert.deepEqual(raw,altered);
+  } finally {
+    globalThis.TextDecoder=Decoder;
+  }
+});
+
+test("direct receipt digest remains bound to signed bytes after decode mutation",()=>{
+  const raw=body(event);
+  const original=Buffer.from(raw);
+  const head=signed(raw);
+  const mutated=body({...event,kind:"provider_accepted"});
+  assert.equal(mutated.length,raw.length);
+  const Decoder=globalThis.TextDecoder;
+  let decodes=0;
+  globalThis.TextDecoder=class extends Decoder {
+    decode(...args){
+      const value=super.decode(...args);
+      decodes++;
+      raw.set(mutated);
+      return value;
+    }
+  };
+  try {
+    const result=verify(raw,head);
+    assert.equal(decodes,1);
+    assert.equal(result.state,"fixture-verified-only");
+    assert.equal(result.kind,event.kind);
+    assert.equal(result.bodySha256,createHash("sha256")
+      .update(original).digest("hex"));
+    assert.equal(verify(original,head,instant,intent,[
+      {eventId:event.eventId,bodySha256:result.bodySha256}
+    ]).state,"fixture-duplicate-only");
+  } finally {
+    globalThis.TextDecoder=Decoder;
+  }
+});
+
 test("identical event replays are recognized but conflict is blocked",()=>{
   const raw=body(event), first=verify(raw);
   assert.equal(verify(raw,signed(raw),instant,intent,[
