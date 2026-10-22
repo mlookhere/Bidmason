@@ -165,6 +165,23 @@ test("current permanent stop-contact always outranks an earlier recipient reply"
   assert.equal(triage(entry,historical).category,"reply-needs-review");
 });
 
+test("historical reply and suppression cannot legitimize future current observations",()=>{
+  const prior=past("recipient_replied");
+  const history=[{intent:prior.intent,events:prior.events}];
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const current=make(0,kind==="provider_bounced"
+      ?["reserved","provider_accepted","provider_bounced"]
+      :["reserved","provider_accepted","provider_delivered",kind]);
+    const future={...current,events:current.events.map((e,i)=>i===current.events.length-1
+      ?{...e,observedAt:"2026-10-22T10:00:00.001Z"}:e)};
+    assert.throws(()=>triage(future,history),
+      /Future simulated current-proposal triage observation/,kind);
+    assert.throws(()=>summarize([future],[history]),
+      /Future simulated CRM current-stream observation/,kind);
+  }
+});
+
 test("invalid prior reply or current event is never converted into a normal review",()=>{
   const reply=past("recipient_replied");
   const historical=[{intent:reply.intent,events:reply.events}];
