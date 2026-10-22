@@ -31,7 +31,7 @@ export type SyntheticPreflightReservationResult = {
   reason: "preflight-blocked" | "prior-recipient-suppressed"
     | "prior-recipient-replied" | "recipient-reply-review-required"
     | "deal-closed" | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
-    | "recipient-suppressed" | "recipient-already-reserved";
+    | "recipient-suppressed" | "recipient-already-reserved" | "proposal-closed";
   blockers: string[];
   observedHistory: "caller-fixtures-only";
   reservationVersion: number;
