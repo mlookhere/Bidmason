@@ -145,10 +145,9 @@ class ReviewPacketTests(unittest.TestCase):
 
     def test_cli_check_and_markdown_never_claim_approval(self):
         repo = Path(__file__).resolve().parents[1]
-        script = repo / "ci/item6_review_handoff.py"
         for mode in ("check", "markdown", "json"):
             run = subprocess.run(
-                [sys.executable, str(script), "--format", mode],
+                [sys.executable, "-m", "ci.item6_review_handoff", "--format", mode],
                 cwd=repo, capture_output=True, text=True, check=False,
             )
             self.assertEqual(run.returncode, 0, run.stderr)
