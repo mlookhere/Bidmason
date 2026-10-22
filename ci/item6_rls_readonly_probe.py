@@ -15,9 +15,9 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlencode, urlsplit
 
-UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\Z")
-HOST = re.compile(r"[a-z0-9]{20}\\.supabase\\.co\\Z")
-KEY = re.compile(r"sb_publishable_[A-Za-z0-9_-]{10,}\\Z")
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+HOST = re.compile(r"[a-z0-9]{20}\.supabase\.co\Z")
+KEY = re.compile(r"sb_publishable_[A-Za-z0-9_-]{10,}\Z")
 MAX_RESPONSE = 16384
 
 
