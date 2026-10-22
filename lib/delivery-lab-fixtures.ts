@@ -5,6 +5,7 @@ import type {SyntheticRecipientHistory} from "./recipient-suppression-history.ts
 import {projectSyntheticDealOutcome, type SyntheticDealOutcomeEvent}
   from "./synthetic-deal-outcome.ts";
 import {summarizeSyntheticDeliveryReview, type SyntheticReviewEntry, type SimulatedReviewSummary} from "./delivery-review-summary.ts";
+import {summarizeSyntheticCrmPipeline, type SyntheticCrmPipeline} from "./synthetic-crm-pipeline.ts";
 import {
   projectSimulatedDeliveryEvents, type DeliveryEvent, type DeliveryEventKind, type DeliveryProjection,
 } from "./delivery-event-projection.ts";
@@ -159,7 +160,11 @@ function buildFixtureRecords(): FixtureRecord[] {
 export function buildSyntheticDeliveryLabCases(): DeliveryLabCase[] {
   return buildFixtureRecords().map(record=>record.publicCase);
 }
-export type DeliveryLabSummary = {company:string;report:SimulatedReviewSummary};
+export type DeliveryLabSummary = {
+  company:string;
+  report:SimulatedReviewSummary;
+  pipeline:SyntheticCrmPipeline;
+};
 export function buildSyntheticDeliveryLabSummaries(): DeliveryLabSummary[] {
   const records=buildFixtureRecords();
   const tenants=[...new Set(records.map(record=>record.organizationId))];
@@ -167,11 +172,13 @@ export function buildSyntheticDeliveryLabSummaries(): DeliveryLabSummary[] {
     const scoped=records.filter(record=>record.organizationId===organizationId);
     if (!scoped.length || scoped.some(record=>record.company!==scoped[0].company))
       throw new TypeError("Inconsistent fictional company grouping");
-    return {company:scoped[0].company,
-      report:summarizeSyntheticDeliveryReview(organizationId,
-        scoped.map(record=>record.review),NOW,
-        scoped.map(record=>record.history),
-        scoped.map(record=>record.dealOutcomes)),
+    const entries=scoped.map(record=>record.review);
+    const history=scoped.map(record=>record.history);
+    const deals=scoped.map(record=>record.dealOutcomes);
+    return {
+      company:scoped[0].company,
+      report:summarizeSyntheticDeliveryReview(organizationId,entries,NOW,history,deals),
+      pipeline:summarizeSyntheticCrmPipeline(organizationId,entries,NOW,deals,history),
     };
   });
 }
