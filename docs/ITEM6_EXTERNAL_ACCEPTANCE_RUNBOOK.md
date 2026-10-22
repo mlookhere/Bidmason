@@ -199,6 +199,19 @@ reviewed real resolver and import graph are implemented. It is **not**
 proof of complete static analysis, actual Auth/RLS, consent or production
 send/view authorization. H01–H13 remain blocked.
 
+### Direct synthetic webhook verification uses one authenticated byte snapshot
+
+The exported `verifySyntheticWebhookFixture` entrypoint now copies the
+caller-owned Buffer once after basic validation, then uses that same private
+snapshot for fictional HMAC verification, strict UTF-8 JSON parsing and the
+SHA-256 receipt digest. Previously the batch wrapper copied payload bytes,
+but direct callers of the verifier still read the mutable Buffer separately
+for these operations. The two adversarial tests mutate the caller's bytes
+between those read phases and require the reported kind and digest to match
+the originally signed bytes. The untrusted caller cannot turn this into a
+verified native email-provider signature, send permission or a durable
+event log. Release evidence H01-H13 remains BLOCKED.
+
 ### Public metadata handlers are server-reachable routes
 
 Next.js can execute code-backed `robots.ts`, `sitemap.ts`,
