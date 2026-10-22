@@ -22,7 +22,7 @@ Provide these environment variables **in a protected execution session**, withou
 python -m ci.item6_rls_readonly_probe --live-readonly
 ```
 
-Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships** paths. Redirects and environment proxies are disabled. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
+Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships** paths. Redirects and environment proxies are disabled. The input URL must exactly equal the canonical lowercase HTTPS origin (no whitespace, control characters, path, query, port or fragment); URL parsing that would silently normalize those bytes is rejected before either JWT is sent. A redirect response, oversized body or malformed JSON is never accepted as proof of isolation. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
 
 The 16-case read matrix verifies:
 
@@ -39,6 +39,6 @@ The output contains only test names, booleans and non-authorizing state. Even wh
 
 Read-only checks are **not** proof of negative SELECT over every table; denied INSERT/UPDATE/DELETE; orphaned/missing membership; stale/revoked sessions; impersonation attempts; service-role misuse; cross-tenant storage and signed-link denial; or external operational signoff. Complete these independently through controlled synthetic staging tests. H02–H13 remain completely separate release gates.
 
-Unit tests (`tests/test_item6_rls_readonly_probe.py`) use only an in-memory fake transport. They verify positive controls, cross-tenant **other-user** membership leakage, filtered versus unfiltered membership enumeration, anonymous leaks, two-session Auth ordering, invalid auth, endpoint/key/token validation and default non-network behavior. **GitHub Actions never supplies live JWTs or performs live tenant reads.**
+Unit tests (`tests/test_item6_rls_readonly_probe.py`) use only mocked transports; tests also verify canonical-origin input validation, disabled proxy/redirect handlers, bounded HTTP bodies and no-network-by-default behavior. They verify positive controls, cross-tenant **other-user** membership leakage, filtered versus unfiltered membership enumeration, anonymous leaks, two-session Auth ordering, invalid auth, endpoint/key/token validation and default non-network behavior. **GitHub Actions never supplies live JWTs or performs live tenant reads.**
 
 **Current live H01 acceptance: UNVERIFIED. Production dispatch and buyer access remain disabled.**
