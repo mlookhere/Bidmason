@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {randomBytes} from "node:crypto";
-import {createBuyerViewGrant} from "../lib/buyer-view-grant.ts";
+import {createBuyerViewGrant, verifyBuyerViewGrant}
+  from "../lib/buyer-view-grant.ts";
 import {summarizeSyntheticBuyerInbox} from "../lib/synthetic-buyer-inbox.ts";
 
 const NOW=1_791_000_000;
@@ -92,6 +93,10 @@ test("expired, revoked, mis-signed and foreign-tenant responses cannot enter the
     assert.throws(()=>run([broken]),/Inconsistent fictional buyer inbox evidence/);
   }
   // A signed but revoked grant must also fail during event assessment.
+  const prior=verifyBuyerViewGrant(verifiedFirst.viewToken,ID,KEY,NOW-200);
+  assert.equal(prior.state,"signed-claims-only");
+  assert.throws(()=>run([verifiedFirst],{revoked:[prior.grantId]}),
+    /Inconsistent fictional buyer inbox evidence/);
   assert.throws(()=>run([verifiedFirst],{revoked:["not-a-grant"]}),
     /Invalid nonbinding buyer-response evidence/);
 });
