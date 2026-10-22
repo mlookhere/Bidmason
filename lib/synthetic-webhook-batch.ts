@@ -73,8 +73,15 @@ function projectBatch(
     if (!exact(envelope, ["rawBody", "signatureHeader", "receivedAtSeconds"])) {
       throw new TypeError("Invalid synthetic webhook envelope");
     }
+    // Freeze the bytes at this trust boundary: even a shared/mutable Buffer
+    // cannot switch payloads between fixture HMAC verification and projection.
+    // Check the type first so a hostile object cannot invoke coercion hooks.
+    if (!Buffer.isBuffer(envelope.rawBody)) {
+      throw new TypeError("Invalid synthetic webhook envelope");
+    }
+    const rawBody = Buffer.from(envelope.rawBody);
     const result = verifySyntheticWebhookFixture(
-      envelope.rawBody, envelope.signatureHeader, envelope.receivedAtSeconds,
+      rawBody, envelope.signatureHeader, envelope.receivedAtSeconds,
       secret, intent, receipts,
     );
     if (result.state === "blocked") {
@@ -91,7 +98,7 @@ function projectBatch(
     // is an overridable instance method; trusting it would let a hostile
     // fixture substitute a different JSON event after its HMAC was checked.
     const event = JSON.parse(
-      new TextDecoder("utf-8", {fatal: true}).decode(envelope.rawBody),
+      new TextDecoder("utf-8", {fatal: true}).decode(rawBody),
     ) as DeliveryEvent;
     accepted.push(event);
     receipts.push({eventId: result.eventId, bodySha256: result.bodySha256});
