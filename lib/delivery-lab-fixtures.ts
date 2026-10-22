@@ -126,7 +126,11 @@ function buildFixtureRecords(): FixtureRecord[] {
           organizationId:previousIntent.organizationId,
           idempotencyKey:previousIntent.idempotencyKey,
           recipient:previousIntent.recipient,kind,
-          observedAt:"2026-10-19T08:"+String(index).padStart(2,"0")+":00.000Z",
+          // The older proposal was dispatched on the 19th, but its reply
+          // or opt-out arrived on the 21st. The newer proposal was already
+          // reserved on the 20th: no new reservation follows a known stop.
+          observedAt:index===3?"2026-10-21T08:03:00.000Z"
+            :"2026-10-19T08:"+String(index).padStart(2,"0")+":00.000Z",
         }));
         return [{intent:previousIntent,events:previousEvents}];
       })() : [];
