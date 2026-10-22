@@ -193,6 +193,12 @@ def record_fictional_recipient_confirmation(
             "AND recipient=?", (organization_id, recipient)
         ).fetchone():
             return "blocked-contact-hold"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_consent_revocations "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)
+        ).fetchone():
+            return "blocked-consent-withdrawn"
         newest = db.execute(
             "SELECT MAX(revision) FROM rehearsal_review_receipts "
             "WHERE organization_id=? AND proposal_id=?",
@@ -376,6 +382,11 @@ def _review_gate_in_transaction(
         "WHERE organization_id=? AND proposal_id=?",
         (organization_id, proposal_id)).fetchone():
         return "blocked-closed-deal"
+    if db.execute(
+        "SELECT 1 FROM rehearsal_consent_revocations "
+        "WHERE organization_id=? AND recipient=?",
+        (organization_id, recipient)).fetchone():
+        return "blocked-consent-withdrawn"
     # A newer *partial* review freezes older revisions, including a forged
     # single-signer revocation race; there is no reopen or downgrade path.
     newest = db.execute(
