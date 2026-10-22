@@ -58,6 +58,27 @@ test("real fixture bytes pass HMAC and become simulation-only CRM timeline",()=>
     assert.equal(Object.hasOwn(result,field),false);
 });
 
+test("an overridden Buffer.toString cannot substitute unsigned callback JSON",()=>{
+  const accepted=signed(event("provider_accepted",1));
+  const unsigned=event("provider_delivered",1);
+  let methodCalls=0;
+  Object.defineProperty(accepted.rawBody,"toString",{
+    configurable:true,
+    value(){methodCalls++;return JSON.stringify(unsigned);},
+  });
+  const result=project([accepted]);
+  assert.equal(result.projection.delivery,"accepted");
+  assert.deepEqual(result.projection.timeline.map(e=>e.kind),
+    ["reserved","provider_accepted"]);
+  assert.equal(methodCalls,0);
+  const next=signed(event("provider_accepted",2));
+  Object.defineProperty(next.rawBody,"toString",{
+    configurable:true,
+    value(){throw Error("Untrusted Buffer.toString invoked after HMAC verification");},
+  });
+  assert.throws(()=>project([accepted,next]),/Unexpected provider acceptance/);
+});
+
 test("identical signed replay deduplicates without repeating CRM transitions",()=>{
   const accepted=signed(event("provider_accepted",1));
   const delivered=signed(event("provider_delivered",2));
