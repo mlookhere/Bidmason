@@ -259,7 +259,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         record_fictional_contact_signal(
             self.db, ORG, PROPOSAL, RECIPIENT, "opted_out")
         self.assertEqual(self.confirm(), "blocked-contact-hold")
-        self.assertEqual(self.reserve(), "blocked-missing-recipient-confirmation")
+        self.assertEqual(self.reserve(), "blocked-contact-hold")
         self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 1))
 
     def test_invalid_revision_digest_actor_or_real_recipient_rejected(self):
