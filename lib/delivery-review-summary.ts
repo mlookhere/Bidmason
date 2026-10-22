@@ -4,6 +4,7 @@ import type {FollowUpPolicy, FollowUpRecord} from "./follow-up-assessment.ts";
 import {classifySimulatedDeliveryTriage, type DeliveryTriage} from "./delivery-triage.ts";
 import {classifySimulatedRecipientAwareTriage} from "./recipient-aware-delivery-triage.ts";
 import type {SyntheticRecipientHistory} from "./recipient-suppression-history.ts";
+import type {SyntheticDealOutcomeEvent} from "./synthetic-deal-outcome.ts";
 
 export type SyntheticReviewEntry = {
   intent: DeliveryIntent;
@@ -20,6 +21,7 @@ const CATEGORIES: readonly DeliveryTriage["category"][] = [
   "consent-needs-verification",
   "delivery-needs-verification",
   "waiting-for-cooldown",
+  "deal-closed",
   "external-authorization-required",
 ];
 
@@ -62,6 +64,7 @@ export function summarizeSyntheticDeliveryReview(
   entries: readonly SyntheticReviewEntry[],
   nowUtc: string,
   historicalStreams?: readonly (readonly SyntheticRecipientHistory[])[],
+  dealOutcomes?: readonly (readonly SyntheticDealOutcomeEvent[])[],
 ): SimulatedReviewSummary {
   // An explicit history matrix must cover *each* case. Silent partial
   // history would conceal prior recipient suppression in the aggregate.
@@ -79,6 +82,19 @@ export function summarizeSyntheticDeliveryReview(
   if (typeof organizationId !== "string" || !UUID.test(organizationId)
     || !denseArray(entries)) {
     throw new TypeError("Invalid simulated review batch");
+  }
+  // Optional deal outcomes must cover every case, including explicit empty
+  // streams. Absence of a fictional won/lost record is not proof of openness.
+  if (dealOutcomes !== undefined &&
+    (!Array.isArray(dealOutcomes)
+      || Object.getPrototypeOf(dealOutcomes) !== Array.prototype
+      || dealOutcomes.length !== entries.length
+      || Reflect.ownKeys(dealOutcomes).length !== dealOutcomes.length + 1
+      || !Array.from({length:dealOutcomes.length},(_,i)=>{
+        const d=Object.getOwnPropertyDescriptor(dealOutcomes,String(i));
+        return d?.enumerable === true && Object.hasOwn(d,"value");
+      }).every(Boolean))) {
+    throw new TypeError("Invalid synthetic deal-outcome review matrix");
   }
   const seen = new Set<string>();
   const revisionRecipients = new Set<string>();
@@ -158,13 +174,14 @@ export function summarizeSyntheticDeliveryReview(
     }
     // The underlying evaluators reject untrusted shapes, impossible timelines,
     // replay conflicts and invalid timestamps/consent/attempt histories.
+    const dealEvents = dealOutcomes?.[seen.size] ?? [];
     const result = historicalStreams === undefined
       ? classifySimulatedDeliveryTriage(
-        entry.intent, entry.events, entry.policy, entry.previousAttempts, nowUtc,
+        entry.intent, entry.events, entry.policy, entry.previousAttempts, nowUtc, dealEvents,
       )
       : classifySimulatedRecipientAwareTriage(
         entry.intent, entry.events, entry.policy, entry.previousAttempts,
-        historicalStreams[seen.size], nowUtc,
+        historicalStreams[seen.size], nowUtc, dealEvents,
       );
     if (entry.intent.organizationId !== organizationId) {
       throw new TypeError("Cross-tenant simulated review entry");

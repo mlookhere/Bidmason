@@ -1401,3 +1401,41 @@ tenant/consent/reviewer approvals, signed real provider evidence, durable
 transactional suppression, legal/privacy/security review, and written
 human go/no-go remain unverified. No HTTP endpoint, sender, live customer
 data, provider, database mutation, dependency or required CI gate changed.
+
+## Fictional CRM won/lost deal-outcome follow-up hold (not a real pipeline)
+
+BM-031 also requires that a proposal recorded as **won or lost** must stop
+subsequent follow-up reminders. The earlier synthetic contact-event projector
+handled replies, bounces, complaints and opt-outs, but did not represent the
+proposal's terminal CRM disposition at all. A due-looking fictional proposal
+could therefore appear eligible despite a recorded closed deal.
+
+`lib/synthetic-deal-outcome.ts` introduces a bounded, exact-proposal-and-
+revision scoped **fictional** won/lost outcome event projector. The complete
+input must be a plain, enumerable, chronological-as-of-compatible fixture;
+identical terminal event replay is idempotent; conflicting terminal outcomes,
+future observations, forged tenant/proposal/revision or hidden accessors are
+rejected. An empty event stream returns `unverified`, **not a proven open
+deal**; no event can grant contact authority.
+
+`assessSimulatedFollowUp` now accepts an optional outcome-event stream.
+A terminal won/lost result blocks otherwise due follow-up candidates,
+returns no next-due time, and rejects prior synthetic attempt records at
+or after the fictional closing instant. `classifySimulatedDeliveryTriage`
+marks closed deals `deal-closed` / `deferred`, while recipient reply and
+permanent opt-out/bounce/complaint still outrank it. The recipient-history-
+aware wrapper preserves these rules. An optional full per-entry outcome
+matrix in `summarizeSyntheticDeliveryReview` adds matching **redacted**
+tenant CRM category counts, without changing its default no-data behavior.
+If supplied, the matrix must cover every reviewed entry and each stream
+still undergoes strict evidence validation.
+
+New and extended offline regression tests exercise won and lost, reply/
+suppression precedence, timeline conflict, immutable revision/tenant
+boundaries, exact event replays, hostile arrays, future data, and multiple
+tenant CRM cases. This is an internal review model, **not** evidence that a
+real deal was closed, that an email was sent or that a recipient consented.
+No database, provider, dispatch, queue, contact decision, buyer portal,
+HTTP route, customer data or independent source authentication was added.
+All H01–H13 external tenant, provider, consent, transactional, security,
+legal and written human go/no-go gates remain unverified and blocking.

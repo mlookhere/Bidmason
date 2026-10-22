@@ -1,6 +1,7 @@
 import type {DeliveryIntent} from "./outbound-preflight.ts";
 import type {DeliveryEvent} from "./delivery-event-projection.ts";
 import type {FollowUpPolicy, FollowUpRecord} from "./follow-up-assessment.ts";
+import type {SyntheticDealOutcomeEvent} from "./synthetic-deal-outcome.ts";
 import {classifySimulatedDeliveryTriage, type DeliveryTriage} from "./delivery-triage.ts";
 import {
   reviewSimulatedRecipientContactHistory,
@@ -28,11 +29,12 @@ export function classifySimulatedRecipientAwareTriage(
   previousAttempts: readonly FollowUpRecord[],
   history: readonly SyntheticRecipientHistory[],
   nowUtc: string,
+  dealEvents: readonly SyntheticDealOutcomeEvent[] = [],
 ): RecipientAwareDeliveryTriage {
   // Evaluate current events even if historical suppression exists: bad,
   // forged or cross-tenant current evidence must fail rather than hide.
   const current = classifySimulatedDeliveryTriage(
-    intent, events, policy, previousAttempts, nowUtc,
+    intent, events, policy, previousAttempts, nowUtc, dealEvents,
   );
   const prior = reviewSimulatedRecipientContactHistory(intent, history, nowUtc);
   if (prior.suppression.length) {

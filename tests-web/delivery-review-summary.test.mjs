@@ -62,7 +62,7 @@ test("category order and totals are stable under permutations",()=>{
   assert.deepEqual(a,b);
   assert.deepEqual(a.categories.map(c=>c.category),[
     "contact-suppressed","reply-needs-review","consent-needs-verification",
-    "delivery-needs-verification","waiting-for-cooldown",
+    "delivery-needs-verification","waiting-for-cooldown","deal-closed",
     "external-authorization-required"]);
 });
 test("cross-tenant cases fail even when internally consistent",()=>{
@@ -451,4 +451,55 @@ test("cooldown and incomplete fictional delivery are counted but never marked ac
   assert.deepEqual(result.attention,{stopContact:0,operatorReview:1,deferred:2});
   assert.ok(!Object.hasOwn(result,"send"));
   assert.ok(!Object.hasOwn(result,"queue"));
+});
+
+test("won/lost CRM outcomes defer closed proposals without granting contact rights",()=>{
+  const first=recipientCase(make(0),"first@fictional.example");
+  const second=recipientCase(make(1),"second@fictional.example");
+  const closure=(entry,kind,id)=>({
+    eventId:id,organizationId:entry.intent.organizationId,
+    proposalId:entry.intent.proposalId,revision:entry.intent.revision,
+    kind,observedAt:"2026-10-21T12:00:00.000Z",
+  });
+  const a=closure(first,"won","11111111-1111-4111-8111-111111111111");
+  const b=closure(second,"lost","22222222-2222-4222-8222-222222222222");
+  const reviewed=summarizeSyntheticDeliveryReview(org,[first,second],now,
+    undefined,[[a],[b]]);
+  assert.equal(reviewed.state,"review-simulation-only");
+  assert.equal(count(reviewed,"deal-closed"),2);
+  assert.deepEqual(reviewed.attention,{stopContact:0,operatorReview:0,deferred:2});
+  assert.equal(JSON.stringify(reviewed).includes("fictional.example"),false);
+  assert.deepEqual(summarizeSyntheticDeliveryReview(org,[second,first],now,
+    undefined,[[b],[a]]),reviewed);
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first],now,[[]],[[a]])
+    .categories.find(x=>x.category==="deal-closed").count,1);
+  const unverified=summary([first]);
+  assert.equal(count(unverified,"deal-closed"),0);
+  assert.equal(count(unverified,"external-authorization-required"),1);
+});
+test("closed-deal evidence cannot conceal opt-out or contradictory follow-up audit",()=>{
+  const first=make(0,["reserved","provider_accepted","provider_delivered","recipient_opted_out"]);
+  const closed={eventId:"33333333-3333-4333-8333-333333333333",
+    organizationId:org,proposalId:first.intent.proposalId,revision:1,kind:"lost",
+    observedAt:"2026-10-21T12:00:00.000Z"};
+  const stopped=summarizeSyntheticDeliveryReview(org,[first],now,undefined,[[closed]]);
+  assert.equal(count(stopped,"contact-suppressed"),1);
+  assert.equal(count(stopped,"deal-closed"),0);
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first],now,undefined,[]),
+    /Invalid synthetic deal-outcome review matrix/);
+  const cross={...closed,organizationId:"ffffffff-ffff-4fff-8fff-ffffffffffff"};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first],now,undefined,[[cross]]),
+    /cross-tenant/);
+  const conflicting={...closed,eventId:"44444444-4444-4444-8444-444444444444",kind:"won"};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first],now,undefined,[[closed,conflicting]]),
+    /Conflicting synthetic terminal/);
+  const hidden=[[closed]];Object.defineProperty(hidden,"0",{enumerable:false});
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first],now,undefined,hidden),
+    /Invalid synthetic deal-outcome review matrix/);
+  const attempt={attemptId:"55555555-5555-4555-8555-555555555555",
+    organizationId:org,idempotencyKey:first.intent.idempotencyKey,
+    recipient:first.intent.recipient,recordedAt:"2026-10-22T08:00:00.000Z"};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,
+    [{...make(0),previousAttempts:[attempt]}],now,undefined,[[closed]]),
+    /closed-deal chronology/);
 });
