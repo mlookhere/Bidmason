@@ -44,6 +44,8 @@ class FakeTransport:
         self.anon_member_leak = False
         self.member_leak = False
         self.member_list_leak = False
+        self.foreign_member_list_leak = False
+        self.foreign_revision_list_leak = False
         self.revision_leak = False
         self.revision_list_leak = False
         self.revision_missing = False
@@ -93,6 +95,9 @@ class FakeTransport:
                 rows = [{"organization_id": other, "user_id": other_user}]
             if self.member_list_leak and not requested:
                 rows.append({"organization_id": other, "user_id": other_user})
+            if (self.foreign_member_list_leak and requested == other
+                    and "user_id" not in query):
+                rows = [{"organization_id": other, "user_id": other_user}]
         elif parts.path.endswith("/bm_brief_revisions"):
             requested = query.get("id", [""])[0].removeprefix("eq.")
             own_rev, other_rev = (REV_A, REV_B) if own == ORG_A else (REV_B, REV_A)
@@ -105,6 +110,10 @@ class FakeTransport:
                 rows = [{"id": other_rev, "organization_id": other_org}]
             if self.revision_list_leak and not requested:
                 rows.append({"id": other_rev, "organization_id": other_org})
+            if (self.foreign_revision_list_leak
+                    and query.get("organization_id") == ["eq." + other_org]
+                    and not requested):
+                rows = [{"id": other_rev, "organization_id": other_org}]
         else:
             raise AssertionError("Unexpected endpoint: " + parts.path)
         return 200, rows
@@ -126,9 +135,9 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(result["state"], "requires-independent-review")
         self.assertIs(result["releaseAuthorized"], False)
         self.assertIs(result["h01Accepted"], False)
-        self.assertEqual(len(result["checks"]), 23)
+        self.assertEqual(len(result["checks"]), 27)
         self.assertTrue(all(row["passed"] for row in result["checks"]))
-        self.assertEqual(len(fake.requests), 23)
+        self.assertEqual(len(fake.requests), 27)
         self.assertEqual(sum(url.endswith("/auth/v1/user") for url, _ in fake.requests), 2)
         self.assertNotIn("Authorization", fake.requests[-1][1])
         # No JWT, project hostname, recipient or tenant identity is emitted.
@@ -207,6 +216,30 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(result["checks"][-1]["name"], "anonymous-brief-revisions")
         self.assertFalse(result["checks"][-1]["passed"])
 
+    def test_foreign_tenant_membership_filter_catches_unlisted_members(self):
+        fake = FakeTransport()
+        fake.foreign_member_list_leak = True
+        result, fake = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"],
+                         "user-1-foreign-organization-memberships")
+        self.assertFalse(result["checks"][-1]["passed"])
+        query = parse_qs(urlsplit(fake.requests[-1][0]).query)
+        self.assertEqual(query["organization_id"], ["eq." + ORG_B])
+        self.assertNotIn("user_id", query)
+
+    def test_foreign_tenant_revision_filter_catches_unlisted_revisions(self):
+        fake = FakeTransport()
+        fake.foreign_revision_list_leak = True
+        result, fake = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"],
+                         "user-1-foreign-organization-brief-revisions")
+        self.assertFalse(result["checks"][-1]["passed"])
+        query = parse_qs(urlsplit(fake.requests[-1][0]).query)
+        self.assertEqual(query["organization_id"], ["eq." + ORG_B])
+        self.assertNotIn("id", query)
+
     def test_anonymous_membership_visibility_is_not_a_success(self):
         fake = FakeTransport()
         fake.anon_member_leak = True
@@ -240,11 +273,11 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
                     fake = FakeTransport()
                     fake.anon_denials[table] = (http_status, None)
                     result, checked = self.run_probe(fake)
-                    self.assertEqual(len(checked.requests), 23)
+                    self.assertEqual(len(checked.requests), 27)
                     self.assertEqual(result["state"], "requires-independent-review")
                     self.assertIs(result["releaseAuthorized"], False)
                     self.assertIs(result["h01Accepted"], False)
-                    self.assertEqual(len(result["checks"]), 23)
+                    self.assertEqual(len(result["checks"]), 27)
                     self.assertTrue(all(c["passed"] for c in result["checks"]))
 
     def test_anonymous_server_errors_and_nonempty_denial_are_not_evidence(self):
