@@ -96,6 +96,12 @@ def record_fictional_consent(
                       "WHERE organization_id=? AND recipient=?",
                       (organization_id, recipient)).fetchone():
             return "blocked-contact-hold"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_consent_revocations "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)
+        ).fetchone():
+            return "blocked-consent-withdrawn"
         previous = db.execute(
             "SELECT event_id FROM rehearsal_consent_confirmations "
             "WHERE organization_id=? AND recipient=?",
@@ -114,6 +120,53 @@ def record_fictional_consent(
 
     return _transaction(path, act)
 
+
+
+
+def revoke_fictional_consent(
+    path: Path, organization_id: str, recipient: str, event_id: str,
+) -> str:
+    """Withdraw invented contact consent for one tenant/recipient, never send."""
+    _identity(organization_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", recipient)
+    if type(event_id) is not str or _UUID.fullmatch(event_id) is None:
+        raise ValueError("Invalid fictional consent withdrawal event")
+
+    def act(db: sqlite3.Connection) -> str:
+        old = db.execute(
+            "SELECT event_id FROM rehearsal_consent_revocations "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)
+        ).fetchone()
+        if old is not None:
+            if old != (event_id,):
+                raise ValueError("Conflicting fictional consent withdrawal")
+            return "blocked-duplicate-consent-withdrawal"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_consent_revocations "
+            "WHERE organization_id=? AND event_id=?",
+            (organization_id, event_id)
+        ).fetchone():
+            raise ValueError("Conflicting fictional consent withdrawal event ID")
+        if not db.execute(
+            "SELECT 1 FROM rehearsal_consent_confirmations "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)
+        ).fetchone():
+            return "blocked-no-existing-consent"
+        db.execute(
+            "INSERT INTO rehearsal_consent_revocations VALUES (?,?,?)",
+            (organization_id, recipient, event_id)
+        )
+        # Holds across ALL fictional proposals of this exact tenant/recipient.
+        # An uncertain handoff might already have side effects; never clear it.
+        db.execute(
+            "UPDATE rehearsal_reservations SET state='invalidated' "
+            "WHERE organization_id=? AND recipient=? AND state='reserved'",
+            (organization_id, recipient)
+        )
+        return "fictional-consent-withdrawn"
+
+    return _transaction(path, act)
 
 
 def record_fictional_recipient_confirmation(
