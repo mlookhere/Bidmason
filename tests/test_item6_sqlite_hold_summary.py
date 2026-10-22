@@ -2,6 +2,8 @@
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,7 +16,7 @@ from ci.item6_sqlite_rehearsal import (
 from ci.item6_sqlite_review_gate import (
     record_fictional_consent, record_fictional_recipient_confirmation,
     record_fictional_review, revoke_fictional_consent,
-    revoke_fictional_recipient_confirmation,
+    revoke_fictional_recipient_confirmation, reserve_reviewed_fictional,
 )
 
 ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -53,6 +55,8 @@ class FictionalHoldSummaryTests(unittest.TestCase):
         result = self.summary()
         self.assertEqual(result, {
             "state": "review-simulation-only",
+            "pendingEvidenceState": "consistent-simulation-only",
+            "inconsistentPendingReservations": 0,
             "contactAuthorized": False,
             "pendingReservations": 0,
             "invalidatedReservations": 0,
@@ -136,6 +140,123 @@ class FictionalHoldSummaryTests(unittest.TestCase):
                           after["invalidatedReservations"],
                           after["consentWithdrawals"]), (0, 1, 1))
         self.assertTrue(all(s in (before, after) for s in snapshots))
+
+    def reviewed_ready(self):
+        self.assertEqual(record_fictional_review(
+            self.path, ORG, PROPOSAL, 3, DIGEST, "operator", OP),
+            "fictional-review-recorded")
+        self.assertEqual(record_fictional_review(
+            self.path, ORG, PROPOSAL, 3, DIGEST, "contractor", CON),
+            "fictional-review-recorded")
+        self.assertEqual(record_fictional_consent(
+            self.path, ORG, BUYER, CONSENT), "fictional-consent-recorded")
+        self.assertEqual(record_fictional_recipient_confirmation(
+            self.path, ORG, PROPOSAL, 3, DIGEST, BUYER, CON, APPROVAL),
+            "fictional-recipient-confirmed")
+        self.assertEqual(reserve_reviewed_fictional(
+            self.path, ORG, PROPOSAL, 3, DIGEST, BUYER, key("reviewed")),
+            "reserved-simulation-only")
+        self.assertEqual(self.summary()["inconsistentPendingReservations"], 0)
+
+    def mutate(self, sql, parameters=()):
+        # Deliberately corrupt only this disposable CI fixture to test detection;
+        # the report itself never writes or repairs underlying reservations.
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute(sql, parameters)
+            db.commit()
+
+    def test_missing_review_or_confirmation_surfaces_inconsistent_pending(self):
+        for mutation in (
+            "DELETE FROM rehearsal_review_receipts WHERE role='contractor'",
+            "DELETE FROM rehearsal_recipient_confirmations",
+            "DELETE FROM rehearsal_consent_confirmations",
+            "UPDATE rehearsal_review_receipts SET content_sha256='" + "b" * 64 +
+            "' WHERE role='contractor'",
+        ):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as folder:
+                path = self.path
+                self.path = Path(folder) / "mutated.sqlite3"
+                try:
+                    initialize_fixture_db(self.path)
+                    self.reviewed_ready()
+                    self.mutate(mutation)
+                    result = self.summary()
+                    self.assertEqual(result["pendingReservations"], 1)
+                    self.assertEqual(result["inconsistentPendingReservations"], 1)
+                    self.assertEqual(result["pendingEvidenceState"],
+                                     "inconsistent-needs-review")
+                    self.assertFalse(result["contactAuthorized"])
+                    self.assertNotIn(BUYER, json.dumps(result))
+                finally:
+                    self.path = path
+
+    def test_newer_review_or_revocation_corruption_never_looks_consistent(self):
+        for sql, params in (
+            ("INSERT INTO rehearsal_review_receipts VALUES (?,?,?,?,?,?)",
+             (ORG, PROPOSAL, 4, DIGEST, "operator", OP)),
+            ("INSERT INTO rehearsal_recipient_confirmation_revocations "
+             "VALUES (?,?,?,?,?)", (ORG, PROPOSAL, 3, BUYER, WITHDRAW)),
+        ):
+            with self.subTest(sql=sql), tempfile.TemporaryDirectory() as folder:
+                original = self.path
+                self.path = Path(folder) / "mutated.sqlite3"
+                try:
+                    initialize_fixture_db(self.path)
+                    self.reviewed_ready()
+                    self.mutate(sql, params)
+                    result = self.summary()
+                    self.assertEqual(result["inconsistentPendingReservations"], 1)
+                    self.assertEqual(result["pendingEvidenceState"],
+                                     "inconsistent-needs-review")
+                finally:
+                    self.path = original
+
+    def test_stop_contact_withdrawal_and_closure_detected_without_mutation(self):
+        for sql, params in (
+            ("INSERT INTO rehearsal_contact_signals VALUES (?,?,?)",
+             (ORG, BUYER, "complained")),
+            ("INSERT INTO rehearsal_consent_revocations VALUES (?,?,?)",
+             (ORG, BUYER, WITHDRAW)),
+            ("INSERT INTO rehearsal_deal_closures VALUES (?,?,?,?)",
+             (ORG, PROPOSAL, EVENT, "won")),
+        ):
+            with self.subTest(sql=sql), tempfile.TemporaryDirectory() as folder:
+                original = self.path
+                self.path = Path(folder) / "mutated.sqlite3"
+                try:
+                    initialize_fixture_db(self.path)
+                    self.assertEqual(self.reserve(), "reserved-simulation-only")
+                    self.mutate(sql, params)
+                    result = self.summary()
+                    self.assertEqual(result["inconsistentPendingReservations"], 1)
+                    self.assertEqual(result["pendingEvidenceState"],
+                                     "inconsistent-needs-review")
+                    self.assertEqual(result["pendingReservations"], 1)
+                    self.assertEqual(self.summary(), result)  # never auto-repair
+                finally:
+                    self.path = original
+
+    def test_uncertain_handoff_with_later_stop_is_not_corrupt_pending(self):
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.assertEqual(mark_fictional_handoff_unknown(
+            self.path, ORG, PROPOSAL, BUYER, key("one")),
+            "outcome-unknown-simulation-only")
+        record_fictional_contact_signal(self.path, ORG, PROPOSAL,
+                                        BUYER, "opted_out")
+        result = self.summary()
+        self.assertEqual(result["unknownOutcomeHolds"], 1)
+        self.assertEqual(result["inconsistentPendingReservations"], 0)
+        self.assertEqual(result["pendingEvidenceState"],
+                         "consistent-simulation-only")
+
+    def test_inconsistent_pending_is_tenant_isolated(self):
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.assertEqual(self.reserve(tenant=OTHER), "reserved-simulation-only")
+        self.mutate("INSERT INTO rehearsal_contact_signals VALUES (?,?,?)",
+                    (ORG, BUYER, "opted_out"))
+        self.assertEqual(self.summary()["inconsistentPendingReservations"], 1)
+        self.assertEqual(self.summary(OTHER)["inconsistentPendingReservations"], 0)
+        self.assertNotIn(OTHER, json.dumps(self.summary()))
 
     def test_invalid_scope_and_path_rejected_before_any_report(self):
         for bad in (None, 42, True, "", "invalid", ORG.upper()):
