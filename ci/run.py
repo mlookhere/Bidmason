@@ -29,7 +29,7 @@ def main() -> int:
         "security": [sys.executable, "ci/security.py"],
         "item6-release-evidence": [sys.executable, "ci/item6_release_evidence.py"],
         "item6-runtime-boundary": [sys.executable, "ci/item6_runtime_boundary.py"],
-        "item6-review-handoff": [sys.executable, "ci/item6_review_handoff.py", "--format", "check"],
+        "item6-review-handoff": [sys.executable, "-m", "ci.item6_review_handoff", "--format", "check"],
         "web": [sys.executable, "ci/web.py"],
         "pdf": [sys.executable, "ci/pdf_qa.py"],
     }
