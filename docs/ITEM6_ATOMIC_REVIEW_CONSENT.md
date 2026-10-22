@@ -24,3 +24,40 @@ The test model rejects invalid revisions, noncanonical hashes, duplicate review 
 This is **not verification of actual consent or approval**: any caller can fabricate these local records. It has **no authenticated reviewer identity, real policy authority, immutable actual document, actual subscriber, event signatures, RLS, private storage, provider, queue worker, buyer portal, or SQL/PostgreSQL staging database**. An invented SHA-256 string is not proof the bytes were approved. The low-level synthetic reservation API remains available only inside isolated tests and therefore must **not** be connected to real sending. No `contactAuthorized` or `releaseAuthorized` result is exposed.
 
 Before building a real endpoint or marking any H01–H13 source as verified, staging needs authenticated tenant-scoped RLS, actual immutable revision/document evidence, independently approved company/policy and two distinct authenticated reviewer receipts, verifiable recipient consent, signed provider events, durable outbox/idempotency with external crash reconciliation, negative live safety tests, and independent security/privacy/legal/operational human go/no-go. Preserve the current draft PR and release hold until that evidence exists.
+
+## Superseding an earlier reviewed reservation (fictional)
+
+A newer proposal review previously blocked *new attempts* against the older
+revision but did not cancel an older reservation already present in the
+disposable SQLite fixture. That old `reserved` row could subsequently be
+marked as a fictional handoff even after a newer partially reviewed revision
+existed. The model now stores nullable `reviewed_revision` and
+`reviewed_sha256` fields alongside each reservation. The strict reviewed
+entry point binds these values in its existing transaction; the original
+low-level test helper intentionally stores NULL because it has **no trusted
+review** and must never be used as an app dispatch implementation.
+
+Inside the *same BEGIN IMMEDIATE transaction* that records a new fictional
+review receipt, every pending **reviewed** reservation of an earlier revision
+for the **same tenant and proposal** becomes `invalidated`. This applies
+even when the newer revision has only an operator receipt. The historical
+idempotency key remains reserved and cannot be reused with a changed
+reviewed revision or content hash; once the new revision has both invented
+reviews and invented consent, it can obtain a **new simulation-only
+reservation** without resurrecting the old claim. Unrelated proposals,
+tenants and legacy low-level test rows are unaffected.
+
+Critically, `outcome_unknown` is **never** invalidated by a newer review:
+the fictional handoff might already represent an external side effect.
+That recipient remains locked for reconciliation. Races between recording a
+new review and reserving the old revision serialize inside SQLite. A
+separate set of six adversarial test groups reproduced **four failures**
+against the prior code and now passes; the existing test expectation for
+a fully reviewed newer revision was updated to require the safe transition.
+Full SQLite regression run: **53/53 passing** locally. Mandatory CI gates
+and release-evidence requirements are unchanged.
+
+This is a disposable SQLite rehearsal, not a real versioned approval ledger,
+real provider cancellation, real buyer consent or a production database.
+No code here authorizes sending. All H01–H13 independent release requirements
+remain UNVERIFIED and `releaseState=blocked`; PR #15 stays draft.
