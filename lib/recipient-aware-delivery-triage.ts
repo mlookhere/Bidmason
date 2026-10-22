@@ -65,6 +65,15 @@ export function classifySimulatedRecipientAwareTriage(
       && historicalStops.some(stoppedAt => currentReserved >= stoppedAt)) {
       throw new TypeError("Cross-proposal simulated reservation conflicts with contact-stop chronology");
     }
+    // Prior recipient stops also prohibit subsequent reminder attempts.
+    // Current-proposal validation already checked these attempts' identity,
+    // timestamps, minimum delay and replay before this cross-proposal check.
+    if (historicalStops.some(stoppedAt =>
+      previousAttempts.some(attempt => attempt.recordedAt >= stoppedAt))) {
+      throw new TypeError(
+        "Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology",
+      );
+    }
     if (currentStops.length) {
       const historicalReserved = stream.events.find(event => event.kind === "reserved")?.observedAt;
       if (historicalReserved !== undefined
