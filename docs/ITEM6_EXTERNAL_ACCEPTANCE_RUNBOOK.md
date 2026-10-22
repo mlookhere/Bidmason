@@ -199,6 +199,22 @@ reviewed real resolver and import graph are implemented. It is **not**
 proof of complete static analysis, actual Auth/RLS, consent or production
 send/view authorization. H01–H13 remain blocked.
 
+### Public metadata handlers are server-reachable routes
+
+Next.js can execute code-backed `robots.ts`, `sitemap.ts`,
+`manifest.ts`, `icon.tsx`, `apple-icon.tsx`,
+`opengraph-image.tsx` and `twitter-image.tsx` as metadata
+endpoints (including numbered icon/image variants). They are not ordinary
+unreferenced source modules. The Item 6 import-containment scanner now treats
+these files in `app/` and `src/app/` as entrypoints and traverses their
+local dependencies, including `.mts`/`.cts` barrels. Regression tests
+cover direct and transitive synthetic-model imports and safe metadata handlers.
+See the [Next.js metadata file conventions](https://nextjs.org/docs/app/api-reference/file-conventions/metadata).
+
+This is only a fail-closed *static import* check. It is not a complete
+JavaScript parser, identity validation, authorization to serve a proposal,
+or a production-release decision. H01–H13 remain blocked.
+
 ### TypeScript module variants remain inside the offline-only boundary
 
 The Item 6 static import guard follows executable `.mts` and `.cts`
