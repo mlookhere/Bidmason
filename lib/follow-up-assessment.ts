@@ -73,8 +73,9 @@ export function assessSimulatedFollowUp(
   // A new fictional dispatch reserved on or after a known closed-deal
   // timestamp is contradictory, even if later provider callbacks look valid.
   // Provider callbacks for a reservation made BEFORE closure are not new sends.
-  if(deal.closedAt && delivery.timeline.some(event =>
-    event.kind==="reserved" && event.observedAt>=deal.closedAt)){
+  const closedAt=deal.closedAt;
+  if(closedAt && delivery.timeline.some(event =>
+    event.kind==="reserved" && event.observedAt>=closedAt)){
     throw new TypeError("Simulated delivery reservation conflicts with closed-deal chronology");
   }
   const {idempotencyKey,...identity}=intent;
