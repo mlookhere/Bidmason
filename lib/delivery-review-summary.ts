@@ -180,14 +180,26 @@ export function summarizeSyntheticDeliveryReview(
     // The underlying evaluators reject untrusted shapes, impossible timelines,
     // replay conflicts and invalid timestamps/consent/attempt histories.
     const dealEvents = dealOutcomes?.[seen.size] ?? [];
-    const result = historicalStreams === undefined
-      ? classifySimulatedDeliveryTriage(
-        entry.intent, entry.events, entry.policy, entry.previousAttempts, nowUtc, dealEvents,
-      )
-      : classifySimulatedRecipientAwareTriage(
-        entry.intent, entry.events, entry.policy, entry.previousAttempts,
-        historicalStreams[seen.size], nowUtc, dealEvents,
-      );
+    // Retain per-case structural/chronology validation BEFORE reading current
+    // event fields in the aggregate. Normalize only this specific as-of-time
+    // error so the CRM preserves its public, fail-closed diagnostic.
+    let result: DeliveryTriage;
+    try {
+      result = historicalStreams === undefined
+        ? classifySimulatedDeliveryTriage(
+          entry.intent, entry.events, entry.policy, entry.previousAttempts, nowUtc, dealEvents,
+        )
+        : classifySimulatedRecipientAwareTriage(
+          entry.intent, entry.events, entry.policy, entry.previousAttempts,
+          historicalStreams[seen.size], nowUtc, dealEvents,
+        );
+    } catch (error) {
+      if (error instanceof TypeError
+        && error.message === "Future simulated current-proposal triage observation") {
+        throw new TypeError("Future simulated CRM current-stream observation");
+      }
+      throw error;
+    }
     if (entry.intent.organizationId !== organizationId) {
       throw new TypeError("Cross-tenant simulated review entry");
     }
