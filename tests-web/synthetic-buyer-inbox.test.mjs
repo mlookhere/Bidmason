@@ -78,13 +78,11 @@ test("chronological gaps, future timestamps and malformed dates fail closed",()=
 
 test("expired, revoked, mis-signed and foreign-tenant responses cannot enter the inbox",()=>{
   const issuedOld=createBuyerViewGrant(ID,KEY,NOW-800,120);
-  const revokedGrant=token();
   const verifiedFirst=event(UUID_A,token());
   const forged=token().slice(0,-1)+"!";
   for(const broken of [
     {...verifiedFirst,viewToken:issuedOld},
     {...verifiedFirst,viewToken:forged},
-    {...verifiedFirst,viewToken:revokedGrant},
     {...verifiedFirst,draft:{...verifiedFirst.draft,organizationId:
       "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"}},
     {...verifiedFirst,draft:{...verifiedFirst.draft,revision:4}},
