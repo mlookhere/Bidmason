@@ -60,6 +60,12 @@ def record_fictional_review(
             "WHERE organization_id=? AND proposal_id=? AND revision=? AND actor_id=?",
             (organization_id, proposal_id, revision, actor_id)).fetchone():
             raise ValueError("Fictional reviewer cannot approve in both roles")
+        if db.execute(
+            "SELECT 1 FROM rehearsal_review_receipts "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND content_sha256<>?",
+            (organization_id, proposal_id, revision, content_sha256)).fetchone():
+            raise ValueError("Conflicting fictional revision content")
         db.execute("INSERT INTO rehearsal_review_receipts VALUES (?,?,?,?,?,?)",
                    (organization_id, proposal_id, revision, content_sha256,
                     role, actor_id))
