@@ -383,3 +383,12 @@ unverified. Do not merge, deploy or enable real customer sending.
 - **H03–H13 acceptance:** All real company policy approvals, signed revision/recipient consent, selected sender/provider, native webhook, durable unique transactional delivery, buyer authentication, privacy/legal/security/ops reviews and written release go/no-go remain unverified.
 - **Release:** `releaseState=blocked`, `releaseAuthorized=false`, no production migrations/deployment/customer messages or merges. The release evidence manifest stays H01–H13 unverified and PRs #12–#15 remain draft/unmerged.
 - **Next step:** Run the authorized two-synthetic-user staging negative test matrix described in the Item 6 acceptance runbook; collect external artifacts and independent review before updating any release evidence status.
+
+---
+
+## Item 6 H01 authenticated read-only probe checkpoint — 2026-10-22
+
+- **Existing work:** [Issue #7](https://github.com/mlookhere/Bidmason/issues/7), [draft PR #15](https://github.com/mlookhere/Bidmason/pull/15), `work/7-delivery-preflight` → `dev`. The preceding connected schema inspection and all H01–H13 production holds remain in force.
+- **New runnable subset:** [`ci/item6_rls_readonly_probe.py`](../ci/item6_rls_readonly_probe.py), [eight offline regression tests](../tests/test_item6_rls_readonly_probe.py), and [operator instructions](ITEM6_H01_AUTHENTICATED_READONLY_PROBE.md) implement 13 positive/negative read visibility checks across two genuinely authenticated users and two distinct seeded synthetic tenants, including unauthenticated enumeration. The CLI requires explicit `--live-readonly` and protected environment credentials; never transmits a secret/service key, performs writes, or prints identities.
+- **Measured offline regression:** Linux fast check at commit `9c209b9580fad0758c60265472d90302d01e0ae5` executed **271/271 Python tests** with zero failures, including all eight new mocked HTTP tests. Later commits require new exact-HEAD CI review. **No live JWT-signed integration run was performed**, and the live database currently has no seeded synthetic tenants; there is **zero** new H01 acceptance evidence.
+- **Still BLOCKED:** H01 cross-tenant negative writes, missing memberships, expired/revoked session behavior, complete table coverage and independent operator verification; H02 Storage and all H03–H13 production signoffs. Neither this read-only tool nor green CI grants `releaseAuthorized`. No schema migrations, deployments, sending, actual buyer view or merge.
