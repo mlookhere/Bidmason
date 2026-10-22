@@ -316,3 +316,39 @@ detection and non-repair, one event duplicated across three ledgers
 counted once, cross-tenant isolation, and concurrent atomic snapshots.
 No evidence is deleted, unblocked, approved, reconciled or transmitted.
 H01–H13 real external acceptance holds remain unresolved.
+
+## Fail-closed handoff when fictional evidence is already inconsistent
+
+The redacted event-ID audit is now paired with a **forward-transition guard**.
+A current tenant whose fabricated evidence already contains a cross-ledger
+event UUID collision may neither create a new raw or reviewed SQLite
+reservation nor advance an existing raw or reviewed pending claim to an
+`outcome_unknown` rehearsal handoff. Each check executes inside the same
+serialized `BEGIN IMMEDIATE` transaction as the attempted transition.
+The status is `blocked-event-evidence-inconsistent`.
+
+A single shared `_fictional_event_id_conflict_count` query powers the
+operator count and all forward guards. It is restricted to the current
+fictional organization, queries a fixed list of the five event ledgers,
+and detects conflicts even on unrelated proposals within the tenant.
+A normal original reservation/handoff is unaffected when there is no
+conflicting event evidence; two unrelated tenants remain independent.
+Existing idempotency holds, recipient contact stops, closed-deal and
+withdrawn-consent decisions are still respected.
+
+This is an explicitly **one-way safety rule**: later corrupted evidence
+does not turn an already `outcome_unknown` handoff back into `reserved`
+or claim that no provider side effect could have occurred. Suppression
+signals, consent withdrawals, revocations and terminal deal closures remain
+available and never depend on passing the collision guard, so operators
+can still **stop** further fictional work. The guard does not repair
+corruption, disclose event IDs, authenticate real providers or grant
+permission to send.
+
+Seven additional synthetic regression tests cover clean forward paths,
+preexisting collision rejection, collision between reservation and
+handoff in both raw and strictly reviewed paths, preservation of already
+uncertain states, suppressive action during a conflict, tenant isolation,
+and simultaneous corruption-versus-handoff serialization. These tests
+remain offline disposable SQLite only; the actual H01–H13 release
+acceptance requirements are still outstanding.
