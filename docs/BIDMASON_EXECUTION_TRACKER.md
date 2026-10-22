@@ -372,3 +372,14 @@ acceptance remains unchecked. H01-H13 real tenant RLS/Storage/Auth, actual
 consent, provider-native callbacks, durable transactional dispatch and
 independent privacy/security/legal/operations release signoffs remain
 unverified. Do not merge, deploy or enable real customer sending.
+
+---
+
+## Item 6 connected environment inventory checkpoint — 2026-10-22
+
+- **Existing durable work:** Issue [#7](https://github.com/mlookhere/Bidmason/issues/7), draft PR [#15](https://github.com/mlookhere/Bidmason/pull/15), `work/7-delivery-preflight` → `dev`. Previous exact-head `fd0c761` passed all 8/8 required Actions jobs; later commits require their **own** checks.
+- **Connected read-only discovery:** An ACTIVE_HEALTHY Supabase project named BidMason has nine applied migrations and eight public `bm_*` tables with RLS enabled; exact counts found **zero rows** in those tables. The `bm-evidence` bucket is private with zero objects; eight scoped storage-object policies are present. The quota table's RLS-without-policy INFO finding requires access-intent review; **do not** add an indiscriminate policy. No Supabase Edge Functions are listed. See [the scoped inspection and reproduction queries](ITEM6_CONNECTED_ENVIRONMENT_INVENTORY.md).
+- **H01/H02 acceptance:** PARTIAL ENVIRONMENT INVENTORY ONLY. Still **unchecked**: independently authenticated distinct-user PostgREST/RLS cross-tenant read/write denial, revocation, private upload/download/link expiry negative tests. Metadata inventory, simulated fixtures and privileged SQL reads are **not** these tests.
+- **H03–H13 acceptance:** All real company policy approvals, signed revision/recipient consent, selected sender/provider, native webhook, durable unique transactional delivery, buyer authentication, privacy/legal/security/ops reviews and written release go/no-go remain unverified.
+- **Release:** `releaseState=blocked`, `releaseAuthorized=false`, no production migrations/deployment/customer messages or merges. The release evidence manifest stays H01–H13 unverified and PRs #12–#15 remain draft/unmerged.
+- **Next step:** Run the authorized two-synthetic-user staging negative test matrix described in the Item 6 acceptance runbook; collect external artifacts and independent review before updating any release evidence status.
