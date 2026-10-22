@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Superseded commits on the same PR/branch cannot satisfy exact-head gates.
+# Cancel only their redundant CI runs; all eight jobs still run on the new head.
+concurrency:
+  group: bidmason-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   fast:
     name: fast
