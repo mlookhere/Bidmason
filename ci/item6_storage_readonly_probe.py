@@ -24,6 +24,7 @@ EXPECTED = (
     "user-2-own-object", "user-2-other-object",
     "anonymous-object-1", "anonymous-object-2",
     "public-object-1", "public-object-2",
+    "public-with-key-object-1", "public-with-key-object-2",
 )
 
 
@@ -121,16 +122,25 @@ def probe_readonly_storage(base: str, key: str, token_a: str, token_b: str,
         )
         if not checks[f"anonymous-object-{i}"]:
             return _report(checks)
-    # A private bucket must ALSO deny the unsigned public delivery route.
-    # Testing only /authenticated/ could overlook an accidentally public
-    # bucket, even when unauthenticated reads on that route are rejected.
+    # A private bucket must ALSO deny the public delivery route. First
+    # exercise an ordinary browser GET with NO project key or Authorization.
+    # Then exercise the same route with the publishable key (anonymous role),
+    # since keyless rejection alone can mask access through a public client.
+    # Both modes must deny each synthetic object; no full payload is fetched.
     public_prefix = base + "/storage/v1/object/public/" + BUCKET + "/"
     for i, path in enumerate(paths, start=1):
-        status, byte = peek(public_prefix + path, {"apikey": key})
+        status, byte = peek(public_prefix + path, {})
         checks[f"public-object-{i}"] = (
             status in (401, 403, 404) and not byte
         )
         if not checks[f"public-object-{i}"]:
+            return _report(checks)
+    for i, path in enumerate(paths, start=1):
+        status, byte = peek(public_prefix + path, {"apikey": key})
+        checks[f"public-with-key-object-{i}"] = (
+            status in (401, 403, 404) and not byte
+        )
+        if not checks[f"public-with-key-object-{i}"]:
             return _report(checks)
     return _report(checks)
 
