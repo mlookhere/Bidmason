@@ -57,6 +57,36 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'import {\n ignored,\n other \n} from "../../../lib/wrapper";')
         self.verify("imports offline-only lib/buyer-view-grant.ts")
 
+    def test_comment_separated_direct_import_and_reexport_are_not_invisible(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const mock = true;")
+        self.write("app/api/send/route.ts",
+                   'import/*comment*/{mock} from/*comment*/"../../../lib/synthetic-dispatch-reservation";')
+        self.write("app/api/review/route.ts",
+                   'export {mock} from /* multi line\n note */ "../../../lib/synthetic-dispatch-reservation";')
+        self.verify("app/api/send/route.ts", "app/api/review/route.ts")
+
+    def test_comment_separated_side_effect_dynamic_and_require_imports_block(self):
+        self.write("lib/buyer-view-grant.ts", "export const mock = true;")
+        self.write("app/api/grant/route.ts",
+                   'import/* comment */"../../../lib/buyer-view-grant";')
+        self.write("app/api/grant2/route.ts",
+                   'async function load() { return import/* comment */("../../../lib/buyer-view-grant"); }')
+        self.write("app/api/grant3/route.ts",
+                   'const mock = require/* comment */("../../../lib/buyer-view-grant");')
+        self.verify("app/api/grant/route.ts", "app/api/grant2/route.ts",
+                    "app/api/grant3/route.ts")
+
+    def test_comment_separated_import_still_blocks_missing_local_dependency(self):
+        self.write("app/api/ping/route.ts",
+                   'import {missing} from/* ignored */"./not-here";')
+        self.verify("Unresolved local code dependency")
+
+    def test_comment_separated_safe_dependency_still_permitted(self):
+        self.write("app/api/ping/route.ts",
+                   'import/* local */{healthy} from/* comment */"./health";')
+        self.write("app/api/ping/health.ts", "export const healthy=true;")
+        self.verify()
+
     def test_aliases_and_require_are_walked(self):
         self.write("lib/recipient-aware-delivery-triage.ts", "export const x = true;")
         self.write("app/api/triage/route.ts",
