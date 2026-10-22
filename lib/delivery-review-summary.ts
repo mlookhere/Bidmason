@@ -198,6 +198,13 @@ export function summarizeSyntheticDeliveryReview(
         && error.message === "Future simulated current-proposal triage observation") {
         throw new TypeError("Future simulated CRM current-stream observation");
       }
+      // The single-case reviewer may detect the same current/history ID
+      // collision earlier than the batch-wide event ledger. Preserve the
+      // CRM's existing public diagnostic; never suppress either rejection.
+      if (error instanceof TypeError
+        && error.message === "Cross-proposal simulated recipient event ID collision") {
+        throw new TypeError("Conflicting synthetic CRM event ID across streams");
+      }
       throw error;
     }
     if (entry.intent.organizationId !== organizationId) {
