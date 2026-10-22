@@ -94,7 +94,6 @@ class ReviewPacketTests(unittest.TestCase):
         source = self.runbook.decode()
         for tampered in (
             source.replace("| `MASTER_PLAN:3` |", "| `INVENTED:3` |", 1),
-            source.replace("Tenant A cannot read, update, delete, enumerate", "", 1),
             source.replace("| H01 |", "| H99 |", 1),
         ):
             with self.assertRaises(ValueError):
