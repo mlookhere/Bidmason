@@ -126,8 +126,9 @@ export function reviewSimulatedRecipientContactHistory(
   // proposal makes another reservation at or after that instant
   // contradictory evidence, not a normally suppressed follow-up. This
   // does not validate completeness of caller-provided history.
-  if (earliestContactStop !== null
-      && priorReservations.some(reservedAt => reservedAt >= earliestContactStop)) {
+  const stoppedAt = earliestContactStop;
+  if (stoppedAt !== null
+      && priorReservations.some(reservedAt => reservedAt >= stoppedAt)) {
     throw new TypeError(
       "Cross-proposal synthetic historical reservation conflicts with contact-stop chronology",
     );
