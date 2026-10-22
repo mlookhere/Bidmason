@@ -25,6 +25,29 @@ test("internal timing eligibility remains external-authorization-required, never
  for(const word of ["sendAllowed","authorized","approved","provider","customerId"])
    assert.equal(Object.hasOwn(outcome,word),false);
 });
+test("future delivery and recipient observations cannot be classified as current",()=>{
+  const atNow="2026-10-22T10:00:00.000Z";
+  const future="2026-10-22T10:00:00.001Z";
+  const scenarios=[
+    [event("reserved"),event("provider_accepted",1)],
+    sent,
+    ...["provider_bounced","recipient_opted_out",
+      "provider_complained","recipient_replied"].map(kind=>
+      [...sent,event(kind,3)]),
+  ];
+  for(const scenario of scenarios){
+    const last=scenario.length-1;
+    const futureEvents=scenario.map((e,i)=>i===last?{...e,observedAt:future}:e);
+    const currentEvents=scenario.map((e,i)=>i===last?{...e,observedAt:atNow}:e);
+    assert.throws(()=>evaluate(futureEvents),/Future simulated current-proposal triage observation/);
+    const result=evaluate(currentEvents);
+    assert.equal(result.state,"review-simulation-only");
+    assert.ok(["contact-suppressed","reply-needs-review",
+      "delivery-needs-verification","external-authorization-required"]
+      .includes(result.category));
+  }
+});
+
 test("fictional opt-out, bounce, and complaint outrank other review categories",()=>{
  const cases=[
   [...sent,event("recipient_opted_out",3)],
