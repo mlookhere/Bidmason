@@ -14,6 +14,7 @@ from ci.item6_sqlite_rehearsal import (
 )
 from ci.item6_sqlite_review_gate import (
     record_fictional_consent, record_fictional_review, reserve_reviewed_fictional,
+    record_fictional_recipient_confirmation,
 )
 
 ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -49,6 +50,15 @@ class FictionalRevisionSupersessionTests(unittest.TestCase):
         event_id = str(uuid5(NAMESPACE_DNS, tenant + recipient))
         return record_fictional_consent(self.path, tenant, recipient, event_id)
 
+    def confirm(self, revision, recipient=RECIPIENT, proposal=PROPOSAL,
+                tenant=ORG, content_hash=HASH_OLD):
+        from uuid import uuid5, NAMESPACE_DNS
+        event = str(uuid5(NAMESPACE_DNS,
+                          tenant + proposal + str(revision) + recipient))
+        return record_fictional_recipient_confirmation(
+            self.path, tenant, proposal, revision, content_hash, recipient,
+            CONTRACTOR, event)
+
     def reserve(self, revision, recipient=RECIPIENT, seed="old", proposal=PROPOSAL,
                 tenant=ORG, content_hash=HASH_OLD):
         return reserve_reviewed_fictional(self.path, tenant, proposal, revision,
@@ -58,6 +68,7 @@ class FictionalRevisionSupersessionTests(unittest.TestCase):
         self.review(3, "operator", OPERATOR)
         self.review(3, "contractor", CONTRACTOR)
         self.consent(recipient)
+        self.confirm(3, recipient)
 
     def test_new_partial_revision_invalidates_existing_pending_old_revision(self):
         self.ready_old()
@@ -73,6 +84,7 @@ class FictionalRevisionSupersessionTests(unittest.TestCase):
     def test_new_revision_invalidates_all_old_reviewed_recipients_not_unrelated(self):
         self.ready_old()
         self.consent(SECOND)
+        self.confirm(3, SECOND)
         self.reserve(3)
         self.reserve(3, SECOND, "second")
         independent = reserve_fictional(self.path, ORG, OTHER_PROPOSAL,
@@ -89,6 +101,7 @@ class FictionalRevisionSupersessionTests(unittest.TestCase):
         self.assertEqual(fictional_unknown_count(self.path, ORG), 1)
         self.assertEqual(fictional_counts(self.path, ORG), (0, 0, 0))
         self.review(4, "contractor", CONTRACTOR, content_hash=HASH_NEW)
+        self.confirm(4, content_hash=HASH_NEW)
         self.assertEqual(self.reserve(4, seed="new", content_hash=HASH_NEW),
                          "blocked-existing-recipient-reservation")
 
@@ -97,6 +110,9 @@ class FictionalRevisionSupersessionTests(unittest.TestCase):
         self.reserve(3)
         self.review(4, "operator", OPERATOR, content_hash=HASH_NEW)
         self.review(4, "contractor", CONTRACTOR, content_hash=HASH_NEW)
+        self.assertEqual(self.reserve(4, seed="new", content_hash=HASH_NEW),
+                         "blocked-missing-recipient-confirmation")
+        self.confirm(4, content_hash=HASH_NEW)
         self.assertEqual(self.reserve(4, seed="new", content_hash=HASH_NEW),
                          "reserved-simulation-only")
         self.assertEqual(fictional_counts(self.path, ORG), (1, 1, 0))
