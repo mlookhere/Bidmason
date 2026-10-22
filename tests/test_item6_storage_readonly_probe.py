@@ -309,11 +309,15 @@ class H02StorageReadOnlyTests(unittest.TestCase):
                 self.status, self.body = status, body
 
             def open(self, req, timeout):
-                raise urllib.error.HTTPError(
+                denied = urllib.error.HTTPError(
                     req.full_url, self.status, "Denied",
                     {"Location": "https://untrusted.example.test/redirect"}
-                    if self.status == 302 else {},
-                    None if self.body is None else io.BytesIO(self.body))
+                    if self.status == 302 else {}, io.BytesIO(self.body or b""))
+                # HTTPError normalizes fp=None to an empty BytesIO, so explicitly
+                # simulate an unavailable stream after constructing the error.
+                if self.body is None:
+                    denied.fp = None
+                raise denied
 
         for status in (401, 403, 404, 302):
             for body in (b"", b'{"statusCode":"403","message":"Forbidden"}',
