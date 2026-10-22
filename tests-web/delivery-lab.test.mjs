@@ -124,6 +124,20 @@ test("an earlier fictional reply requires manual review despite a due-looking ne
   for(const forbidden of ["buyer-prior-reply@", "33333333-3333", "44444444-4444", "dryrun_"])
     assert.ok(!serialized.includes(forbidden),forbidden);
 });
+test("prior-proposal late replies and opt-outs keep company-wide review consistent",()=>{
+  // Older proposal messages preceded the current reservation; their late
+  // recipient response follows it and suppresses later contact. A stop that
+  // preceded the new reservation would now fail the whole CRM audit.
+  const lab=buildSyntheticDeliveryLabSummaries();
+  const companies=Object.fromEntries(lab.map(row=>[row.company,row]));
+  assert.equal(companies["Fictional cleaning contractor"]
+    .report.categories.find(row=>row.category==="contact-suppressed").count,2);
+  assert.equal(companies["Fictional painting contractor"]
+    .report.categories.find(row=>row.category==="reply-needs-review").count,2);
+  assert.ok(lab.every(row=>row.pipeline.contactAuthorized===false
+    &&row.pipeline.dataComplete===false));
+});
+
 test("fictional won deal blocks reminders without converting the result into sending authority",()=>{
   const winner=buildSyntheticDeliveryLabCases().find(x=>x.id==="painting-deal-won");
   assert.equal(winner.dealOutcome,"won");
