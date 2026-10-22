@@ -246,12 +246,19 @@ def revoke_fictional_recipient_confirmation(
     return _transaction(path, act)
 
 
-def _recipient_confirmed_in_transaction(
+def _recipient_confirmation_blocker_in_transaction(
     db: sqlite3.Connection, organization_id: str, proposal_id: str,
     revision: int, content_sha256: str, recipient: str,
-) -> bool:
-    """Validate the invented exact-recipient claim against contractor review."""
-    return db.execute(
+) -> str | None:
+    """Require a nonrevoked invented exact-recipient contractor confirmation."""
+    if db.execute(
+        "SELECT 1 FROM rehearsal_recipient_confirmation_revocations "
+        "WHERE organization_id=? AND proposal_id=? AND revision=? "
+        "AND recipient=?",
+        (organization_id, proposal_id, revision, recipient)
+    ).fetchone():
+        return "blocked-recipient-confirmation-revoked"
+    if not db.execute(
         "SELECT 1 FROM rehearsal_recipient_confirmations AS c "
         "JOIN rehearsal_review_receipts AS r "
         "ON r.organization_id=c.organization_id "
@@ -261,7 +268,9 @@ def _recipient_confirmed_in_transaction(
         "WHERE c.organization_id=? AND c.proposal_id=? AND c.revision=? "
         "AND c.content_sha256=? AND c.recipient=?",
         (organization_id, proposal_id, revision, content_sha256, recipient)
-    ).fetchone() is not None
+    ).fetchone():
+        return "blocked-missing-recipient-confirmation"
+    return None
 
 
 def reserve_reviewed_fictional(
@@ -284,10 +293,11 @@ def reserve_reviewed_fictional(
             db, organization_id, proposal_id, revision, content_sha256, recipient)
         if verdict is not None:
             return verdict
-        if not _recipient_confirmed_in_transaction(
+        confirmation_blocker = _recipient_confirmation_blocker_in_transaction(
             db, organization_id, proposal_id, revision, content_sha256, recipient
-        ):
-            return "blocked-missing-recipient-confirmation"
+        )
+        if confirmation_blocker is not None:
+            return confirmation_blocker
         # Shared core CAS inside this SAME BEGIN IMMEDIATE transaction, so a
         # concurrent opt-out or won/lost closure cannot interleave here.
         return _reserve_in_transaction(
@@ -374,10 +384,11 @@ def mark_reviewed_fictional_handoff_unknown(
             db, organization_id, proposal_id, revision, content_sha256, recipient)
         if verdict is not None:
             return verdict
-        if not _recipient_confirmed_in_transaction(
+        confirmation_blocker = _recipient_confirmation_blocker_in_transaction(
             db, organization_id, proposal_id, revision, content_sha256, recipient
-        ):
-            return "blocked-missing-recipient-confirmation"
+        )
+        if confirmation_blocker is not None:
+            return confirmation_blocker
         if db.execute(
             "SELECT 1 FROM rehearsal_contact_signals "
             "WHERE organization_id=? AND recipient=?",
