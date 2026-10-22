@@ -99,7 +99,7 @@ test("cross-tenant cases, invalid source events and forged revision hashes rejec
 });
 
 test("conflicting terminal outcomes and replayed event IDs cannot inflate deal counts",()=>{
-  assert.throws(()=>run([alice,bob],[[won],[{...won,kind:"lost"}]]),
+  assert.throws(()=>run([alice,bob],[[won],[{...won,eventId:eventId(92),kind:"lost"}]]),
     /Conflicting synthetic CRM proposal terminal outcomes/);
   const replay={...bob,events:bob.events.map((event,i)=>i===0
     ?{...event,eventId:alice.events[0].eventId}:event)};
@@ -121,9 +121,11 @@ test("closed outcomes remain counted across revision-separated current recipient
     intent:{...previousRevision,idempotencyKey:deliveryIdempotencyKey(
       Object.fromEntries(Object.entries(previousRevision).filter(([k])=>k!=="idempotencyKey")))},
   };
-  const earlierEvents=alice.events.map(event=>({
-    ...event,idempotencyKey:earlier.intent.idempotencyKey,
+  const earlierEvents=alice.events.map((event,i)=>({
+    ...event,idempotencyKey:earlier.intent.idempotencyKey,eventId:eventId(50+i),
   }));
-  assert.throws(()=>run([alice,{...earlier,events:earlierEvents}],[[won],[]]),
-    /Cross-proposal simulated review event ID collision/);
+  const report=run([alice,{...earlier,events:earlierEvents}],[[won],[]]);
+  assert.deepEqual(report.deals,{unverified:0,won:1,lost:0});
+  assert.equal(report.distinctProposals,1);
+  assert.equal(report.attention.deferred,2);
 });
