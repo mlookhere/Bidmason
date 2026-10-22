@@ -263,7 +263,7 @@ class H02StorageReadOnlyTests(unittest.TestCase):
     def test_peek_reads_one_byte_only_and_disables_proxy_and_redirect(self):
         class Response(io.BytesIO):
             status=206
-            headers={"Content-Range":"bytes 0-0/128"}
+            headers={"Content-Range":"bytes 0-0/128", "Content-Type":"application/pdf"}
         requests=[]
         class Opener:
             def open(self,req,timeout):
@@ -311,7 +311,8 @@ class H02StorageReadOnlyTests(unittest.TestCase):
 
             def __init__(self, size):
                 super().__init__(b"x")
-                self.headers = {"Content-Range": f"bytes 0-0/{size}"}
+                self.headers = {"Content-Range": f"bytes 0-0/{size}",
+                                "Content-Type": "application/pdf"}
 
         for size, expected in ((1, True), (15_728_640, True),
                                (15_728_641, False), (99_999_999, False)):
@@ -322,8 +323,45 @@ class H02StorageReadOnlyTests(unittest.TestCase):
 
                 with patch("ci.item6_storage_readonly_probe.urllib.request.build_opener",
                            return_value=Opener()):
-                    self.assertEqual(_peek(URL+"/test", {"apikey": KEY}),
-                                     (206, expected))
+                    self.assertEqual(_peek(
+                        URL+"/storage/v1/object/authenticated/bm-evidence/"+PATH_A,
+                        {"apikey": KEY}), (206, expected))
+
+    def test_positive_range_requires_expected_mime_and_identity_encoding(self):
+        class Response(io.BytesIO):
+            status = 206
+
+            def __init__(self, mime, encoding):
+                super().__init__(b"x")
+                self.headers = {"Content-Range": "bytes 0-0/100"}
+                if mime is not None:
+                    self.headers["Content-Type"] = mime
+                if encoding is not None:
+                    self.headers["Content-Encoding"] = encoding
+
+        for extension, expected_mime in ((".pdf", "application/pdf"),
+                                         (".png", "image/png"),
+                                         (".jpg", "image/jpeg"),
+                                         (".jpeg", "image/jpeg")):
+            path = (URL + "/storage/v1/object/authenticated/bm-evidence/" +
+                    ORG_A + "/" + "e" * 8 + "-eeee-4eee-8eee-eeeeeeeeeeee" + extension)
+            for mime, encoding, allowed in (
+                (expected_mime, None, True),
+                (expected_mime + "; charset=binary", "identity", True),
+                ("text/plain", None, False),
+                ("application/octet-stream", None, False),
+                (None, None, False),
+                (expected_mime, "gzip", False),
+                (expected_mime, "br", False),
+            ):
+                with self.subTest(extension=extension, mime=mime, encoding=encoding):
+                    class Opener:
+                        def open(self, req, timeout):
+                            return Response(mime, encoding)
+
+                    with patch("ci.item6_storage_readonly_probe.urllib.request.build_opener",
+                               return_value=Opener()):
+                        self.assertEqual(_peek(path, {"apikey": KEY}), (206, allowed))
 
     def test_denial_bodies_are_not_assumed_empty_or_leaked(self):
         class Denied:
