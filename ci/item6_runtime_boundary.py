@@ -34,7 +34,9 @@ FORBIDDEN = (
 # Keep this separator narrow: the scanner does not claim full JS parsing.
 # Consume a complete block comment only through its FIRST closing delimiter;
 # do not misinterpret intervening executable import tokens as comment text.
-GAP = r"(?:\s|/\*(?:(?!\*/)[\s\S])*\*/)*"
+# ECMAScript treats U+FEFF as whitespace, unlike Python regex \s.
+# A BOM before a directive or between import tokens is executable syntax.
+GAP = r"(?:\s|\ufeff|/\*(?:(?!\*/)[\s\S])*\*/)*"
 FROM = re.compile(
     r"\b(?:import|export)" + GAP + r"(?:(?!;)[\s\S])*?\bfrom" + GAP
     + r"(['\"])([^'\"\r\n]+)\1"
@@ -49,7 +51,7 @@ LITERAL = re.compile(r"^(['\"])([^'\"]+)\1$")
 # /* license */ "use server" and { // rationale\n "use server" remain
 # executable server actions. A scanner that only skips comments AFTER the
 # directive can misclassify these otherwise non-entrypoint modules as safe.
-DIRECTIVE_GAP = r"(?:\s|/\*(?:(?!\*/)[\s\S])*\*/|//[^\r\n]*(?:\r?\n|$))*"
+DIRECTIVE_GAP = r"(?:\s|\ufeff|/\*(?:(?!\*/)[\s\S])*\*/|//[^\r\n]*(?:\r?\n|$))*"
 SERVER_ACTION = re.compile(
     r"(?m)^[ \t]*" + DIRECTIVE_GAP + r"['\"]use server['\"]"
     + GAP + r"(?:;|(?://[^\r\n]*)?$)"
