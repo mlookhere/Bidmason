@@ -69,6 +69,26 @@ test("bounces, complaints and opt-outs remain suppressions",()=>{
   assert.throws(()=>run([evt("recipient_opted_out"),evt("reserved",1)]),/Suppressed/);
 });
 
+test("opt-out after reservation prevents later new provider acceptance",()=>{
+  const stopFirst=["reserved","recipient_opted_out","provider_accepted"].map(evt);
+  assert.throws(()=>run(stopFirst),/suppressed provider acceptance/);
+  // A forged exact duplicate cannot hide the earlier stop before acceptance.
+  assert.throws(()=>run([stopFirst[0],stopFirst[1],{...stopFirst[1]},stopFirst[2]]),
+    /suppressed provider acceptance/);
+  assert.deepEqual(run(stopFirst.slice(0,2)).suppression,["opted_out"]);
+});
+
+test("late callback for a prior accepted dispatch retains stop-contact evidence",()=>{
+  const accepted=["reserved","provider_accepted","recipient_opted_out",
+    "provider_delivered","provider_complained"].map(evt);
+  const result=run(accepted);
+  assert.equal(result.delivery,"reported_delivered");
+  assert.deepEqual(result.suppression,["complained","opted_out"]);
+  assert.equal(result.state,"simulation-only");
+  for(const claim of ["contactAuthorized","send","approved","deliveryAuthorized"])
+    assert.equal(Object.hasOwn(result,claim),false);
+});
+
 test("cross-organization, recipient or revision dispatch keys are rejected",()=>{
   for(const altered of [
     {organizationId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"},
