@@ -27,6 +27,9 @@ HASH = "a" * 64
 OTHER_HASH = "b" * 64
 CONSENT_EVENT = "11111111-1111-4111-8111-111111111111"
 DEAL_EVENT = "22222222-2222-4222-8222-222222222222"
+SECOND_CONSENT_EVENT = "33333333-3333-4333-8333-333333333333"
+SECOND_REVOCATION_EVENT = "44444444-4444-4444-8444-444444444444"
+SECOND_WITHDRAWAL_EVENT = "55555555-5555-4555-8555-555555555555"
 
 def key(seed):
     return "dryrun_" + hashlib.sha256(seed.encode()).hexdigest()
@@ -286,13 +289,13 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         second = "second@fictional.example"
         self.both()
         self.consent()
-        self.consent(recipient=second, event=DEAL_EVENT)
+        self.consent(recipient=second, event=SECOND_CONSENT_EVENT)
         self.confirm()
         self.confirm(recipient=second)
         self.assertEqual(self.reserve(), "reserved-simulation-only")
         self.assertEqual(self.reserve(recipient=second, seed="second"),
                          "reserved-simulation-only")
-        self.assertEqual(self.revoke(event=CONSENT_EVENT), "fictional-confirmation-revoked")
+        self.assertEqual(self.revoke(), "fictional-confirmation-revoked")
         self.assertEqual(fictional_counts(self.db, ORG), (1, 1, 0))
         self.assertEqual(self.reserve(recipient=second, seed="other-key"),
                          "blocked-existing-recipient-reservation")
@@ -303,12 +306,12 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.consent()
         self.confirm()
         self.assertEqual(self.revoke(), "fictional-confirmation-revoked")
-        self.consent(recipient="second@fictional.example", event=DEAL_EVENT)
+        self.consent(recipient="second@fictional.example", event=SECOND_CONSENT_EVENT)
         self.confirm(recipient="second@fictional.example")
         with self.assertRaisesRegex(ValueError, "Conflicting fictional revocation event ID"):
             self.revoke(recipient="second@fictional.example")
         self.assertEqual(self.revoke(recipient="second@fictional.example",
-                                     event=CONSENT_EVENT),
+                                     event=SECOND_REVOCATION_EVENT),
                          "fictional-confirmation-revoked")
 
     def test_revocation_racing_reservation_never_leaves_pending_work(self):
@@ -367,7 +370,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         second = "second@fictional.example"
         self.assertEqual(self.withdraw_consent(), "blocked-no-existing-consent")
         self.consent()
-        self.consent(recipient=second, event=DEAL_EVENT)
+        self.consent(recipient=second, event=SECOND_CONSENT_EVENT)
         self.assertEqual(self.withdraw_consent(), "fictional-consent-withdrawn")
         self.assertEqual(self.withdraw_consent(), "blocked-duplicate-consent-withdrawal")
         with self.assertRaisesRegex(ValueError, "Conflicting fictional consent withdrawal"):
@@ -375,7 +378,7 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Conflicting fictional consent withdrawal event ID"):
             self.withdraw_consent(recipient=second, event=DEAL_EVENT)
         self.assertEqual(
-            self.withdraw_consent(recipient=second, event=CONSENT_EVENT),
+            self.withdraw_consent(recipient=second, event=SECOND_WITHDRAWAL_EVENT),
             "fictional-consent-withdrawn")
         self.assertEqual(
             self.withdraw_consent(recipient=second, org=OTHER),
