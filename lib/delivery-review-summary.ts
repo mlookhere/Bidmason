@@ -131,8 +131,23 @@ export function summarizeSyntheticDeliveryReview(
   // Reconcile known fictional recipient signals across all case records,
   // regardless of which proposal supplied the evidence. Do not infer that
   // the supplied batch is a complete or authorized recipient history.
-  const reviewed: {recipient: string; result: DeliveryTriage}[] = [];
+  const reviewed: {recipient: string; result: DeliveryTriage;
+    attempts: readonly FollowUpRecord[]}[] = [];
   const recipientHolds = new Map<string, "stop-contact" | "reply-review">();
+  // Every caller-supplied stop signal belongs to the recipient, not merely
+  // to its proposal. Check attempts against the earliest observed stop only
+  // after all current and historical streams have passed existing validation.
+  const earliestStop = new Map<string, string>();
+  const observeStops = (recipient: string, events: readonly DeliveryEvent[]) => {
+    for (const event of events) {
+      if (!["recipient_replied", "recipient_opted_out", "provider_bounced",
+        "provider_complained"].includes(event.kind)) continue;
+      const previous = earliestStop.get(recipient);
+      if (previous === undefined || event.observedAt < previous) {
+        earliestStop.set(recipient, event.observedAt);
+      }
+    }
+  };
   for (const entry of entries) {
     if (!ownData(entry, ENTRY_FIELDS)) {
       throw new TypeError("Invalid simulated review entry");
@@ -176,11 +191,14 @@ export function summarizeSyntheticDeliveryReview(
       throw new TypeError("Cross-proposal simulated follow-up attempt ID collision");
     }
     for (const attemptId of uniqueAttempts) attemptIds.add(attemptId);
+    observeStops(entry.intent.recipient, entry.events);
     for (const history of historicalStreams?.[seen.size - 1] ?? []) {
       recordRevision(history.intent);
       recordEventIds(history, false);
+      observeStops(history.intent.recipient, history.events);
     }
-    reviewed.push({recipient: entry.intent.recipient, result});
+    reviewed.push({recipient: entry.intent.recipient, result,
+      attempts: entry.previousAttempts});
     const hold = recipientHolds.get(entry.intent.recipient);
     if (result.category === "contact-suppressed") {
       recipientHolds.set(entry.intent.recipient, "stop-contact");
@@ -191,7 +209,11 @@ export function summarizeSyntheticDeliveryReview(
   // A stop-contact or reply signal already observed in another proposal for
   // this exact tenant and recipient must not be concealed by a clean-looking
   // case. This changes only redacted counts; it creates no contact authority.
-  for (const {recipient, result} of reviewed) {
+  for (const {recipient, result, attempts} of reviewed) {
+    const stoppedAt = earliestStop.get(recipient);
+    if (stoppedAt !== undefined && attempts.some(attempt => attempt.recordedAt >= stoppedAt)) {
+      throw new TypeError("Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology");
+    }
     const hold = recipientHolds.get(recipient);
     const category = hold === "stop-contact" ? "contact-suppressed"
       : hold === "reply-review" ? "reply-needs-review" : result.category;

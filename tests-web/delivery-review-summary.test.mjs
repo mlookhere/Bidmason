@@ -337,6 +337,59 @@ test("historical stop-contact evidence propagates to same-recipient cases in CRM
     .attention.stopContact,0);
 });
 
+test("known stop-contact events invalidate later cross-proposal follow-up attempts",()=>{
+  const withAttempt=(entry,recordedAt)=>({...entry,previousAttempts:[{
+    attemptId:"55555555-5555-4555-8555-555555555555",
+    organizationId:entry.intent.organizationId,recipient:entry.intent.recipient,
+    idempotencyKey:entry.intent.idempotencyKey,recordedAt,
+  }]});
+  const other=make(1),atStop="2026-10-22T08:03:00.000Z";
+  for (const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]) {
+    const stop=make(0,["reserved","provider_accepted","provider_delivered",kind]);
+    const lateStop={...stop,events:stop.events.map((event,index)=>
+      index===3?{...event,observedAt:atStop}:event)};
+    for (const at of [atStop,"2026-10-22T08:03:00.001Z"]) {
+      const attempted=withAttempt(other,at);
+      for (const records of [[lateStop,attempted],[attempted,lateStop]]) {
+        assert.throws(()=>summary(records),/Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology/,kind);
+      }
+    }
+    const earlier=withAttempt(other,"2026-10-21T09:00:00.000Z");
+    const valid=summary([earlier,lateStop]);
+    assert.equal(valid.reviewedCases,2);
+    assert.equal(count(valid,kind==="recipient_replied"?"reply-needs-review":"contact-suppressed"),2);
+  }
+  const unrelated=recipientCase(other,"other@fictional.example");
+  assert.equal(summary([make(0,["reserved","provider_accepted","provider_bounced"]),
+    withAttempt(unrelated,"2026-10-22T08:03:00.000Z")]).reviewedCases,2);
+});
+
+test("historical contact stops also invalidate cross-proposal attempts without complete history",()=>{
+  const first=make(0),second=make(1);
+  const history=make(4,["reserved","provider_accepted","provider_delivered","recipient_opted_out"]);
+  const historical={intent:history.intent,events:history.events};
+  const attempted={...second,previousAttempts:[{
+    attemptId:"66666666-6666-4666-8666-666666666666",
+    organizationId:second.intent.organizationId,
+    idempotencyKey:second.intent.idempotencyKey,recipient:second.intent.recipient,
+    recordedAt:"2026-10-21T09:00:00.000Z",
+  }]};
+  for (const [records,histories] of [
+    [[first,attempted],[[historical],[]]],
+    [[attempted,first],[[],[historical]]],
+  ]) assert.throws(()=>summarizeSyntheticDeliveryReview(org,records,now,histories),
+    /Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology/);
+  // The same declared attempt is coherent if the prior event happened later.
+  const lateHistorical={intent:history.intent,events:history.events.map((event,index)=>
+    index===3?{...event,observedAt:"2026-10-22T09:00:00.000Z"}:event)};
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,attempted],now,
+    [[lateHistorical],[]]).reviewedCases,2);
+  const separate=recipientCase(attempted,"separate@fictional.example");
+  assert.equal(summarizeSyntheticDeliveryReview(org,[first,separate],now,
+    [[historical],[]]).reviewedCases,2);
+});
+
 test("empty, oversized, sparse and decorated collections are rejected",()=>{
   for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
     assert.throws(()=>summary(entries),/Invalid simulated review batch/);

@@ -1113,3 +1113,29 @@ Missing recipient history is **never** contact clearance. No sender,
 provider, live API, queue, database, customer data, new dependency or
 required CI-gate change was introduced. H01-H13 Auth/RLS, signed provider
 evidence, durable transactional holds and human go/no-go remain blocked.
+
+## Tenant-wide fictional stop-contact chronology for follow-up audits
+
+`summarizeSyntheticDeliveryReview` now compares **all validated current
+follow-up attempts** with the earliest known reply, opt-out, provider bounce,
+or complaint for the same tenant and exact recipient across the current
+batch and its optional supplied historical streams. Previously a different
+proposal's already-recorded contact-stop signal could downgrade the
+redacted review totals but still leave a later cross-proposal attempt
+record accepted as coherent history. Attempts recorded **at or after** a
+known stop now reject the entire synthetic review instead of silently
+counting the attempt. Earlier attempted follow-ups remain valid evidence
+(subject to the existing per-proposal minimum delay and consent checks).
+Both input orders, all four stop kinds, equal timestamp boundaries,
+historical evidence supplied for only one case, and recipient isolation
+have explicit Node regression coverage.
+
+This is a deterministic **audit consistency check on untrusted fictional
+fixtures**, not proof of real events or complete history. It does not
+persist suppression, verify contact consent, authenticate a provider,
+reserve a dispatch, authorize a follow-up or provide a sending route.
+Current redacted output contracts, no-action default and publication
+guards remain unchanged. H01–H13 real tenant RLS/Auth/Storage, approved
+revision and consent, verified signed callbacks, durable atomic
+recipient-wide holds and written human go/no-go are still unverified.
+No CI check or release gate was removed or relaxed.
