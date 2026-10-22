@@ -87,7 +87,12 @@ function projectBatch(
 
     // The strict verifier has already authenticated the fixture HMAC and
     // validated the canonical payload. The reducer validates transitions.
-    const event = JSON.parse(envelope.rawBody.toString("utf8")) as DeliveryEvent;
+    // Reconstruct only from the exact bytes verified above. Buffer.toString
+    // is an overridable instance method; trusting it would let a hostile
+    // fixture substitute a different JSON event after its HMAC was checked.
+    const event = JSON.parse(
+      new TextDecoder("utf-8", {fatal: true}).decode(envelope.rawBody),
+    ) as DeliveryEvent;
     accepted.push(event);
     receipts.push({eventId: result.eventId, bodySha256: result.bodySha256});
     if (!reconcile) projectSimulatedDeliveryEvents(intent, accepted);
