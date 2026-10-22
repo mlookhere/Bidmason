@@ -434,6 +434,16 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
                     self.assertEqual(result, (status, True if body else None))
                     self.assertNotIn(ORG_A, repr(result))
 
+    def test_missing_denial_response_stream_is_not_proof_of_empty_body(self):
+        class Unknown:
+            def open(self, req, timeout):
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+        with patch("ci.item6_rls_readonly_probe.urllib.request.build_opener",
+                   return_value=Unknown()):
+            result = _get(URL + "/rest/v1/bm_memberships", {"apikey": KEY})
+        self.assertEqual(result, (403, True))
+        self.assertNotIn(ORG_A, repr(result))
+
     def test_without_explicit_live_optin_cli_never_connects(self):
         with patch("sys.argv", ["item6_rls_readonly_probe"]), patch(
                 "ci.item6_rls_readonly_probe._get",
