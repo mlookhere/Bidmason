@@ -50,6 +50,32 @@ test("cross-proposal fictional inbox adds counts, deduplicates proposal totals a
     assert.equal(output.includes(sensitive),false);
 });
 
+test("one fictional proposal revision must retain its content across buyers",()=>{
+  const original=identity(FIRST);
+  const changed={...original,recipientSha256:"e".repeat(64),
+    contentSha256:"a".repeat(64)};
+  const own={identity:original,events:[event(21,0,original)]};
+  const altered={identity:changed,events:[event(22,1,changed)]};
+  for(const streams of [[own,altered],[altered,own]]){
+    assert.throws(()=>batch(streams),
+      /Conflicting fictional buyer inbox proposal revision content/);
+  }
+  // A second recipient may have an independent signed grant for precisely
+  // the same immutable document; this must not require identical recipients.
+  const secondRecipient={...original,recipientSha256:"e".repeat(64)};
+  const valid={identity:secondRecipient,events:[event(23,1,secondRecipient)]};
+  assert.equal(batch([own,valid]).eventsReviewed,2);
+  assert.equal(batch([own,valid]).distinctProposals,1);
+
+  // New revisions and different proposals are independent document identities.
+  const revision={...changed,revision:4};
+  const otherProposal={...changed,proposalId:SECOND};
+  for(const identity of [revision,otherProposal]){
+    const result=batch([own,{identity,events:[event(24,1,identity)]}]);
+    assert.equal(result.eventsReviewed,2);
+  }
+});
+
 test("replayed event UUID is rejected across two otherwise valid streams",()=>{
   const first=identity(),second=identity(SECOND);
   const a=event(1,0,first),b=event(1,1,second);
