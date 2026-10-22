@@ -110,8 +110,13 @@ export function verifySyntheticWebhookFixture(
     return {state: "blocked", reason: "Unscoped or unsupported synthetic event"};
   }
   const observed = Date.parse(item.observedAt);
+  // Both the signature timestamp and the signed event time must be fresh
+  // relative to actual receipt. Otherwise two separate five-minute tolerances
+  // permit a synthetic event almost ten minutes old or in the future.
+  const observedSeconds = Math.floor(observed / 1000);
   if (!Number.isFinite(observed) || new Date(observed).toISOString() !== item.observedAt
-      || Math.abs(Math.floor(observed / 1000) - sentAt) > 300) {
+      || Math.abs(observedSeconds - sentAt) > 300
+      || Math.abs(observedSeconds - nowSeconds) > 300) {
     return {state: "blocked", reason: "Inconsistent synthetic event time"};
   }
   const hash = createHash("sha256").update(rawBody).digest("hex");
