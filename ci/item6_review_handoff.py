@@ -17,7 +17,7 @@ from ci.item6_release_evidence import MANIFEST, REQUIRED, evaluate, load
 ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = ROOT / "docs" / "ITEM6_EXTERNAL_ACCEPTANCE_RUNBOOK.md"
 ROW = re.compile(
-    r"^\| H(\d{2}) \| `([a-z0-9-]+)` \| `([A-Za-z0-9:-]+)` "
+    r"^\| H(\d{2}) \| `([a-z0-9-]+)` \| `([A-Za-z0-9_:-]+)` "
     r"\| (.*?) \| (.*?) \|$", re.MULTILINE,
 )
 MAX_RUNBOOK_BYTES = 128 * 1024
