@@ -187,6 +187,38 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'export {x} from "./outbound-preflight";')
         self.verify("lib/exported-action.ts imports offline-only lib/outbound-preflight.ts")
 
+    def test_live_entrypoint_blocks_transitive_mts_and_cts_synthetic_imports(self):
+        self.write("src/lib/synthetic-dispatch-reservation.cts",
+                   "export const fictional = true;")
+        self.write("src/lib/relay.mts",
+                   'export {fictional} from "./synthetic-dispatch-reservation.cts";')
+        self.write("src/app/api/send/route.ts",
+                   'import {fictional} from "../../../lib/relay.mts";')
+        self.verify("src/app/api/send/route.ts imports offline-only "
+                    "src/lib/synthetic-dispatch-reservation.cts")
+
+    def test_module_scoped_mts_server_action_is_a_live_entrypoint(self):
+        self.write("lib/buyer-view-grant.mts", "export const fake = true;")
+        self.write("lib/actions.mts",
+                   '"use server"; export {fake} from "./buyer-view-grant.mts";')
+        self.verify("lib/actions.mts imports offline-only lib/buyer-view-grant.mts")
+
+    def test_extensionless_cts_index_module_is_followed_transitively(self):
+        self.write("lib/wrappers/index.cts",
+                   'export {fake} from "../buyer-response-draft.mts";')
+        self.write("lib/buyer-response-draft.mts", "export const fake = true;")
+        self.write("app/api/response/route.ts",
+                   'import {fake} from "../../../lib/wrappers";')
+        self.verify("app/api/response/route.ts imports offline-only "
+                    "lib/buyer-response-draft.mts")
+
+    def test_safe_mts_and_cts_modules_remain_usable_by_live_routes(self):
+        self.write("lib/ordinary.cts", "export const ok = true;")
+        self.write("lib/wrapper.mts", 'export {ok} from "./ordinary.cts";')
+        self.write("app/api/health/route.ts",
+                   'import {ok} from "../../../lib/wrapper.mts";')
+        self.verify()
+
     def test_ecmascript_bom_before_module_directive_cannot_hide_action(self):
         self.write("lib/buyer-view-grant.ts", "export const x=true;")
         self.write("src/actions.ts",
