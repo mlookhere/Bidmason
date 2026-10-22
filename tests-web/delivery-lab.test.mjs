@@ -4,11 +4,11 @@ import {readFileSync} from "node:fs";
 import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../lib/delivery-lab-fixtures.ts";
 const page=readFileSync(new URL("../app/delivery-lab/page.tsx",import.meta.url),"utf8");
 
-test("six invented cases are derived from actual offline CRM and follow-up logic",()=>{
+test("seven invented cases are derived from actual offline CRM and follow-up logic",()=>{
   const cases=buildSyntheticDeliveryLabCases();
   assert.deepEqual(cases.map(x=>x.id),[
     "painting-reply","cleaning-bounce","painting-consent-unknown","cleaning-internal-candidate",
-    "cleaning-prior-optout","painting-prior-reply",
+    "cleaning-prior-optout","painting-prior-reply","painting-deal-won",
   ]);
   assert.ok(cases.every(x=>x.projection.state==="simulation-only"));
   assert.ok(cases.every(x=>x.triage.state==="review-simulation-only"));
@@ -20,9 +20,9 @@ test("redacted CRM summaries stay tenant-scoped and never imply send authority",
   const grouped=Object.fromEntries(reports.map(x=>[x.company,x.report]));
   const painting=grouped["Fictional painting contractor"];
   const cleaning=grouped["Fictional cleaning contractor"];
-  assert.deepEqual(painting.attention,{stopContact:0,operatorReview:3,deferred:0});
+  assert.deepEqual(painting.attention,{stopContact:0,operatorReview:3,deferred:1});
   assert.deepEqual(cleaning.attention,{stopContact:2,operatorReview:1,deferred:0});
-  assert.equal(painting.reviewedCases,3);
+  assert.equal(painting.reviewedCases,4);
   assert.equal(cleaning.reviewedCases,3);
   for(const {company,report} of reports){
     assert.ok(company.startsWith("Fictional "));
@@ -80,6 +80,21 @@ test("an earlier fictional reply requires manual review despite a due-looking ne
   const serialized=JSON.stringify(priorReply);
   for(const forbidden of ["buyer-prior-reply@", "33333333-3333", "44444444-4444", "dryrun_"])
     assert.ok(!serialized.includes(forbidden),forbidden);
+});
+test("fictional won deal blocks reminders without converting the result into sending authority",()=>{
+  const winner=buildSyntheticDeliveryLabCases().find(x=>x.id==="painting-deal-won");
+  assert.equal(winner.dealOutcome,"won");
+  assert.equal(winner.projection.delivery,"reported_delivered");
+  assert.equal(winner.followUp.state,"blocked");
+  assert.equal(winner.triage.category,"deal-closed");
+  assert.equal(winner.triage.attention,"deferred");
+  assert.equal(winner.triage.contactAuthorized,false);
+  assert.ok(winner.followUp.blockers.some(x=>/won|lost|closed/i.test(x)));
+  assert.match(page,/Won — follow-ups stopped \(fictional\)/);
+  assert.match(page,/No closed outcome in fixture — unverified/);
+  const json=JSON.stringify(winner);
+  for(const forbidden of ["buyer-deal-won@", "55555555-5555", "dryrun_", "idempotencyKey"])
+    assert.ok(!json.includes(forbidden),forbidden);
 });
 test("timing candidate never becomes a sending authorization",()=>{
   const candidate=buildSyntheticDeliveryLabCases().find(x=>x.id==="cleaning-internal-candidate");

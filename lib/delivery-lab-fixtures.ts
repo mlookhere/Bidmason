@@ -2,6 +2,8 @@ import {deliveryIdempotencyKey, type DeliveryIntent} from "./outbound-preflight.
 import {assessSimulatedFollowUp, type FollowUpAssessment} from "./follow-up-assessment.ts";
 import {classifySimulatedRecipientAwareTriage, type RecipientAwareDeliveryTriage} from "./recipient-aware-delivery-triage.ts";
 import type {SyntheticRecipientHistory} from "./recipient-suppression-history.ts";
+import {projectSyntheticDealOutcome, type SyntheticDealOutcomeEvent}
+  from "./synthetic-deal-outcome.ts";
 import {summarizeSyntheticDeliveryReview, type SyntheticReviewEntry, type SimulatedReviewSummary} from "./delivery-review-summary.ts";
 import {
   projectSimulatedDeliveryEvents, type DeliveryEvent, type DeliveryEventKind, type DeliveryProjection,
@@ -24,6 +26,7 @@ type CaseDefinition = {
   events: readonly DeliveryEventKind[];
   earlierOptOutProposalId?: string;
   earlierReplyProposalId?: string;
+  terminal?: "won" | "lost";
 };
 const CASES: readonly CaseDefinition[] = [
   {id:"painting-reply",label:"A reply stops reminders",
@@ -70,18 +73,28 @@ const CASES: readonly CaseDefinition[] = [
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered"],
    earlierReplyProposalId:"44444444-4444-4444-8444-444444444444"},
+  {id:"painting-deal-won",label:"A won deal ends follow-up reminders",
+   company:"Fictional painting contractor",
+   organizationId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+   proposalId:"55555555-5555-4555-8555-555555555555",
+   recipient:"buyer-deal-won@fictional.example",
+   consent:"confirmed",
+   events:["reserved","provider_accepted","provider_delivered"],
+   terminal:"won"},
 ];
 
 export type DeliveryLabCase = {
   id:string;label:string;company:string;
   projection:DeliveryProjection;followUp:FollowUpAssessment;triage:RecipientAwareDeliveryTriage;
   contactState:"fictional-confirmed"|"fictional-unconfirmed";
+  dealOutcome:"unverified"|"won"|"lost";
   historicalSuppression: RecipientAwareDeliveryTriage["historicalSuppression"];
 };
 
 type FixtureRecord = {organizationId:string;company:string;
   publicCase:DeliveryLabCase;review:SyntheticReviewEntry;
-  history: readonly SyntheticRecipientHistory[]};
+  history: readonly SyntheticRecipientHistory[];
+  dealOutcomes: readonly SyntheticDealOutcomeEvent[]};
 
 function buildFixtureRecords(): FixtureRecord[] {
   return CASES.map((scenario, scenarioIndex) => {
@@ -116,15 +129,24 @@ function buildFixtureRecords(): FixtureRecord[] {
         }));
         return [{intent:previousIntent,events:previousEvents}];
       })() : [];
-    const triage=classifySimulatedRecipientAwareTriage(intent,events,policy,[],history,NOW);
+    const dealOutcomes:SyntheticDealOutcomeEvent[]=scenario.terminal ? [{
+      eventId:String(scenarioIndex*10+9).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:intent.revision,kind:scenario.terminal,
+      observedAt:"2026-10-21T08:00:00.000Z",
+    }] : [];
+    const outcome=projectSyntheticDealOutcome(intent,dealOutcomes,NOW);
+    const triage=classifySimulatedRecipientAwareTriage(
+      intent,events,policy,[],history,NOW,dealOutcomes);
     return {
       organizationId:scenario.organizationId,
       company:scenario.company,
       review:{intent,events,policy,previousAttempts:[]},
-      history,
+      history,dealOutcomes,
       publicCase:{id:scenario.id,label:scenario.label,company:scenario.company,
         projection:projectSimulatedDeliveryEvents(intent,events),
-        followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW),
+        followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW,dealOutcomes),
+        dealOutcome:outcome.outcome,
         triage,
         historicalSuppression:triage.historicalSuppression,
         contactState:scenario.consent==="confirmed"?"fictional-confirmed":"fictional-unconfirmed",
@@ -148,7 +170,8 @@ export function buildSyntheticDeliveryLabSummaries(): DeliveryLabSummary[] {
     return {company:scoped[0].company,
       report:summarizeSyntheticDeliveryReview(organizationId,
         scoped.map(record=>record.review),NOW,
-        scoped.map(record=>record.history)),
+        scoped.map(record=>record.history),
+        scoped.map(record=>record.dealOutcomes)),
     };
   });
 }

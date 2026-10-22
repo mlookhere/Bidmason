@@ -1549,3 +1549,30 @@ atomicity, prove complete deal history, or grant permission to contact.
 Actual dispatch requires tenant-trusted source events and transactional
 rechecks of deal outcome, recipient suppression, consent and revision at the
 real send boundary. All H01-H13 live and human production gates remain BLOCKED.
+
+## Visible fictional won-deal cancellation in public delivery lab
+
+The static noindex `/delivery-lab` now includes a **seventh invented case**:
+`painting-deal-won`. Its synthetic delivery history looks internally due,
+but the separately projected fictional `won` event closes that proposal
+and blocks new follow-up. The case shows an explicit **Won — follow-ups
+stopped (fictional)** verdict, a `deal-closed` / `deferred` operator
+classification and a non-sending blocker. The same strictly typed terminal
+outcome evidence is used by the redacted tenant CRM summary, which now
+counts painting's fourth case as deferred; cleaning's independent summary
+remains unchanged. Absence of a fictional closure is labeled **unverified**,
+never an authenticated open deal.
+
+Required Node, Python publication guard and Chromium browser checks cover the
+seven exact fictional scenarios, independent company counts, stop-contact and
+prior-reply precedence, no customer identifiers, no forms or network
+mutations, noindex, keyboard disclosure and responsive viewports. The guard
+remains fail-closed and its explicit allowlist now includes only the existing
+synthetic deal-outcome helper already reached transitively. No new service,
+route, provider, consent proof, persistence, or actual send is enabled.
+
+This improves a public **fabricated demo only**, not a protected operator CRM.
+Live recipient data, real won/lost records, tenant Auth/RLS, provider-native
+signatures, immutable approvals, transactional dispatch, independent review
+and all H01–H13 release evidence remain unverified. Never treat a fictional
+`won` flag as a verified customer or release decision.

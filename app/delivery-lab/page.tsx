@@ -33,7 +33,7 @@ export default function DeliveryLab() {
         <p className="eyebrow">Item 6 · Offline review demonstration</p>
         <h1>Delivery safety lab</h1>
         <p className="lab-lede">
-          These six invented scenarios are calculated from BidMason&apos;s internal
+          These seven invented scenarios are calculated from BidMason&apos;s internal
           CRM projection and follow-up assessment. A reported delivery,
           fictional consent status, or eligible timestamp is never proof of a
           real send or authorization to contact a customer.
@@ -73,6 +73,7 @@ export default function DeliveryLab() {
                 <p className="lab-company">{scenario.company}</p>
                 <dl className="lab-facts">
                   <div><dt>Delivery evidence</dt><dd>{scenario.projection.delivery.replaceAll("_"," ")} (simulated)</dd></div>
+                  <div><dt>Deal outcome</dt><dd>{scenario.dealOutcome==="won"?"Won — follow-ups stopped (fictional)":scenario.dealOutcome==="lost"?"Lost — follow-ups stopped (fictional)":"No closed outcome in fixture — unverified"}</dd></div>
                   <div><dt>Contact state</dt><dd>{scenario.contactState==="fictional-confirmed"?"Fixture states confirmed (unverified)":"Unknown — blocks contact"}</dd></div>
                   <div><dt>Follow-up assessment</dt><dd>{scenario.triage.attention==="stop-contact"||scenario.triage.historicalReplyObserved||scenario.followUp.state==="blocked"?"Blocked":"Internal candidate only — not send approval"}</dd></div>
                   <div><dt>Earlier proposal suppression</dt><dd>{scenario.historicalSuppression.length?scenario.historicalSuppression.join(", ").replaceAll("_"," ")+" (fictional)":"None in fixture — not verified clearance"}</dd></div>
