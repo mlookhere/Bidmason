@@ -1139,3 +1139,32 @@ guards remain unchanged. H01–H13 real tenant RLS/Auth/Storage, approved
 revision and consent, verified signed callbacks, durable atomic
 recipient-wide holds and written human go/no-go are still unverified.
 No CI check or release gate was removed or relaxed.
+
+## Synthetic signed-webhook replay ledger self-consistency
+
+The offline `verifySyntheticWebhookFixture` verifier now rejects a processed
+receipt ledger that contains **the same event ID with two different raw-body
+SHA-256 hashes**, even when that corrupted ID is unrelated to the currently
+presented signed event. The earlier validator checked every individual
+record's shape, then examined only receipts matching the incoming ID; this
+could classify a new event as `fixture-verified-only` while accepting
+contradictory stored evidence for a different event. The full bounded
+caller-provided ledger must now be self-consistent before any fixture
+verification result is reported.
+
+Exact duplicate ID/hash receipt evidence is still allowed and remains
+idempotent. A repeated incoming ID with its exact existing body still
+returns `fixture-duplicate-only`; same-ID/different-hash records reject
+the verification context. Focused tests cover unrelated conflicting ID
+pairs in both orders, harmless identical duplicates and conflicts for the
+incoming event. The synthetic HMAC/domain separator, input limits,
+timestamp checks, real-provider prohibition and required CI gates remain
+unchanged.
+
+No actual provider origin, durable storage, tenant authorization, consent,
+replay resilience across restarts, real signature scheme, or outbound send
+authority is established. A real integration still requires selected
+provider/domain and verified signatures, transactional event deduplication
+and recipient suppression, negative tenant RLS tests, human approvals and
+all H01–H13 release requirements. This adds no API, browser change, queue,
+database or external network operation.

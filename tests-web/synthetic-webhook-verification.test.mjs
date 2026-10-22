@@ -40,6 +40,27 @@ test("identical event replays are recognized but conflict is blocked",()=>{
     {eventId:event.eventId,bodySha256:"0".repeat(64)}]).state,"blocked");
 });
 
+test("processed fixture ledger cannot contain contradictory unrelated event IDs",()=>{
+  const raw=body(event), first=verify(raw);
+  const unrelated="dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const recorded={eventId:unrelated,bodySha256:"a".repeat(64)};
+  const conflicting={eventId:unrelated,bodySha256:"b".repeat(64)};
+  for(const ledger of [[recorded,conflicting],[conflicting,recorded]]){
+    // The incoming event ID is different; ignoring unrelated ledger corruption
+    // would falsely report a coherent synthetic replay ledger.
+    assert.throws(()=>verify(raw,signed(raw),instant,intent,ledger),
+      /Invalid synthetic webhook verification context/);
+  }
+  assert.equal(verify(raw,signed(raw),instant,intent,[recorded,{...recorded}]).state,
+    "fixture-verified-only");
+  const present={eventId:event.eventId,bodySha256:first.bodySha256};
+  assert.equal(verify(raw,signed(raw),instant,intent,[present,{...present}]).state,
+    "fixture-duplicate-only");
+  assert.throws(()=>verify(raw,signed(raw),instant,intent,[present,
+    {...present,bodySha256:"0".repeat(64)}]),
+    /Invalid synthetic webhook verification context/);
+});
+
 test("tampering, wrong keys and malformed signatures are rejected",()=>{
   const raw=body(event), head=signed(raw);
   assert.equal(verify(Buffer.concat([raw,Buffer.from(" ")]),head).state,"blocked");

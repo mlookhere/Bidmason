@@ -44,13 +44,21 @@ function validIntent(value: unknown): value is DeliveryIntent {
 function validLedger(value: unknown): value is SyntheticWebhookReceipt[] {
   if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
       || value.length > 500 || Reflect.ownKeys(value).length !== value.length + 1) return false;
-  return Array.from({length: value.length}, (_, index) => {
+  const seen = new Map<string, string>();
+  for (let index = 0; index < value.length; index++) {
     const item = Object.getOwnPropertyDescriptor(value, String(index));
     if (!item?.enumerable || !Object.hasOwn(item, "value")
         || !exact(item.value, RECEIPT_FIELDS)) return false;
-    return typeof item.value.eventId === "string" && UUID.test(item.value.eventId)
-      && typeof item.value.bodySha256 === "string" && SHA.test(item.value.bodySha256);
-  }).every(Boolean);
+    const receipt = item.value;
+    if (typeof receipt.eventId !== "string" || !UUID.test(receipt.eventId)
+        || typeof receipt.bodySha256 !== "string" || !SHA.test(receipt.bodySha256)) return false;
+    // The whole in-memory fixture must be internally consistent. A conflict
+    // on a different event ID is still unsafe evidence for reconciliation.
+    const previous = seen.get(receipt.eventId);
+    if (previous !== undefined && previous !== receipt.bodySha256) return false;
+    seen.set(receipt.eventId, receipt.bodySha256);
+  }
+  return true;
 }
 
 /** Verify a fictional raw-body HMAC fixture. No provider SDK, route, database,
