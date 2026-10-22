@@ -88,7 +88,7 @@ def _get(url: str, headers: dict[str, str]) -> tuple[int, object]:
         # Ordinary PostgREST JSON error bodies also block this narrow probe
         # until separately reviewed, rather than being assumed harmless.
         try:
-            has_body = error.fp is not None and bool(error.read(1))
+            has_body = error.fp is None or bool(error.read(1))
         finally:
             error.close()
         return error.code, True if has_body else None
