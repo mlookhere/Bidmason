@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ci.item6_sqlite_rehearsal import (
     _DRY_KEY, _UUID, _identity, _reserve_in_transaction, _transaction,
+    _assert_unused_fictional_event_id,
 )
 
 _DIGEST = re.compile(r"[a-f0-9]{64}\Z")
@@ -114,6 +115,7 @@ def record_fictional_consent(
                       "WHERE organization_id=? AND event_id=?",
                       (organization_id, event_id)).fetchone():
             raise ValueError("Conflicting fictional consent event ID")
+        _assert_unused_fictional_event_id(db, organization_id, event_id)
         db.execute("INSERT INTO rehearsal_consent_confirmations VALUES (?,?,?)",
                    (organization_id, recipient, event_id))
         return "fictional-consent-recorded"
@@ -153,6 +155,7 @@ def revoke_fictional_consent(
             (organization_id, recipient)
         ).fetchone():
             return "blocked-no-existing-consent"
+        _assert_unused_fictional_event_id(db, organization_id, event_id)
         db.execute(
             "INSERT INTO rehearsal_consent_revocations VALUES (?,?,?)",
             (organization_id, recipient, event_id)
@@ -244,6 +247,7 @@ def record_fictional_recipient_confirmation(
             (organization_id, event_id)
         ).fetchone():
             raise ValueError("Conflicting fictional recipient event ID")
+        _assert_unused_fictional_event_id(db, organization_id, event_id)
         db.execute(
             "INSERT INTO rehearsal_recipient_confirmations VALUES (?,?,?,?,?,?,?)",
             (organization_id, proposal_id, revision, content_sha256, recipient,
@@ -287,6 +291,7 @@ def revoke_fictional_recipient_confirmation(
             (organization_id, proposal_id, revision, recipient)
         ).fetchone():
             return "blocked-no-matching-recipient-confirmation"
+        _assert_unused_fictional_event_id(db, organization_id, event_id)
         db.execute(
             "INSERT INTO rehearsal_recipient_confirmation_revocations "
             "VALUES (?,?,?,?,?)",
