@@ -182,10 +182,37 @@ def _module_mapping_findings(root: Path) -> list[str]:
     return problems
 
 
+def _source_symlink_findings(root: Path) -> list[str]:
+    """Symlinked live sources can evade ordinary entrypoint traversal.
+
+    Refuse executable symlinks and source-tree directory symlinks before
+    following any imports; do not follow symlinks or inspect their targets.
+    Generated dependencies and build directories are outside this policy.
+    """
+    problems: list[str] = []
+    for path in root.rglob("*"):
+        rel = path.relative_to(root)
+        if any(part in EXCLUDED_DIRS for part in rel.parts):
+            continue
+        parts = rel.parts
+        is_source_tree = parts[0] in {"app", "pages", "lib", "src"}
+        is_root_runtime = (len(parts) == 1
+            and path.stem in GLOBAL_STEMS
+            and path.suffix in SOURCE_SUFFIXES)
+        if not (is_source_tree or is_root_runtime) or not path.is_symlink():
+            continue
+        # A symlinked directory may hide arbitrarily many executable files.
+        # A source file symlink may resolve beyond the repository entirely.
+        if path.suffix in SOURCE_SUFFIXES or path.is_dir() or not path.exists():
+            problems.append(f"{rel.as_posix()}: unreviewed symlinked source path")
+    return problems
+
+
 def findings(root: Path = ROOT) -> list[str]:
     """Fail live server entrypoints closed on simulated imports and ambiguity."""
     root = root.resolve()
     violations: set[str] = set(_module_mapping_findings(root))
+    violations.update(_source_symlink_findings(root))
     for entry in _entrypoints(root):
         pending = [entry]
         visited: set[Path] = set()
