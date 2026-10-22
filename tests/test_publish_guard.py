@@ -80,7 +80,7 @@ class PublishGuardTests(unittest.TestCase):
                      'import "./side-effect.ts";'):
             with self.subTest(code=code):
                 self.with_lab()
-                target.write_text(target.read_text() + "\\n" + code + "\\n")
+                target.write_text(target.read_text() + "\n" + code + "\n")
                 self.assertTrue(any("lib/synthetic-deal-outcome.ts" in message
                                     for message in findings(self.root)))
         self.with_lab()
