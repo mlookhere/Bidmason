@@ -80,7 +80,7 @@ class PublishGuardTests(unittest.TestCase):
         ):
             with self.subTest(code=code):
                 self.with_lab()
-                target.write_text(target.read_text() + "\\n" + code + "\\n")
+                target.write_text(target.read_text() + "\n" + code + "\n")
                 self.assertTrue(any(
                     "lib/synthetic-crm-pipeline.ts" in finding
                     and ("offline and read-only" in finding or "transitive imports" in finding)
