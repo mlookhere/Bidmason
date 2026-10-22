@@ -413,6 +413,27 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
                         _get(URL + "/rest/v1/bm_memberships", {"apikey": KEY})
                 self.assertEqual(opened.calls, 1)
 
+    def test_transport_denial_body_cannot_be_misclassified_as_empty(self):
+        class Denied:
+            def __init__(self, status, body):
+                self.status, self.body = status, body
+
+            def open(self, req, timeout):
+                raise urllib.error.HTTPError(
+                    req.full_url, self.status, "Denied", {}, io.BytesIO(self.body))
+
+        for status in (401, 403):
+            for body in (b"", b'{"code":"42501","message":"permission denied"}',
+                         ('[{"id":"' + ORG_A + '"}]').encode(),
+                         b"x" * (MAX_RESPONSE + 1)):
+                with self.subTest(status=status, body_length=len(body)):
+                    with patch("ci.item6_rls_readonly_probe.urllib.request.build_opener",
+                               return_value=Denied(status, body)):
+                        result = _get(URL + "/rest/v1/bm_organizations",
+                                      {"apikey": KEY})
+                    self.assertEqual(result, (status, True if body else None))
+                    self.assertNotIn(ORG_A, repr(result))
+
     def test_without_explicit_live_optin_cli_never_connects(self):
         with patch("sys.argv", ["item6_rls_readonly_probe"]), patch(
                 "ci.item6_rls_readonly_probe._get",
