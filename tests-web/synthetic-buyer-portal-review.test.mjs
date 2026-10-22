@@ -17,7 +17,8 @@ const TOKEN=createBuyerViewGrant(IDENTITY,SECRET,NOW,120);
 const DRAFT={...IDENTITY,kind:"question",note:"Is the start date flexible?"};
 const review=(changed={})=>reviewSyntheticBuyerPortal(
   changed.identity??IDENTITY,changed.token??TOKEN,changed.key??SECRET,
-  changed.now??NOW,changed.revoked??[],changed.responded??[],
+  changed.now??NOW,changed.revoked??[],
+  Object.hasOwn(changed,"responded")?changed.responded:[],
   Object.hasOwn(changed,"draft")?changed.draft:undefined,
 );
 
