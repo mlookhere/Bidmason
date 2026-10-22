@@ -77,6 +77,9 @@ export class SyntheticDispatchReservationLedger {
   // Terminal outcomes are proposal-wide, not recipient-scoped. This volatile
   // map intentionally has no reopen/remove action or live event authority.
   #closedProposals = new Map<string, string>();
+  // A terminal UUID identifies only one proposal in a given fictional tenant.
+  // Checking proposal keys alone misses replayed events against another deal.
+  #closureEventOwners = new Map<string, string>();
 
   #key(intent: DeliveryIntent): string {
     return intent.organizationId + "\u0000" + intent.recipient;
@@ -256,9 +259,15 @@ export class SyntheticDispatchReservationLedger {
       return {state:"blocked", reason:"duplicate-deal-closure",
         invalidatedReservations:0,contactAuthorized:false};
     }
-    // One synchronous in-memory change: subsequent reservations see the
-    // proposal-wide closure, and all its pending fictional locks are removed.
+    const eventKey = intent.organizationId + "\u0000" + terminal.eventId;
+    const priorOwner = this.#closureEventOwners.get(eventKey);
+    if (priorOwner !== undefined && priorOwner !== proposalKey) {
+      throw new TypeError("Conflicting fictional terminal event identity across proposals");
+    }
+    // Both maps change synchronously only after full validation. A rejected
+    // cross-proposal replay cannot close the target or release its reservations.
     this.#closedProposals.set(proposalKey, claim);
+    this.#closureEventOwners.set(eventKey, proposalKey);
     let invalidatedReservations = 0;
     const tenantPrefix = intent.organizationId + "\u0000";
     for (const [recipientKey, record] of this.#records) {
