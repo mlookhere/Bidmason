@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHmac, randomBytes} from "node:crypto";
 import {deliveryIdempotencyKey} from "../lib/outbound-preflight.ts";
-import {projectSignedSyntheticWebhookBatch}
+import {projectSignedSyntheticWebhookBatch, reconcileSignedSyntheticWebhookBatch}
   from "../lib/synthetic-webhook-batch.ts";
 
 const base = {
@@ -77,6 +77,37 @@ test("an overridden Buffer.toString cannot substitute unsigned callback JSON",()
     value(){throw Error("Untrusted Buffer.toString invoked after HMAC verification");},
   });
   assert.throws(()=>project([accepted,next]),/Unexpected provider acceptance/);
+});
+
+test("payload mutation between HMAC verification and event projection cannot change signed meaning",()=>{
+  for(const projectMode of [projectSignedSyntheticWebhookBatch, reconcileSignedSyntheticWebhookBatch]){
+    const accepted=signed(event("provider_accepted",1));
+    const forged=Buffer.from(JSON.stringify(event("recipient_replied",1)));
+    assert.equal(forged.length,accepted.rawBody.length);
+    const OriginalDecoder=globalThis.TextDecoder;
+    let decodes=0;
+    // Deterministically emulate an external mutation of caller-owned bytes
+    // after the first decode, but before the batch reconstructs the event.
+    globalThis.TextDecoder=class extends OriginalDecoder {
+      decode(...args){
+        const result=super.decode(...args);
+        if(++decodes===1) accepted.rawBody.set(forged);
+        return result;
+      }
+    };
+    try {
+      const result=projectMode(intent,reservation,[accepted],secret);
+      assert.equal(result.projection.delivery,"accepted");
+      assert.deepEqual(result.projection.timeline.map(e=>e.kind),
+        ["reserved","provider_accepted"]);
+      assert.equal(result.newEvents,1);
+      assert.equal(result.duplicateEvents,0);
+      assert.equal(decodes,2);
+      assert.deepEqual(accepted.rawBody,forged);
+    } finally {
+      globalThis.TextDecoder=OriginalDecoder;
+    }
+  }
 });
 
 test("identical signed replay deduplicates without repeating CRM transitions",()=>{
