@@ -243,6 +243,17 @@ def _review_gate_in_transaction(
     revision: int, content_sha256: str, recipient: str,
 ) -> str | None:
     """Fictional review and consent checks, with an existing write transaction."""
+    # A known contact stop or closed deal must win even when receipts are absent.
+    if db.execute(
+        "SELECT 1 FROM rehearsal_contact_signals "
+        "WHERE organization_id=? AND recipient=?",
+        (organization_id, recipient)).fetchone():
+        return "blocked-contact-hold"
+    if db.execute(
+        "SELECT 1 FROM rehearsal_deal_closures "
+        "WHERE organization_id=? AND proposal_id=?",
+        (organization_id, proposal_id)).fetchone():
+        return "blocked-closed-deal"
     # A newer *partial* review freezes older revisions, including a forged
     # single-signer revocation race; there is no reopen or downgrade path.
     newest = db.execute(
