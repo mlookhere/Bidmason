@@ -109,7 +109,7 @@ class FakeTransport:
                 rows = []
             if self.revision_leak and requested == other_rev:
                 rows = [{"id": other_rev, "organization_id": other_org}]
-            if self.revision_list_leak and not requested:
+            if self.revision_list_leak and not requested and not scoped_org:
                 rows.append({"id": other_rev, "organization_id": other_org})
             if (self.foreign_revision_list_leak
                     and query.get("organization_id") == ["eq." + other_org]
