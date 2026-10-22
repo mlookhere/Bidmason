@@ -90,3 +90,37 @@ Until that record exists and an independently reviewed production-side gate
 enforces it, leave Item 6 in `Developing`, PR #15 **draft/unmerged** and
 `releaseState: blocked`. Do not assume merging or deploying is safe solely
 because offline CI is green.
+
+## CI isolation of fictional delivery models from live server routes
+
+The **offline-only** TypeScript delivery helpers exercise invented events,
+caller-supplied review/consent fixtures, in-memory CAS, short-lived simulated
+buyer grants and nonbinding draft responses. Their green CI checks cannot
+constitute production permission to send, authenticate, reveal a proposal,
+accept a binding response, or close a real customer deal.
+
+New `ci/item6_runtime_boundary.py` checks whether an executable
+**live server entrypoint** can import any of these helpers. It traverses
+static local ESM imports/re-exports (including multiline and type imports),
+literal `require()` and `import()`, known local path aliases, and
+**transitive** local modules. Live entrypoints include `app/**/route.*`,
+`src/app/**/route.*`, `pages/api/**`, `src/pages/api/**`,
+root or `src/` middleware/instrumentation, and modules declaring
+`"use server"`. Unknown dynamic module loading and unresolved local
+code dependencies inside these trees fail the boundary check rather than
+being silently treated as safe. The static scanner checks a fixed list
+of offline delivery modules; it does not claim to parse the full TS/JS
+language or audit external packages.
+
+The gate is **additive** to the pre-existing fast, PR and security suites
+and executes through `ci/run.py`, including native Windows fast.
+It does **not** prohibit the explicitly labeled, fictional,
+non-customer-facing `/delivery-lab` page from rendering internal
+simulations. Eleven negative/positive Python tests cover direct and
+transitive imports, aliases, server actions, dynamic imports,
+middleware, scoped pages/API routes, unresolved modules and preview
+isolation. A passing gate means only that **known static routes** do not
+currently expose the offline modules; it is **not** a guarantee of
+authenticity, complete dependency resolution, real API authorization,
+or production readiness. Any future real sender, webhook receiver,
+buyer portal or API still requires H01–H13 live external verification.
