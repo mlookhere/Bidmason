@@ -71,10 +71,10 @@ test("bounces, complaints and opt-outs remain suppressions",()=>{
 
 test("opt-out after reservation prevents later new provider acceptance",()=>{
   const stopFirst=["reserved","recipient_opted_out","provider_accepted"].map(evt);
-  assert.throws(()=>run(stopFirst),/suppressed provider acceptance/);
+  assert.throws(()=>run(stopFirst),/provider acceptance after recipient stop-contact/);
   // A forged exact duplicate cannot hide the earlier stop before acceptance.
   assert.throws(()=>run([stopFirst[0],stopFirst[1],{...stopFirst[1]},stopFirst[2]]),
-    /suppressed provider acceptance/);
+    /provider acceptance after recipient stop-contact/);
   assert.deepEqual(run(stopFirst.slice(0,2)).suppression,["opted_out"]);
 });
 
