@@ -24,7 +24,16 @@ UNSAFE = (
 # The command must occur in an executable run step, not only a comment.
 # Every core PR check must remain an unconditional, failure-propagating job.
 # Additional slice gates become mandatory when their executable marker exists.
-CORE_JOBS = ("fast", "pr", "security", "web-build", "win-fast", "pdf-qa", "browser-e2e")
+CORE_JOB_COMMANDS = {
+    "fast": "bash ci/run fast",
+    "pr": "bash ci/run pr",
+    "security": "bash ci/run security",
+    "web-build": "bash ci/run web",
+    "win-fast": "./ci/run.ps1 fast",
+    "pdf-qa": "bash ci/run pdf",
+    "browser-e2e": "python3 ci/browser_qa.py",
+}
+CORE_JOBS = tuple(CORE_JOB_COMMANDS)
 NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \t]+(?:-[ \t]+)?(if|continue-on-error):(?:[ \t]|$)")
 
 
@@ -65,6 +74,13 @@ def _job_blocks(source: str) -> tuple[dict[str, str], set[str]]:
     return blocks, duplicates
 
 
+def _has_executable_run(block: str, command: str) -> bool:
+    return re.search(
+        r"(?m)^[ \\t]+run:[ \\t]*" + re.escape(command) + r"[ \\t]*$",
+        block,
+    ) is not None
+
+
 def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
     """Preserve unconditional, failure-propagating core and feature CI gates."""
     blocks, duplicates = _job_blocks(source)
@@ -77,10 +93,7 @@ def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
         block = blocks.get(name)
         if block is None:
             problems.append(f"missing {name} job for {marker}")
-        elif not re.search(
-            r"(?m)^[ \t]+run:[ \t]*" + re.escape(command) + r"[ \t]*$",
-            block,
-        ):
+        elif not _has_executable_run(block, command):
             problems.append(f"missing substantive {name} run command for {marker}")
 
     for name in sorted(required):
@@ -89,6 +102,10 @@ def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
             if name in CORE_JOBS:
                 problems.append(f"missing required core CI job: {name}")
             continue
+        if name in CORE_JOB_COMMANDS and not _has_executable_run(
+            block, CORE_JOB_COMMANDS[name]
+        ):
+            problems.append(f"missing substantive core {name} run command")
         # A job-level or step-level condition can silently skip its only test.
         # continue-on-error can hide an actual failure behind a green job.
         # Do not parse these fragile YAML constructs as harmless conditions.
