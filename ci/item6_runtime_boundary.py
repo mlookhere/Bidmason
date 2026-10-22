@@ -109,16 +109,16 @@ def findings(root: Path = ROOT) -> list[str]:
             visited.add(path)
             rel = path.relative_to(root).as_posix()
             if any(rel.startswith(prefix) for prefix in FORBIDDEN):
-                violations.add(f"{entry.relative_to(root)} imports offline-only {rel}")
+                violations.add(f"{entry.relative_to(root).as_posix()} imports offline-only {rel}")
                 continue
             specs, dynamic = _imports(path.read_text(encoding="utf-8"))
             if dynamic:
-                violations.add(f"{path.relative_to(root)} has unreviewed dynamic module loading")
+                violations.add(f"{path.relative_to(root).as_posix()} has unreviewed dynamic module loading")
             for spec in sorted(specs):
                 try:
                     child = _resolve(root, path, spec)
                 except ValueError as error:
-                    violations.add(f"{path.relative_to(root)}: {error} ({spec})")
+                    violations.add(f"{path.relative_to(root).as_posix()}: {error} ({spec})")
                     continue
                 if child is not None:
                     pending.append(child)
