@@ -13,7 +13,7 @@ from ci.item6_sqlite_rehearsal import (
 from ci.item6_sqlite_review_gate import (
     record_fictional_review, record_fictional_consent, reserve_reviewed_fictional,
     record_fictional_recipient_confirmation,
-    revoke_fictional_recipient_confirmation,
+    revoke_fictional_recipient_confirmation, revoke_fictional_consent,
 )
 
 ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -323,6 +323,75 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(fictional_counts(self.db, ORG)[0], 0)
         self.assertEqual(self.reserve(seed="retry"),
                          "blocked-recipient-confirmation-revoked")
+
+    def withdraw_consent(self, recipient=RECIPIENT, event=DEAL_EVENT, org=ORG):
+        return revoke_fictional_consent(self.db, org, recipient, event)
+
+    def test_withdrawal_of_consent_invalidates_pending_reviewed_work(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+        self.assertEqual(self.withdraw_consent(), "fictional-consent-withdrawn")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 1, 0))
+        self.assertEqual(self.reserve(seed="later"), "blocked-consent-withdrawn")
+        self.assertEqual(self.confirm(seed="new-confirm"), "blocked-consent-withdrawn")
+        self.assertEqual(self.consent(), "blocked-consent-withdrawn")
+        self.assertEqual(self.withdraw_consent(), "blocked-duplicate-consent-withdrawal")
+
+    def test_consent_withdrawal_does_not_equal_permanent_opt_out(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        self.assertEqual(self.withdraw_consent(), "fictional-consent-withdrawn")
+        self.assertEqual(self.reserve(), "blocked-consent-withdrawn")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 0))
+        # A distinct explicit contact opt-out still has higher precedence.
+        self.assertEqual(record_fictional_contact_signal(
+            self.db, ORG, PROPOSAL, RECIPIENT, "opted_out"), 0)
+        self.assertEqual(self.reserve(seed="after-stop"), "blocked-contact-hold")
+
+    def test_withdrawn_consent_blocks_a_separately_reviewed_proposal(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        self.review("operator", OPERATOR, proposal=OTHER_PROPOSAL)
+        self.review("contractor", CONTRACTOR, proposal=OTHER_PROPOSAL)
+        self.confirm(proposal=OTHER_PROPOSAL)
+        self.assertEqual(self.withdraw_consent(), "fictional-consent-withdrawn")
+        self.assertEqual(
+            self.reserve(proposal=OTHER_PROPOSAL, seed="new-proposal"),
+            "blocked-consent-withdrawn")
+
+    def test_consent_withdrawal_replay_event_identity_and_scope(self):
+        second = "second@fictional.example"
+        self.assertEqual(self.withdraw_consent(), "blocked-no-existing-consent")
+        self.consent()
+        self.consent(recipient=second, event=DEAL_EVENT)
+        self.assertEqual(self.withdraw_consent(), "fictional-consent-withdrawn")
+        self.assertEqual(self.withdraw_consent(), "blocked-duplicate-consent-withdrawal")
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional consent withdrawal"):
+            self.withdraw_consent(event=CONSENT_EVENT)
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional consent withdrawal event ID"):
+            self.withdraw_consent(recipient=second, event=DEAL_EVENT)
+        self.assertEqual(
+            self.withdraw_consent(recipient=second, event=CONSENT_EVENT),
+            "fictional-consent-withdrawn")
+        self.assertEqual(
+            self.withdraw_consent(recipient=second, org=OTHER),
+            "blocked-no-existing-consent")
+
+    def test_consent_withdrawal_racing_reviewed_reservation_blocks_work(self):
+        self.both()
+        self.consent()
+        self.confirm()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            reserve = pool.submit(self.reserve)
+            withdrawal = pool.submit(self.withdraw_consent)
+            reserve.result()
+            self.assertEqual(withdrawal.result(), "fictional-consent-withdrawn")
+        self.assertEqual(fictional_counts(self.db, ORG)[0], 0)
+        self.assertEqual(self.reserve(seed="retry"), "blocked-consent-withdrawn")
 
     def test_invalid_revision_digest_actor_or_real_recipient_rejected(self):
         for revision in (0, -1, True, 1.25, 1000001):
