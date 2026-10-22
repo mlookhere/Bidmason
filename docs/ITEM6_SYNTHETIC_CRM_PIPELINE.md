@@ -14,6 +14,12 @@ The pure `summarizeSyntheticCrmPipeline` function in `lib/synthetic-crm-pipeline
 
 The output always contains `state:"crm-simulation-only"`, `contactAuthorized:false`, `dataComplete:false`. No action, send endpoint, webhook, live CRM integration, storage write or proposal access was added.
 
+## Fictional delivery-lab presentation
+
+The existing static `/delivery-lab` page now shows the same redacted, tenant-scoped `SyntheticCrmPipeline` counts alongside the prior review/attention totals. `buildSyntheticDeliveryLabSummaries` groups the already-invented seven case fixtures by **organization UUID**, then calls `summarizeSyntheticCrmPipeline` with the corresponding full event, outcome and history matrices. No case data or buyer identifiers are newly serialized into the page. The display explicitly distinguishes **delivery counts per case** from **deal counts per unique proposal** and labels every total fictional and incomplete.
+
+`tests-web/delivery-lab.test.mjs` checks each fictional company's stage and deal totals, reviewer-count reconciliation, zero contact authority, absent sensitive identifiers, and the static page's disabled-input contract. This is a non-interactive preview, not a CRM dashboard connected to actual tenants.
+
 ## Offline verification
 
 `tests-web/synthetic-crm-pipeline.test.mjs` covers redacted multi-case aggregation, same-proposal multi-recipient deduplication, missing outcomes, adversarial matrix shapes/getters, wrong-tenant/malformed evidence, contradictory closure/replayed event identifiers, aligned history and a closure carried across proposal revisions.
