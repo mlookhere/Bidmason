@@ -202,6 +202,11 @@ def _reserve_in_transaction(
     if db.execute("SELECT 1 FROM rehearsal_contact_signals WHERE organization_id=? AND recipient=?",
                   (organization_id, recipient)).fetchone():
         return "blocked-contact-hold"
+    if db.execute(
+        "SELECT 1 FROM rehearsal_consent_revocations "
+        "WHERE organization_id=? AND recipient=?",
+        (organization_id, recipient)).fetchone():
+        return "blocked-consent-withdrawn"
     if db.execute("SELECT 1 FROM rehearsal_deal_closures WHERE organization_id=? AND proposal_id=?",
                   (organization_id, proposal_id)).fetchone():
         return "blocked-closed-deal"
