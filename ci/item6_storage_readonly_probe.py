@@ -14,9 +14,9 @@ from ci.item6_rls_readonly_probe import _claims, _get, _NoRedirect, UUID, HOST, 
 PATH = re.compile(
     r"([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/"
     r"([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})"
-    r"\\.(pdf|png|jpg|jpeg)\\Z"
+    r"\.(pdf|png|jpg|jpeg)\Z"
 )
-CONTENT_RANGE = re.compile(r"bytes 0-0/([1-9][0-9]{0,9})\\Z")
+CONTENT_RANGE = re.compile(r"bytes 0-0/([1-9][0-9]{0,9})\Z")
 BUCKET = "bm-evidence"
 EXPECTED = (
     "user-1-auth", "user-2-auth",
