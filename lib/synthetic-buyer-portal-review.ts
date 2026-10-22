@@ -16,7 +16,8 @@ export type SyntheticBuyerPortalReview = {
   state: "portal-simulation-only";
   view: "signed-claims-only" | "blocked";
   response: "not-requested" | "draft-internal-only" | "blocked";
-  reason: "none" | "grant-not-verified" | "draft-not-verified";
+  reason: "none" | "grant-not-verified" | "draft-not-verified" |
+    "response-already-in-supplied-history";
   contentAccessible: false;
   responseSubmitted: false;
   contactAuthorized: false;
@@ -63,9 +64,15 @@ export function reviewSyntheticBuyerPortal(
     };
   }
   if (draft===undefined) {
+    // A prior response claim must not disappear merely because no new draft
+    // was supplied. This proves only caller-supplied history, not a durable
+    // recorded buyer response or authentication.
+    const prior = respondedGrantIds.includes(view.grantId);
     return {
       state:"portal-simulation-only",
-      view:"signed-claims-only",response:"not-requested",reason:"none",
+      view:"signed-claims-only",
+      response:prior?"blocked":"not-requested",
+      reason:prior?"response-already-in-supplied-history":"none",
       contentAccessible:false,responseSubmitted:false,
       contactAuthorized:false,dataComplete:false,
     };
@@ -80,7 +87,10 @@ export function reviewSyntheticBuyerPortal(
     view:"signed-claims-only",
     response:assessment.state==="draft-internal-only"
       ?"draft-internal-only":"blocked",
-    reason:assessment.state==="draft-internal-only"?"none":"draft-not-verified",
+    reason:assessment.state==="draft-internal-only"
+      ?"none"
+      :respondedGrantIds.includes(view.grantId)
+        ?"response-already-in-supplied-history":"draft-not-verified",
     contentAccessible:false,responseSubmitted:false,
     contactAuthorized:false,dataComplete:false,
   };
