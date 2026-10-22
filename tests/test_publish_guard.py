@@ -67,6 +67,28 @@ class PublishGuardTests(unittest.TestCase):
                 self.assertTrue(any("Unreviewed public lab transitive imports" in e
                                     for e in findings(self.root)))
 
+    def test_new_deal_outcome_dependency_stays_publicly_safe(self):
+        # The exact fictional outcome helper is reachable from the public lab
+        # via current CRM triage; additions must not gain external side effects.
+        self.with_lab()
+        self.assertEqual(findings(self.root), [])
+        target = self.root / "lib/synthetic-deal-outcome.ts"
+        for code in ("fetch('https://customer.example/api')",
+                     "process.env.PROVIDER_SECRET",
+                     'import {send} from "./mailer.ts";',
+                     'export {send} from "./mailer.ts";',
+                     'import "./side-effect.ts";'):
+            with self.subTest(code=code):
+                self.with_lab()
+                target.write_text(target.read_text() + "\\n" + code + "\\n")
+                self.assertTrue(any("lib/synthetic-deal-outcome.ts" in message
+                                    for message in findings(self.root)))
+        self.with_lab()
+        target.unlink()
+        self.assertTrue(any("Missing or symlinked lab dependency" in message
+                            and "lib/synthetic-deal-outcome.ts" in message
+                            for message in findings(self.root)))
+
     def test_missing_and_symlinked_transitive_modules_fail_closed(self):
         self.with_lab()
         helper = self.root / "lib/recipient-suppression-history.ts"

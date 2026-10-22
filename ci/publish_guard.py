@@ -57,10 +57,11 @@ LAB_TRANSITIVE_IMPORTS = {
     "lib/delivery-event-projection.ts": {"./outbound-preflight.ts"},
     "lib/follow-up-assessment.ts": {
         "./outbound-preflight.ts", "./delivery-event-projection.ts",
+        "./synthetic-deal-outcome.ts",
     },
     "lib/delivery-triage.ts": {
         "./outbound-preflight.ts", "./follow-up-assessment.ts",
-        "./delivery-event-projection.ts",
+        "./delivery-event-projection.ts", "./synthetic-deal-outcome.ts",
     },
     "lib/recipient-suppression-history.ts": {
         "./outbound-preflight.ts", "./delivery-event-projection.ts",
@@ -68,13 +69,16 @@ LAB_TRANSITIVE_IMPORTS = {
     "lib/recipient-aware-delivery-triage.ts": {
         "./outbound-preflight.ts", "./delivery-event-projection.ts",
         "./follow-up-assessment.ts", "./delivery-triage.ts",
-        "./recipient-suppression-history.ts",
+        "./recipient-suppression-history.ts", "./synthetic-deal-outcome.ts",
     },
     "lib/delivery-review-summary.ts": {
         "./outbound-preflight.ts", "./delivery-event-projection.ts",
         "./follow-up-assessment.ts", "./delivery-triage.ts",
         "./recipient-aware-delivery-triage.ts",
-        "./recipient-suppression-history.ts",
+        "./recipient-suppression-history.ts", "./synthetic-deal-outcome.ts",
+    },
+    "lib/synthetic-deal-outcome.ts": {
+        "./outbound-preflight.ts", "./delivery-event-projection.ts",
     },
 }
 LAB_REEXPORT = re.compile(r"\bexport\s+(?:type\s+)?(?:\{[^}]*\}|\*)\s+from\s*['\"]", re.S)
