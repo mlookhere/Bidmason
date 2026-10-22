@@ -74,6 +74,7 @@ export function summarizeSyntheticBuyerInbox(
     if(!plainExact(record,FIELDS) || typeof record.eventId!=="string"
       || !UUID.test(record.eventId) || seenEvents.has(record.eventId)
       || typeof record.viewToken!=="string"
+      || typeof record.observedAtSeconds!=="number"
       || !Number.isSafeInteger(record.observedAtSeconds)
       || record.observedAtSeconds<0 || record.observedAtSeconds>nowSeconds
       || record.observedAtSeconds<latest){
