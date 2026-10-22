@@ -1251,3 +1251,28 @@ a buyer, not permission to submit or accept, and cannot authorize a
 contact, provider operation, live portal or real delivery. The required
 H01–H13 tenant, consent, provider, transaction, review and human
 release approvals remain unverified and blocked.
+
+## Cross-proposal simultaneous follow-up audit conflicts (fictional CRM only)
+
+The tenant-local, redacted `summarizeSyntheticDeliveryReview` now rejects
+two **different proposals for the exact same fictional recipient** claiming
+follow-up attempts at the **exact same canonical UTC timestamp**. Previously
+the independent per-proposal follow-up histories could each pass validation,
+and tenant-wide attempted-ID uniqueness would accept different IDs even
+when the two proposals' contact activities collided at the same instant.
+Every underlying attempt remains subject to the existing delivery, consent,
+per-proposal delay, replay, and contact-stop chronology checks before the
+new aggregate check. Exact replays within one proposal remain idempotent.
+Opposite input orders reject identically; distinct recipients, tenant-local
+separate reports, and distinct attempt times remain independent.
+
+This is deliberately an **exact timestamp collision** only, not an
+invented company-wide delay or contact-policy rule across different
+proposals. Fictional caller-provided attempt records cannot prove actual
+email activity, recipient ownership, completeness of history or real
+contact authorization. The returned report still exposes only aggregated
+`review-simulation-only` counts. No provider, user data, HTTP route,
+persistent CRM, sender, database transaction or CI requirement was
+changed. H01–H13 verified tenant identity, consent, provider signatures,
+durable recipient-wide holds, independent review and written human
+go/no-go remain unverified and blocking.

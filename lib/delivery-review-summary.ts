@@ -85,6 +85,10 @@ export function summarizeSyntheticDeliveryReview(
   // IDs identify a fictional attempt across this tenant's whole review,
   // not just inside a single proposal's follow-up timeline.
   const attemptIds = new Set<string>();
+  // Distinct proposals cannot both claim a fictional contact attempt for
+  // the exact same tenant/recipient instant. This is audit consistency,
+  // NOT an invented cross-proposal business cooldown or send authority.
+  const recipientAttemptTimes = new Map<string, string>();
   const revisionClaims = new Map<string,string>();
   const proposalRevisions = new Map<string,string>();
   const recordRevision = (intent: DeliveryIntent) => {
@@ -189,6 +193,17 @@ export function summarizeSyntheticDeliveryReview(
     const uniqueAttempts = new Set(entry.previousAttempts.map(attempt => attempt.attemptId));
     if ([...uniqueAttempts].some(attemptId => attemptIds.has(attemptId))) {
       throw new TypeError("Cross-proposal simulated follow-up attempt ID collision");
+    }
+    for (const attempt of entry.previousAttempts) {
+      // Each proposal assessor has validated timestamp, replay and identity.
+      // Exact within-proposal replay remains idempotent; separate proposals
+      // making the same recipient-contact claim at one instant are ambiguous.
+      const slot = JSON.stringify([entry.intent.recipient, attempt.recordedAt]);
+      const existing = recipientAttemptTimes.get(slot);
+      if (existing !== undefined && existing !== key) {
+        throw new TypeError("Cross-proposal simulated recipient follow-up timestamp collision");
+      }
+      recipientAttemptTimes.set(slot, key);
     }
     for (const attemptId of uniqueAttempts) attemptIds.add(attemptId);
     observeStops(entry.intent.recipient, entry.events);

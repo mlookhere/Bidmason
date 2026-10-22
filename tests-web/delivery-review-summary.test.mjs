@@ -267,7 +267,7 @@ test("follow-up attempt IDs are unique across fictional proposals within a tenan
   for(const records of [[initial,colliding],[colliding,initial]]){
     assert.throws(()=>summary(records),/Cross-proposal simulated follow-up attempt ID collision/);
   }
-  assert.equal(summary([initial,withAttempt(second,"33333333-3333-4333-8333-333333333333")]).reviewedCases,2);
+  assert.equal(summary([initial,withAttempt(second,"33333333-3333-4333-8333-333333333333", "2026-10-21T10:00:00.000Z")]).reviewedCases,2);
   // An identical replay in one proposal is countable once and is not a
   // separate cross-proposal follow-up attempt.
   const replay={...initial,previousAttempts:[initial.previousAttempts[0],
@@ -287,6 +287,34 @@ test("follow-up attempt IDs are unique across fictional proposals within a tenan
   const outside="99999999-9999-4999-8999-999999999999";
   const separate=withAttempt(make(1,undefined,"confirmed",outside),id);
   assert.equal(summarizeSyntheticDeliveryReview(outside,[separate],now).reviewedCases,1);
+});
+
+test("simultaneous same-recipient follow-ups on separate proposals are incoherent fictional audit history",()=>{
+  const attempt=(entry,id,recordedAt="2026-10-21T09:00:00.000Z")=>({
+    ...entry,previousAttempts:[{attemptId:id,
+      organizationId:entry.intent.organizationId,
+      idempotencyKey:entry.intent.idempotencyKey,
+      recipient:entry.intent.recipient,recordedAt}],
+  });
+  const first=attempt(make(0),"11111111-1111-4111-8111-111111111111");
+  const second=attempt(make(1),"22222222-2222-4222-8222-222222222222");
+  for (const records of [[first,second],[second,first]]) {
+    assert.throws(()=>summary(records),
+      /Cross-proposal simulated recipient follow-up timestamp collision/);
+  }
+  // Different moments or different recipients are independent; we do not
+  // invent an across-proposal company-wide minimum-delay rule.
+  assert.equal(summary([first,attempt(make(1),
+    "22222222-2222-4222-8222-222222222222","2026-10-21T10:00:00.000Z")]).reviewedCases,2);
+  assert.equal(summary([first,attempt(recipientCase(make(1),"other@fictional.example"),
+    "22222222-2222-4222-8222-222222222222")]).reviewedCases,2);
+  const replay={...first,previousAttempts:[first.previousAttempts[0],
+    {...first.previousAttempts[0]}]};
+  assert.equal(summary([replay,make(1)]).reviewedCases,2);
+  const otherTenant="99999999-9999-4999-8999-999999999999";
+  assert.equal(summarizeSyntheticDeliveryReview(otherTenant,
+    [attempt(make(1,undefined,"confirmed",otherTenant),
+      "22222222-2222-4222-8222-222222222222")],now).reviewedCases,1);
 });
 
 test("recipient-wide stop-contact signals reconcile all reviewed fictional proposals",()=>{
