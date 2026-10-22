@@ -10,6 +10,8 @@ verified as of this runbook's creation.
 
 **Connected metadata reconnaissance:** [BidMason Supabase read-only inventory](ITEM6_CONNECTED_ENVIRONMENT_INVENTORY.md) records observed existing RLS tables, private storage and missing live test coverage. It is **not** authenticated two-tenant H01/H02 acceptance or permission to update the release evidence status.
 
+**H01 opt-in live read matrix:** [two-user authenticated read-only probe](ITEM6_H01_AUTHENTICATED_READONLY_PROBE.md) supplies 13 explicit positive/cross-tenant/anonymous GET checks once an authorized staging operator has actually provisioned two independently authenticated synthetic tenants. Offline CI exercises only a fake transport. Read-only probe output is **not** sufficient to satisfy H01: cross-tenant writes, missing membership, revoked-session tests, H02 storage and independent approval remain mandatory.
+
 ## How to assemble a review packet
 
 1. **Identify the actual environment.** Record the intended authenticated
