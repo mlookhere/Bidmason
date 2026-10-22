@@ -46,8 +46,14 @@ def _peek(url: str, headers: dict[str, str]) -> tuple[int, bool]:
                 return status, False
             return status, len(response.read(2)) == 1
     except urllib.error.HTTPError as error:
-        # Do not read/log a provider error body, redirect target or signed URL.
-        return error.code, False
+        # A denial is not evidence of non-disclosure unless its body is
+        # demonstrably empty. Read at most one byte and NEVER retain or log it.
+        # Even a normal provider JSON error remains unverified by this probe.
+        try:
+            body_unverified = error.fp is None or bool(error.read(1))
+        finally:
+            error.close()
+        return error.code, body_unverified
 
 
 def _input(base: str, key: str, tokens: tuple[str, str],
