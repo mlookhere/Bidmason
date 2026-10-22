@@ -293,6 +293,8 @@ class H02StorageReadOnlyTests(unittest.TestCase):
             (206,b"xx","bytes 0-0/100"),
             (206,b"x","bytes 1-1/100"),
             (206,b"", "bytes 0-0/100"),
+            (206,b"x","bytes 0-0/15728641"),
+            (206,b"x","bytes 0-0/9999999999"),
         ]
         for status,data,content_range in cases:
             with self.subTest(status=status,cr=content_range):
@@ -302,6 +304,26 @@ class H02StorageReadOnlyTests(unittest.TestCase):
                 with patch("ci.item6_storage_readonly_probe.urllib.request.build_opener",
                            return_value=Opener()):
                     self.assertEqual(_peek(URL+"/test",{"apikey":KEY}),(status,False))
+
+    def test_positive_object_size_must_fit_observed_bucket_limit(self):
+        class Response(io.BytesIO):
+            status = 206
+
+            def __init__(self, size):
+                super().__init__(b"x")
+                self.headers = {"Content-Range": f"bytes 0-0/{size}"}
+
+        for size, expected in ((1, True), (15_728_640, True),
+                               (15_728_641, False), (99_999_999, False)):
+            with self.subTest(object_size=size):
+                class Opener:
+                    def open(self, req, timeout):
+                        return Response(size)
+
+                with patch("ci.item6_storage_readonly_probe.urllib.request.build_opener",
+                           return_value=Opener()):
+                    self.assertEqual(_peek(URL+"/test", {"apikey": KEY}),
+                                     (206, expected))
 
     def test_denial_bodies_are_not_assumed_empty_or_leaked(self):
         class Denied:
