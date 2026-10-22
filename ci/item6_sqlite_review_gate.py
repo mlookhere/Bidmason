@@ -207,6 +207,15 @@ def reserve_reviewed_fictional(
             db, organization_id, proposal_id, revision, content_sha256, recipient)
         if verdict is not None:
             return verdict
+        contractor_actor = next(actor for role, actor, _ in reviewers
+                                if role == "contractor")
+        if not db.execute(
+            "SELECT 1 FROM rehearsal_recipient_confirmations "
+            "WHERE organization_id=? AND proposal_id=? AND revision=? "
+            "AND content_sha256=? AND recipient=? AND contractor_actor_id=?",
+            (organization_id, proposal_id, revision, content_sha256,
+             recipient, contractor_actor)).fetchone():
+            return "blocked-missing-recipient-confirmation"
         # Shared core CAS inside this SAME BEGIN IMMEDIATE transaction, so a
         # concurrent opt-out or won/lost closure cannot interleave here.
         return _reserve_in_transaction(
