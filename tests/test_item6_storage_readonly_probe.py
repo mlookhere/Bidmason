@@ -303,15 +303,42 @@ class H02StorageReadOnlyTests(unittest.TestCase):
                            return_value=Opener()):
                     self.assertEqual(_peek(URL+"/test",{"apikey":KEY}),(status,False))
 
-    def test_provider_denial_never_reads_error_body_or_follows_redirect(self):
-        error=urllib.error.HTTPError(URL,302,"Moved",
-             {"Location":"https://evil.test/steal"},io.BytesIO(b"token-leak"))
-        class Opener:
-            def open(self,req,timeout):
-                raise error
-        with patch("ci.item6_storage_readonly_probe.urllib.request.build_opener",
-                   return_value=Opener()):
-            self.assertEqual(_peek(URL+"/test",{"apikey":KEY}),(302,False))
+    def test_denial_bodies_are_not_assumed_empty_or_leaked(self):
+        class Denied:
+            def __init__(self, status, body):
+                self.status, self.body = status, body
+
+            def open(self, req, timeout):
+                raise urllib.error.HTTPError(
+                    req.full_url, self.status, "Denied",
+                    {"Location": "https://untrusted.example.test/redirect"}
+                    if self.status == 302 else {},
+                    None if self.body is None else io.BytesIO(self.body))
+
+        for status in (401, 403, 404, 302):
+            for body in (b"", b'{"statusCode":"403","message":"Forbidden"}',
+                         b"%PDF-leaked-private-byte", None):
+                with self.subTest(status=status, body=repr(body)):
+                    with patch("ci.item6_storage_readonly_probe.urllib.request.build_opener",
+                               return_value=Denied(status, body)):
+                        result = _peek(URL+"/test", {"apikey":KEY})
+                    self.assertEqual(result,
+                                     (status, body is None or bool(body)))
+                    self.assertNotIn("private-byte", repr(result))
+
+    def test_denial_body_presence_blocks_negative_storage_isolation(self):
+        fake=StorageTransport()
+        def denied_with_body(url, headers):
+            status, observed=fake.peek(url, headers)
+            return (status, True) if status in (401, 403, 404) else (status, observed)
+        result=probe_readonly_storage(
+            URL, KEY, list(fake.tokens)[0], list(fake.tokens)[1],
+            PATH_A, PATH_B, get=fake.get, peek=denied_with_body)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "user-1-other-object")
+        self.assertIs(result["checks"][-1]["passed"], False)
+        self.assertIs(result["h02Accepted"], False)
+        self.assertIs(result["releaseAuthorized"], False)
 
     def test_cli_no_network_default(self):
         with patch("sys.argv",["item6_storage_readonly_probe"]):
