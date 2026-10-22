@@ -45,10 +45,14 @@ LITERAL = re.compile(r"^(['\"])([^'\"]+)\1$")
 # A module-level server directive is a JS directive-prologue statement,
 # not necessarily a whole line: 'use server'; export ... is still executable.
 # Honor block/line comments without swallowing later executable statements.
+# Leading comments are lexical whitespace for a directive prologue, too:
+# /* license */ "use server" and { // rationale\n "use server" remain
+# executable server actions. A scanner that only skips comments AFTER the
+# directive can misclassify these otherwise non-entrypoint modules as safe.
+DIRECTIVE_GAP = r"(?:\s|/\*(?:(?!\*/)[\s\S])*\*/|//[^\r\n]*(?:\r?\n|$))*"
 SERVER_ACTION = re.compile(
-    r"(?m)^[ \t]*['\"]use server['\"]"
-    r"(?:[ \t]|/\*(?:(?!\*/)[\s\S])*\*/)*"
-    r"(?:;|(?://[^\r\n]*)?$)"
+    r"(?m)^[ \t]*" + DIRECTIVE_GAP + r"['\"]use server['\"]"
+    + GAP + r"(?:;|(?://[^\r\n]*)?$)"
 )
 
 # Next.js also permits a function-scoped directive at the first statement of
@@ -56,7 +60,7 @@ SERVER_ACTION = re.compile(
 # treating only line-start directives as server-reachable misses this module.
 # Reuse the lexical whitespace/comment rule, not an unbounded wildcard.
 FUNCTION_SERVER_ACTION = re.compile(
-    r"\{" + GAP + r"['\"]use server['\"]" + GAP
+    r"\{" + DIRECTIVE_GAP + r"['\"]use server['\"]" + GAP
     + r"(?:;|(?://[^\r\n]*)?$)", re.M
 )
 
