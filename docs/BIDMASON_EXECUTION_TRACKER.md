@@ -353,3 +353,22 @@ Issue [#3](https://github.com/mlookhere/Bidmason/issues/3), draft [PR #11](https
 - Implemented `lib/company-pricing.ts` as a pure company-configurable evaluator and `tests-web/company-pricing.test.mjs` using separate synthetic painting and cleaning configurations, distinct minima, optional included work, discount/surcharge orders, numerical validation and reject-on-pending behavior. This is a stepping stone, **not** the production pricing backend.
 - The general platform architecture is captured in `docs/COMPANY_POLICY_ARCHITECTURE.md`. Tax, legal/regulatory, company-specific source authorization, persisted policy versioning and role-based commercial approvals remain scheduled for later implementation slices.
 - Do not mark original 2026 Harbor Coast PDF as approved or overwrite source evidence. Step 2 may proceed to internal QA/review without an arbitrary fictional $475 business choice once new CI checks succeed; this does **not** loosen any approval/claim/security gate.
+
+---
+
+## Item 6 proposal-closure checkpoint — 2026-10-22
+
+Continuing existing Issue #7, draft PR #15 and the work/7-delivery-preflight
+branch into dev. Previous exact-head GitHub Actions #39745422392 on
+c8acbcf146cc23d3393edf521ec7d2080bd93f8f completed all eight required
+jobs successfully. New offline work adds a proposal-wide fictional terminal-
+deal hold invalidating already reserved in-memory work across revisions
+and recipients; six adversarial regression groups cover the safety contract.
+Local full Node test execution: 203 passed, zero failed or skipped. The new
+commit still requires **separate exact-head GitHub Actions verification**.
+
+This is partial BM-029/BM-031/BM-032 synthetic coverage only: Phase 3
+acceptance remains unchecked. H01-H13 real tenant RLS/Storage/Auth, actual
+consent, provider-native callbacks, durable transactional dispatch and
+independent privacy/security/legal/operations release signoffs remain
+unverified. Do not merge, deploy or enable real customer sending.

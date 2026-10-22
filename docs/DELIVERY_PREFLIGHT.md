@@ -1521,3 +1521,31 @@ closure across the current and previous revision, invalid and conflicting
 terminal events even during blocked preflight, suppression/reply precedence,
 unchanged CAS version, redacted outcomes and unrelated proposals. No required
 CI gate was removed or relaxed.
+
+## Proposal-wide terminal-deal hold in the in-memory reservation model
+
+The pure SyntheticDispatchReservationLedger.compareAndRecordDealClosure
+accepts an explicitly supplied **fictional** won/lost stream validated by
+the existing projectSyntheticDealOutcome before any mutation. The terminal
+decision is tracked per tenant and proposal ID, never per recipient or mutable
+revision. It invalidates pending simulated reservations for that proposal
+across all recipient addresses and revision numbers; each affected local
+recipient version advances. Later compareAndReserve calls return blocked /
+proposal-closed even if another local caller omits the closure evidence.
+Permanent bounce, complaint, opt-out and reply-review restrictions are still
+enforced. Closing one deal is NOT a recipient-wide opt-out.
+
+Exact closure replays are idempotent; conflicting second terminal claims,
+incorrect tenant/proposal/revision, future events, missing proof and hostile
+accessor-backed inputs fail closed. Six new required Linux/Windows Node test
+groups cover multiple recipients and revisions, tenant isolation, replay,
+malformed input, Promise-order race reconciliation, contact-hold precedence
+and the integrated preflight. No required CI gate is removed or relaxed.
+
+**Boundary:** This is a synchronous, volatile, in-process Map and caller-
+supplied fabricated events. It cannot authenticate a real CRM decision,
+cancel an actual provider message, persist a lock, guarantee distributed
+atomicity, prove complete deal history, or grant permission to contact.
+Actual dispatch requires tenant-trusted source events and transactional
+rechecks of deal outcome, recipient suppression, consent and revision at the
+real send boundary. All H01-H13 live and human production gates remain BLOCKED.
