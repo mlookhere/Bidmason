@@ -107,6 +107,17 @@ def initialize_fixture_db(path: Path) -> None:
           PRIMARY KEY (organization_id,recipient),
           UNIQUE (organization_id,event_id)
         );
+        CREATE TABLE rehearsal_recipient_confirmations (
+          organization_id TEXT NOT NULL,
+          proposal_id TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision BETWEEN 1 AND 1000000),
+          content_sha256 TEXT NOT NULL,
+          recipient TEXT NOT NULL,
+          contractor_actor_id TEXT NOT NULL,
+          event_id TEXT NOT NULL,
+          PRIMARY KEY (organization_id,proposal_id,revision,recipient),
+          UNIQUE (organization_id,event_id)
+        );
         """)
 
 
