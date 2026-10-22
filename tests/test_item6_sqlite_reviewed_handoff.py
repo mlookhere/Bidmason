@@ -26,6 +26,7 @@ OP = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 CON = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 CONSENT = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 CLOSE = '11111111-1111-4111-8111-111111111111'
+APPROVAL = '22222222-2222-4222-8222-222222222222'
 RECIPIENT = 'buyer@fictional.example'
 DIGEST = 'a' * 64
 REV = 3
@@ -48,7 +49,7 @@ class ReviewedHandoffTests(unittest.TestCase):
         self.review(role='contractor')
         record_fictional_consent(self.path, ORG, RECIPIENT, CONSENT)
         record_fictional_recipient_confirmation(
-            self.path, ORG, PROP, REV, DIGEST, RECIPIENT, CON, CLOSE)
+            self.path, ORG, PROP, REV, DIGEST, RECIPIENT, CON, APPROVAL)
 
     def reserve(self):
         return reserve_reviewed_fictional(self.path, ORG, PROP, REV,
