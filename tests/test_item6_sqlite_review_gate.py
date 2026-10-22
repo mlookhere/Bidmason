@@ -78,10 +78,39 @@ class FictionalReviewedReservationTests(unittest.TestCase):
 
     def test_exact_content_digest_binds_both_receipts(self):
         self.review("operator", OPERATOR, digest=HASH)
-        self.review("contractor", CONTRACTOR, digest=OTHER_HASH)
+        with self.assertRaisesRegex(ValueError, "Conflicting fictional revision content"):
+            self.review("contractor", CONTRACTOR, digest=OTHER_HASH)
         self.consent()
-        self.assertEqual(self.reserve(), "blocked-review-content-mismatch")
+        self.assertEqual(self.reserve(), "blocked-missing-independent-reviews")
+        self.review("contractor", CONTRACTOR, digest=HASH)
         self.assertEqual(self.reserve(digest=OTHER_HASH), "blocked-review-content-mismatch")
+        self.assertEqual(self.reserve(), "reserved-simulation-only")
+
+    def test_newer_partial_review_rejects_late_old_revision_receipts(self):
+        self.review("operator", OPERATOR, revision=4)
+        self.assertEqual(self.review("operator", OPERATOR, revision=3), "blocked-stale-review")
+        self.assertEqual(self.review("contractor", CONTRACTOR, revision=3), "blocked-stale-review")
+        self.assertEqual(self.reserve(revision=3), "blocked-stale-revision")
+        self.review("contractor", CONTRACTOR, revision=4)
+        self.consent()
+        self.assertEqual(self.reserve(revision=4), "reserved-simulation-only")
+
+    def test_competing_distinct_hash_receipts_cannot_both_commit(self):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(self.review, "operator", OPERATOR, 3, HASH)
+            second = pool.submit(self.review, "contractor", CONTRACTOR, 3, OTHER_HASH)
+            outcomes = []
+            for future in (first, second):
+                try:
+                    outcomes.append(future.result())
+                except ValueError as exc:
+                    outcomes.append(str(exc))
+        self.assertCountEqual(
+            outcomes,
+            ["fictional-review-recorded", "Conflicting fictional revision content"],
+        )
+        self.consent()
+        self.assertEqual(self.reserve(), "blocked-missing-independent-reviews")
         self.assertEqual(fictional_counts(self.db, ORG), (0, 0, 0))
 
     def test_newer_partially_reviewed_revision_freezes_prior_version(self):
