@@ -27,6 +27,30 @@ class Item6EvidenceTests(unittest.TestCase):
             "submittedForIndependentReview": 0,
         })
 
+    def test_external_acceptance_runbook_covers_every_source_requirement(self):
+        """Human evidence-collection guidance must not silently drift from the gate."""
+        import re
+
+        path = Path(__file__).resolve().parents[1] / "docs/ITEM6_EXTERNAL_ACCEPTANCE_RUNBOOK.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("**Status: BLOCKED", text)
+        self.assertIn("releaseAuthorized: false", text)
+        self.assertIn("No category has been independently", text)
+        pattern = r"^\\| H(\\d{2}) \\| \\u0060([a-z0-9-]+)\\u0060 \\| \\u0060([A-Z0-9:-]+)\\u0060 \\| (.+) \\|$"
+        rows = re.findall(pattern, text, re.MULTILINE)
+        self.assertEqual(len(rows), len(REQUIRED))
+        self.assertEqual([int(number) for number, _, _, _ in rows],
+                         list(range(1, len(REQUIRED) + 1)))
+        self.assertEqual([identifier for _, identifier, _, _ in rows],
+                         list(REQUIRED))
+        for _, identifier, source, remainder in rows:
+            self.assertEqual(source, REQUIRED[identifier])
+            # An assigned owner role and a concrete negative test are mandatory.
+            self.assertEqual(len(remainder.split(" | ")), 2)
+            self.assertTrue(all(part.strip() for part in remainder.split(" | ")))
+        # The runbook is a collection plan, never a recorded human approval.
+        self.assertNotIn("- [x]", text)
+
     def test_every_required_python_ci_stage_enforces_release_inventory(self):
         for stage in ("fast", "pr", "security"):
             with self.subTest(stage=stage):

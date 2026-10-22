@@ -20,6 +20,8 @@ stop-contact controls, protected buyer view/response, CRM durability
 and recovery, real adverse-case integration tests, and independent
 security/privacy/legal/operations review plus a written go/no-go.
 
+For a concrete **owner, artifact and required negative-test collection checklist**, see [the external acceptance runbook](ITEM6_EXTERNAL_ACCEPTANCE_RUNBOOK.md). It maps H01–H13 one-to-one to the enforced source IDs without granting production authority.
+
 ## Evidence handling
 
 - `unverified`: no evidence reference, no authorization.
