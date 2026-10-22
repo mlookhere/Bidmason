@@ -76,7 +76,7 @@ def _job_blocks(source: str) -> tuple[dict[str, str], set[str]]:
 
 def _has_executable_run(block: str, command: str) -> bool:
     return re.search(
-        r"(?m)^[ \\t]+run:[ \\t]*" + re.escape(command) + r"[ \\t]*$",
+        r"(?m)^[ \t]+run:[ \t]*" + re.escape(command) + r"[ \t]*$",
         block,
     ) is not None
 
