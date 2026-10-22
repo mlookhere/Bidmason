@@ -1,9 +1,11 @@
 """Offline H02 byte-range private Storage isolation tests; no live calls."""
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import json
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -13,9 +15,19 @@ from ci.item6_rls_readonly_probe import _NoRedirect
 from ci.item6_storage_readonly_probe import (
     _peek, main, probe_readonly_storage,
 )
-from tests.test_item6_rls_readonly_probe import (
-    URL, KEY, USER_A, USER_B, ORG_A, ORG_B, token,
-)
+URL = "https://" + "a" * 20 + ".supabase.co"
+KEY = "sb_publishable_" + "k" * 25
+ORG_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+ORG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+USER_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+USER_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+
+
+def token(sub: str) -> str:
+    claims = {"sub":sub,"role":"authenticated","exp":int(time.time())+86400}
+    encoded=base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return "header." + encoded + ".signature"
+
 
 PATH_A = ORG_A + "/" + "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" + ".pdf"
 PATH_B = ORG_B + "/" + "ffffffff-ffff-4fff-8fff-ffffffffffff" + ".png"
