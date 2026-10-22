@@ -294,6 +294,20 @@ export function summarizeSyntheticDeliveryReview(
       recipientHolds.set(entry.intent.recipient, "reply-review");
     }
   }
+  // Each supplied fictional UUID must identify one evidence category across
+  // this tenant-wide review, not a delivery, reminder AND a deal outcome.
+  // Per-category replay validation alone cannot detect cross-ledger reuse.
+  // Compare only after all entries (including histories) were validated.
+  for (const id of dealEventClaims.keys()) {
+    if (eventClaims.has(id) || attemptIds.has(id)) {
+      throw new TypeError("Cross-family synthetic CRM evidence UUID collision");
+    }
+  }
+  for (const id of attemptIds) {
+    if (eventClaims.has(id)) {
+      throw new TypeError("Cross-family synthetic CRM evidence UUID collision");
+    }
+  }
   // A stop-contact or reply signal already observed in another proposal for
   // this exact tenant and recipient must not be concealed by a clean-looking
   // case. This changes only redacted counts; it creates no contact authority.
