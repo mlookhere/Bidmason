@@ -68,7 +68,8 @@ class FakeTransport:
             other_user = USER_B if user == USER_A else USER_A
             rows = ([{"organization_id": own, "user_id": user}]
                     if requested in ("", own) else [])
-            if self.member_leak and requested == other:
+            if (self.member_leak and requested == other
+                    and query.get("user_id", [""])[0] == "eq." + other_user):
                 rows = [{"organization_id": other, "user_id": other_user}]
             if self.member_list_leak and not requested:
                 rows.append({"organization_id": other, "user_id": other_user})
@@ -127,6 +128,9 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(result["state"], "blocked")
         self.assertEqual(result["checks"][-1]["name"], "user-1-other-membership")
         self.assertFalse(result["checks"][-1]["passed"])
+        # A query for the current user's ID would miss the leaked other user.
+        self.assertEqual(parse_qs(urlsplit(fake.requests[-1][0]).query)["user_id"],
+                         ["eq." + USER_B])
 
     def test_unfiltered_membership_listing_detects_cross_tenant_leak(self):
         fake = FakeTransport()
