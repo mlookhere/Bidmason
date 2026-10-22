@@ -71,7 +71,7 @@ export default function DeliveryLab() {
                   <div><dt>Total unique proposals</dt><dd>{item.pipeline.distinctProposals}</dd></div>
                 </dl>
                 <p className="lab-summary-caption">
-                  Simulation only. Incomplete fictional evidence; no contact authorization or live tenant access.
+                  Simulation only. Incomplete fictional evidence. No contact authorization or live tenant access.
                 </p>
               </article>
             ))}
