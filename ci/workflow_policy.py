@@ -22,6 +22,12 @@ UNSAFE = (
 # must survive workflow merges. Independent work branches keep their gate
 # sets; an integration conflict must not replace an earlier runner with a stub.
 # The command must occur in an executable run step, not only a comment.
+# Every core PR check must remain an unconditional, failure-propagating job.
+# Additional slice gates become mandatory when their executable marker exists.
+CORE_JOBS = ("fast", "pr", "security", "web-build", "win-fast", "pdf-qa", "browser-e2e")
+NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \\t]+(if|continue-on-error):(?:[ \\t]|$)")
+
+
 MERGED_SLICE_GATES = (
     ("ci/db_rls_test.sql", "db-rls",
      "psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql"),
@@ -60,20 +66,34 @@ def _job_blocks(source: str) -> tuple[dict[str, str], set[str]]:
 
 
 def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
-    """Require every job whose substantive feature test exists in checkout."""
+    """Preserve unconditional, failure-propagating core and feature CI gates."""
     blocks, duplicates = _job_blocks(source)
     problems = [f"duplicate workflow job: {name}" for name in sorted(duplicates)]
+    required = set(CORE_JOBS)
     for marker, name, command in MERGED_SLICE_GATES:
         if not (root / marker).is_file():
             continue
+        required.add(name)
         block = blocks.get(name)
         if block is None:
             problems.append(f"missing {name} job for {marker}")
         elif not re.search(
-            r"(?m)^[ \t]+run:[ \t]*" + re.escape(command) + r"[ \t]*$",
+            r"(?m)^[ \\t]+run:[ \\t]*" + re.escape(command) + r"[ \\t]*$",
             block,
         ):
             problems.append(f"missing substantive {name} run command for {marker}")
+
+    for name in sorted(required):
+        block = blocks.get(name)
+        if block is None:
+            if name in CORE_JOBS:
+                problems.append(f"missing required core CI job: {name}")
+            continue
+        # A job-level or step-level condition can silently skip its only test.
+        # continue-on-error can hide an actual failure behind a green job.
+        # Do not parse these fragile YAML constructs as harmless conditions.
+        for directive in sorted(set(NONBLOCKING_DIRECTIVE.findall(block))):
+            problems.append(f"conditional or nonblocking required job: {name} ({directive})")
     return problems
 
 
