@@ -25,17 +25,17 @@ python -m ci.item6_rls_readonly_probe --live-readonly
 
 Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships/brief revisions** paths. Redirects and environment proxies are disabled. The input URL must exactly equal the canonical lowercase HTTPS origin (no whitespace, control characters, path, query, port or fragment); URL parsing that would silently normalize those bytes is rejected before either JWT is sent. A redirect response, oversized body or malformed JSON is never accepted as proof of isolation. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
 
-The 23-case read matrix verifies:
+The 27-case read matrix verifies:
 
 - Both bearer sessions resolve through Auth to distinct actual users (not only unverified JWT payload claims), **before either user can make a tenant data request**.
 - For each user: own synthetic organization visible, other synthetic organization invisible, tenant enumeration limited to that user's single synthetic organization.
-- For each user: own exact membership visible, the **other authenticated user's actual membership** in the other organization invisible, and unfiltered membership enumeration limited to that user's single synthetic membership.
-- Each user: its own exact synthetic brief revision is accessible; the other user's revision is inaccessible; unfiltered revision enumeration exposes only its own record. The probe selects only `id,organization_id`, **never proposal document JSON, source hashes, or customer details**.
+- For each user: own exact membership visible, the **other authenticated user's actual membership** in the other organization invisible, an **organization-only** query for all memberships in the foreign tenant empty (so a different foreign user cannot be silently omitted), and unfiltered membership enumeration limited to that user's single synthetic membership.
+- Each user: its own exact synthetic brief revision is accessible; the other user's revision is inaccessible; **organization-only** enumeration of the entire foreign tenant's revisions is empty, including revisions not named in the fixture; unfiltered revision enumeration exposes only its own record. The probe selects only `id,organization_id`, **never proposal document JSON, source hashes, or customer details**.
 - Anonymous organization, membership and brief revision listings reveal no synthetic tenants, identities or revision records.
 
 **Authenticated** checks require HTTP 200 and an exact, minimal JSON array, including positive own-tenant records. Anonymous checks accept either HTTP 200 with an empty array **or** HTTP 401/403 with no exposed response body (PostgREST may reject anonymous SELECT when that role has no grant). This is a negative disclosure check **only after both authenticated positive controls passed**. Anonymous HTTP 302/400/500 or a leaked row—even attached to an error response—fails. An authenticated HTTP 401/403 also fails: denying the whole data API is not proof that valid users are correctly isolated. A missing own record, leaked other-tenant row, malformed response, bad token, wrong hostname or disallowed key **fails**.
 
-The output contains only test names, booleans and non-authorizing state. Even when 23/23 pass, the result is `state: requires-independent-review`, `h01Accepted: false` and `releaseAuthorized: false`. Errors are printed generically without credentials, tenant IDs or provider bodies. Keep raw system logs under restricted access; obtain separate authorized reviewer signoff and exact execution evidence before H01 may advance.
+The output contains only test names, booleans and non-authorizing state. Even when 27/27 pass, the result is `state: requires-independent-review`, `h01Accepted: false` and `releaseAuthorized: false`. Errors are printed generically without credentials, tenant IDs or provider bodies. Keep raw system logs under restricted access; obtain separate authorized reviewer signoff and exact execution evidence before H01 may advance.
 
 ## Still mandatory
 
