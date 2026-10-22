@@ -1,6 +1,7 @@
 import {assessBuyerResponseDraft, type BuyerResponseDraftInput}
   from "./buyer-response-draft.ts";
-import type {BuyerViewIdentity} from "./buyer-view-grant.ts";
+import {verifyBuyerViewGrant, type BuyerViewIdentity}
+  from "./buyer-view-grant.ts";
 
 /** Caller-supplied, fictional inbound evidence only. None of these records
  * authenticates an actual buyer or proves provider/session delivery. */
@@ -101,6 +102,91 @@ export function summarizeSyntheticBuyerInbox(
     eventsReviewed:events.length,
     ...totals,
     operatorReviewRequired:events.length,
+    responseSubmitted:false,
+    contactAuthorized:false,
+    dataComplete:false,
+  };
+}
+
+/** One caller-supplied fictional stream for a specific proposal revision.
+ * No database lookup or signed buyer authentication is performed here. */
+export type SyntheticBuyerInboxStream = {
+  identity: BuyerViewIdentity;
+  events: readonly SyntheticBuyerInboxEvent[];
+};
+
+export type SyntheticBuyerInboxBatchSummary = SyntheticBuyerInboxSummary & {
+  streamsReviewed: number;
+  distinctProposals: number;
+};
+
+/** Detect duplicate inbound evidence even when it is replayed in DIFFERENT
+ * proposal streams. Per-stream checks alone cannot detect batch replay.
+ * Reject every record on any cross-stream collision; never count a prefix. */
+export function summarizeSyntheticBuyerInboxBatch(
+  organizationId: string,
+  signingKey: Uint8Array,
+  nowSeconds: number,
+  revokedGrantIds: readonly string[],
+  streams: readonly SyntheticBuyerInboxStream[],
+): SyntheticBuyerInboxBatchSummary {
+  if (typeof organizationId!=="string" || !UUID.test(organizationId)
+    || !Array.isArray(streams)
+    || Object.getPrototypeOf(streams)!==Array.prototype
+    || streams.length<1 || streams.length>20
+    || Reflect.ownKeys(streams).length!==streams.length+1
+    || !Array.from({length:streams.length},(_,i)=>{
+      const d=Object.getOwnPropertyDescriptor(streams,String(i));
+      return d?.enumerable===true && Object.hasOwn(d,"value");
+    }).every(Boolean)) {
+    throw new TypeError("Invalid fictional buyer inbox batch");
+  }
+
+  const usedEvents=new Set<string>();
+  const usedGrants=new Set<string>();
+  const proposals=new Set<string>();
+  const totals={eventsReviewed:0,questions:0,changeRequests:0,declines:0};
+  for (let i=0;i<streams.length;i++){
+    const entry=Object.getOwnPropertyDescriptor(streams,String(i))?.value;
+    if(!plainExact(entry,["identity","events"])
+      || !plainExact(entry.identity,[
+        "organizationId","proposalId","revision",
+        "recipientSha256","contentSha256",
+      ]) || entry.identity.organizationId!==organizationId
+      || !denseList(entry.events) || totals.eventsReviewed+entry.events.length>500){
+      throw new TypeError("Invalid fictional buyer inbox batch");
+    }
+    const scoped=summarizeSyntheticBuyerInbox(
+      entry.identity as BuyerViewIdentity,signingKey,nowSeconds,
+      revokedGrantIds,entry.events as SyntheticBuyerInboxEvent[],
+    );
+    for (let j=0;j<entry.events.length;j++){
+      const item=Object.getOwnPropertyDescriptor(entry.events,String(j))?.value;
+      // The scoped verifier just validated the entire stream, but the
+      // batch must independently detect duplicates across streams.
+      const proof=verifyBuyerViewGrant(
+        item.viewToken, entry.identity as BuyerViewIdentity,signingKey,
+        item.observedAtSeconds,revokedGrantIds,
+      );
+      if (proof.state!=="signed-claims-only"
+        || usedEvents.has(item.eventId) || usedGrants.has(proof.grantId)){
+        throw new TypeError("Replayed fictional buyer inbox batch evidence");
+      }
+      usedEvents.add(item.eventId);
+      usedGrants.add(proof.grantId);
+    }
+    proposals.add(entry.identity.proposalId as string);
+    totals.eventsReviewed+=scoped.eventsReviewed;
+    totals.questions+=scoped.questions;
+    totals.changeRequests+=scoped.changeRequests;
+    totals.declines+=scoped.declines;
+  }
+  return {
+    state:"inbox-simulation-only",
+    streamsReviewed:streams.length,
+    distinctProposals:proposals.size,
+    ...totals,
+    operatorReviewRequired:totals.eventsReviewed,
     responseSubmitted:false,
     contactAuthorized:false,
     dataComplete:false,
