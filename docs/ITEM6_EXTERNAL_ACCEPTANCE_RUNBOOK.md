@@ -122,7 +122,7 @@ simulations. The preview exception is confined to the exact
 `app/delivery-lab/page.tsx` (or future `src/` equivalent), provided it
 does **not** declare a server action. A shared layout, nested route handler,
 or newly introduced public page under that URL receives no exception.
-Thirty negative/positive Python tests cover direct and transitive imports,
+Forty negative/positive Python tests cover direct and transitive imports,
 aliases, server actions, dynamic imports, middleware/proxy,
 server-rendered pages and shared layouts, scoped pages/API routes,
 unresolved modules and narrow preview isolation, including both
@@ -166,3 +166,29 @@ complete ECMAScript/TypeScript parsing. A passing scan does not
 demonstrate real runtime isolation, provider authentication, RLS,
 consent, or permission to contact customers. The existing H01–H13
 release restrictions remain intact.
+
+### Unreviewed import aliases are not external packages
+
+The Item 6 static boundary previously resolved direct local imports but
+treated unfamiliar bare specifiers as third-party packages. A future
+TypeScript `compilerOptions.paths` alias, `baseUrl`, inherited
+`tsconfig` mappings, `jsconfig` mapping or Node `package.json`
+`imports`/`exports` field could silently redirect such an import
+to an offline-only synthetic delivery model while escaping traversal.
+
+The additive boundary now **fails closed on unreviewed module-resolution
+configuration**: path aliases, base URLs, extends/references or package
+import/export maps in project configuration files. Configurations are
+checked within the repository, excluding dependency/build folders; invalid,
+non-object or symlinked module configuration also fails CI rather than
+being mistaken for a trusted absence of mappings. Normal project
+configurations without those features remain permitted.
+
+Ten adversarial cases exercise an alias mapping an apparently external
+specifier to a synthetic model, nested `src/` config, a base URL, inherited
+and referenced TypeScript configuration, JavaScript aliases, Node package
+imports/self-exports, malformed/non-object configurations and ordinary
+permitted settings. This is a conservative stopgap until an independently
+reviewed real resolver and import graph are implemented. It is **not**
+proof of complete static analysis, actual Auth/RLS, consent or production
+send/view authorization. H01–H13 remain blocked.
