@@ -104,8 +104,12 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
         cases[f"user-{index+1}-auth"] = (status == 200 and type(payload) is dict
             and payload.get("id") == user and payload.get("is_anonymous") is not True)
         if not cases[f"user-{index+1}-auth"]:
-            # No further tenant request with an unverified authenticated identity.
+            # No tenant query before *both* actual sessions are verified.
             return _result(cases)
+
+    for index, (token, user) in enumerate(zip(tokens, users)):
+        headers = {"apikey": publishable_key, "Authorization": "Bearer " + token,
+                   "Accept": "application/json"}
         own, other = orgs[index], orgs[1-index]
         checks = (
             ("own-organization", "bm_organizations",
@@ -119,7 +123,10 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
               "user_id": "eq." + user}, [{"organization_id": own, "user_id": user}]),
             ("other-membership", "bm_memberships",
              {"select": "organization_id,user_id", "organization_id": "eq." + other,
-              "user_id": "eq." + user}, []),
+              "user_id": "eq." + users[1-index]}, []),
+            ("enumerate-memberships", "bm_memberships",
+             {"select": "organization_id,user_id", "limit": "100"},
+             [{"organization_id": own, "user_id": user}]),
         )
         for name, table, query, expected in checks:
             status, rows = get(base + "/rest/v1/" + table + "?" + urlencode(query), headers)
@@ -132,12 +139,24 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
     status, rows = get(base + "/rest/v1/bm_organizations?select=id&limit=100",
                        anonymous_headers)
     cases["anonymous-organizations"] = status == 200 and rows == []
+    if not cases["anonymous-organizations"]:
+        return _result(cases)
+    status, rows = get(base + "/rest/v1/bm_memberships?select=organization_id,user_id&limit=100",
+                       anonymous_headers)
+    cases["anonymous-memberships"] = status == 200 and rows == []
     return _result(cases)
 
 
 def _result(cases: dict[str, bool]) -> dict:
+    expected = ("user-1-auth", "user-2-auth", *(
+        f"user-{index}-{case}"
+        for index in (1, 2)
+        for case in ("own-organization", "other-organization",
+                     "enumerate-organizations", "own-membership",
+                     "other-membership", "enumerate-memberships")
+    ), "anonymous-organizations", "anonymous-memberships")
     return {"schema": "bidmason.item6.h01-readonly-probe.v1",
-            "state": "requires-independent-review" if len(cases) == 13
+            "state": "requires-independent-review" if tuple(cases) == expected
                      and all(cases.values()) else "blocked",
             "releaseAuthorized": False, "h01Accepted": False,
             "checks": [{"name": name, "passed": passed} for name, passed in cases.items()],
