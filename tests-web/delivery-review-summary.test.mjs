@@ -365,6 +365,38 @@ test("historical stop-contact evidence propagates to same-recipient cases in CRM
     .attention.stopContact,0);
 });
 
+test("future current-proposal recipient stops cannot contaminate company-wide CRM",()=>{
+  const future="2026-10-22T10:00:00.001Z";
+  const other=make(1,["reserved","provider_accepted","provider_delivered"]);
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const source=make(0,["reserved","provider_accepted","provider_delivered",kind]);
+    const withStop=(observedAt)=>({...source,events:source.events.map(
+      (e,index)=>index===3?{...e,observedAt}:e)});
+    for(const records of [[withStop(future),other],[other,withStop(future)]]){
+      assert.throws(()=>summary(records),/Future simulated CRM current-stream observation/,kind);
+    }
+    // The exact review instant is not a future event and should still be
+    // represented as a present-time hold, never authority to contact.
+    const atNow=summary([withStop(now),other]);
+    assert.equal(count(atNow,kind==="recipient_replied"
+      ?"reply-needs-review":"contact-suppressed"),2,kind);
+    assert.equal(atNow.state,"review-simulation-only");
+  }
+});
+
+test("future current-delivery status fails whole CRM review even without a contact hold",()=>{
+  const delivered=make(0);
+  const changed={...delivered,events:delivered.events.map((e,i)=>
+    i===2?{...e,observedAt:"2026-10-22T10:00:00.001Z"}:e)};
+  assert.throws(()=>summary([changed]),/Future simulated CRM current-stream observation/);
+  assert.equal(summary([delivered]).reviewedCases,1);
+  const accepted=make(1,["reserved","provider_accepted"]);
+  const pending={...accepted,events:accepted.events.map((e,i)=>
+    i===1?{...e,observedAt:"2026-10-22T10:00:00.001Z"}:e)};
+  assert.throws(()=>summary([pending]),/Future simulated CRM current-stream observation/);
+});
+
 test("cross-proposal reservations after a known recipient stop must fail closed",()=>{
   const lastPossibleBefore="2026-10-20T08:02:59.999Z";
   const stoppedAt="2026-10-20T08:03:00.000Z";
