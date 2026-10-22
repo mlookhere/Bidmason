@@ -51,6 +51,19 @@ SERVER_ACTION = re.compile(
     r"(?:;|(?://[^\r\n]*)?$)"
 )
 
+# Next.js also permits a function-scoped directive at the first statement of
+# an async server action. On one line it follows "{", not a line boundary;
+# treating only line-start directives as server-reachable misses this module.
+# Reuse the lexical whitespace/comment rule, not an unbounded wildcard.
+FUNCTION_SERVER_ACTION = re.compile(
+    r"\{" + GAP + r"['\"]use server['\"]" + GAP
+    + r"(?:;|(?://[^\r\n]*)?$)", re.M
+)
+
+
+def _has_server_action(source: str) -> bool:
+    return bool(SERVER_ACTION.search(source) or FUNCTION_SERVER_ACTION.search(source))
+
 
 # This exact public development preview deliberately renders offline models.
 # Every other page/layout shares normal live deployment reachability. The
@@ -74,7 +87,7 @@ def _entrypoints(root: Path) -> list[Path]:
         if rel in PREVIEW_ENTRIES:
             # A future server-action directive on the public preview removes
             # this exception rather than quietly opening a write-capable path.
-            if not SERVER_ACTION.search(p.read_text(encoding="utf-8")):
+            if not _has_server_action(p.read_text(encoding="utf-8")):
                 continue
         is_app = ((len(pieces) >= 2 and pieces[0] == "app")
                   or (len(pieces) >= 3 and pieces[:2] == ["src", "app"]))
@@ -89,9 +102,7 @@ def _entrypoints(root: Path) -> list[Path]:
             for stem in GLOBAL_STEMS
             for suffix in SOURCE_SUFFIXES
         }
-        if is_live_render or is_global or SERVER_ACTION.search(
-            p.read_text(encoding="utf-8")
-        ):
+        if is_live_render or is_global or _has_server_action(p.read_text(encoding="utf-8")):
             found.append(p)
     return sorted(found)
 
