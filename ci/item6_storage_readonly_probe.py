@@ -7,7 +7,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from ci.item6_rls_readonly_probe import _claims, _get, _NoRedirect, UUID, HOST, KEY
 
@@ -20,6 +20,8 @@ CONTENT_RANGE = re.compile(r"bytes 0-0/([1-9][0-9]{0,9})\Z")
 BUCKET = "bm-evidence"
 EXPECTED = (
     "user-1-auth", "user-2-auth",
+    "user-1-own-membership", "user-1-foreign-memberships",
+    "user-2-own-membership", "user-2-foreign-memberships",
     "user-1-own-object", "user-1-other-object",
     "user-2-own-object", "user-2-other-object",
     "anonymous-object-1", "anonymous-object-2",
@@ -73,7 +75,7 @@ def _input(base: str, key: str, tokens: tuple[str, str],
 
 def _report(checks: dict[str, bool]) -> dict:
     return {
-        "schema": "bidmason.item6.h02-readonly-object-probe.v1",
+        "schema": "bidmason.item6.h02-readonly-object-probe.v2",
         "state": "requires-independent-review" if tuple(checks) == EXPECTED
                  and all(checks.values()) else "blocked",
         "h02Accepted": False, "releaseAuthorized": False,
@@ -99,6 +101,31 @@ def probe_readonly_storage(base: str, key: str, token_a: str, token_b: str,
         checks[f"user-{i}-auth"] = (status == 200 and type(payload) is dict
             and payload.get("id") == user and payload.get("is_anonymous") is not True)
         if not checks[f"user-{i}-auth"]:
+            return _report(checks)
+
+    # A successful byte read alone cannot establish which tenant was used.
+    # Require that each signed-in user has exactly the named membership in
+    # the synthetic path prefix, while the foreign tenant remains invisible.
+    organizations = tuple(path.split("/", 1)[0] for path in paths)
+    for i, (token, user) in enumerate(zip(tokens, users)):
+        headers = {"apikey": key, "Authorization": "Bearer " + token,
+                   "Accept": "application/json"}
+        query = urlencode({"select": "organization_id,user_id",
+                           "organization_id": "eq." + organizations[i],
+                           "user_id": "eq." + user})
+        status, rows = get(base + "/rest/v1/bm_memberships?" + query, headers)
+        checks[f"user-{i+1}-own-membership"] = (
+            status == 200 and type(rows) is list and
+            rows == [{"organization_id": organizations[i], "user_id": user}]
+        )
+        if not checks[f"user-{i+1}-own-membership"]:
+            return _report(checks)
+        foreign_query = urlencode({"select": "organization_id,user_id",
+                                  "organization_id": "eq." + organizations[1-i],
+                                  "limit": "100"})
+        status, rows = get(base + "/rest/v1/bm_memberships?" + foreign_query, headers)
+        checks[f"user-{i+1}-foreign-memberships"] = status == 200 and rows == []
+        if not checks[f"user-{i+1}-foreign-memberships"]:
             return _report(checks)
 
     prefix = base + "/storage/v1/object/authenticated/" + BUCKET + "/"
