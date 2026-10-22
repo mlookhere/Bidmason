@@ -1,6 +1,5 @@
-import type {SyntheticReviewEntry} from "./delivery-review-summary.ts";
-import {summarizeSyntheticDeliveryReview, type SimulatedReviewSummary}
-  from "./delivery-review-summary.ts";
+import {summarizeSyntheticDeliveryReview, type SimulatedReviewSummary,
+  type SyntheticReviewEntry} from "./delivery-review-summary.ts";
 import {projectSimulatedDeliveryEvents, type DeliveryProjection}
   from "./delivery-event-projection.ts";
 import {projectSyntheticDealOutcome, type SyntheticDealOutcomeEvent}
