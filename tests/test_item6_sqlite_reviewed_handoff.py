@@ -15,6 +15,7 @@ from ci.item6_sqlite_rehearsal import (
 from ci.item6_sqlite_review_gate import (
     mark_reviewed_fictional_handoff_unknown, record_fictional_review,
     record_fictional_consent, reserve_reviewed_fictional,
+    record_fictional_recipient_confirmation,
 )
 
 ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -45,6 +46,8 @@ class ReviewedHandoffTests(unittest.TestCase):
         self.review()
         self.review(role='contractor')
         record_fictional_consent(self.path, ORG, RECIPIENT, CONSENT)
+        record_fictional_recipient_confirmation(
+            self.path, ORG, PROP, REV, DIGEST, RECIPIENT, CON, CLOSE)
 
     def reserve(self):
         return reserve_reviewed_fictional(self.path, ORG, PROP, REV,
@@ -98,6 +101,8 @@ class ReviewedHandoffTests(unittest.TestCase):
              'blocked-missing-independent-reviews'),
             ('DELETE FROM rehearsal_consent_confirmations',
              'blocked-unconfirmed-consent'),
+            ('DELETE FROM rehearsal_recipient_confirmations',
+             'blocked-missing-recipient-confirmation'),
             ("UPDATE rehearsal_review_receipts SET content_sha256='" + 'b'*64 +
              "' WHERE role='contractor'", 'blocked-review-content-mismatch'),
         ]:
