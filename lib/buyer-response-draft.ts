@@ -20,9 +20,10 @@ const FIELDS = ["organizationId", "proposalId", "revision",
 const IDENTITY = ["organizationId", "proposalId", "revision",
   "recipientSha256", "contentSha256"] as const;
 const KINDS = ["question", "request_changes", "decline"] as const;
-// Exclude invisible separators and formatting controls that can conceal
-// material text from reviewers. Printable multilingual letters remain valid.
-const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff<>]/u;
+// Exclude invisible separators and ALL Unicode format controls (Cf), including
+// deprecated bidi controls and supplementary tags that can conceal review text.
+// Printable multilingual letters and valid emoji selectors remain supported.
+const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u034f\u180e\u2028\u2029<>]|\p{Cf}/u;
 // In Unicode-aware regex mode a valid surrogate pair is a single code point;
 // this range catches only lone UTF-16 surrogates, which cannot be shown faithfully.
 const UNPAIRED_SURROGATE = /[\ud800-\udfff]/u;

@@ -92,6 +92,21 @@ test("invisible Unicode format and line separators cannot obscure internal revie
   }
 });
 
+test("unlisted Unicode format controls cannot hide or reorder review content",()=>{
+  // Unicode Cf includes U+2061..U+2065, obsolete bidi controls, and
+  // supplementary tag code points not covered by the older interval list.
+  for(const codePoint of [0x0600,0x2061,0x2063,0x2064,0x206a,0x206f,0xe007f]){
+    const hidden=String.fromCodePoint(codePoint);
+    assert.throws(()=>run({...draft,note:"Terms"+hidden+"accepted"}),
+      /Invalid nonbinding/,codePoint.toString(16));
+    assert.throws(()=>run({...draft,kind:"decline",note:hidden}),/Invalid nonbinding/);
+  }
+  // Printable international text and ordinary emoji retain their behavior.
+  for(const note of ["الرجاء مراجعة العرض", "请核实价格", "검토 부탁드립니다", "Please review ❤️"]){
+    assert.equal(run({...draft,note}).state,"draft-internal-only");
+  }
+});
+
 test("unpaired UTF-16 surrogates cannot create visually inconsistent reviewer evidence",()=>{
   // Lone surrogates pass NFC but stringify as escapes and display as replacement
   // glyphs; reject them before computing the nonbinding note fingerprint.

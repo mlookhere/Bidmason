@@ -1380,3 +1380,24 @@ native signatures, SQL transactional suppression/idempotency and
 independent security/legal/privacy/operations go/no-go remain blocked.
 No new endpoint, provider, deployment, database mutation or CI-gate
 change was introduced.
+
+## Unicode format-category completeness for fictional buyer notes
+
+The offline `assessBuyerResponseDraft` review-note filter now rejects the
+full Unicode `Cf` (format) category in addition to prohibited control,
+separator, markup and unpaired-surrogate characters. Previously certain
+nonprinting format controls such as U+2061, U+2063, U+2064, obsolete
+directional markers and supplementary tag characters were not covered by
+the enumerated ranges. These could create mismatches between what a reviewer
+sees and the bytes included in an internal draft fingerprint.
+
+The added adversarial test first failed against the prior source, then
+passed with the general-category safeguard. It also verifies ordinary
+Arabic, Chinese and Korean notes and valid emoji with variation selectors
+remain usable. This is deliberately limited to visible consistency of
+**caller-supplied fictional, nonbinding** draft notes; no buyer is
+authenticated and no response is submitted or persisted. Existing H01–H13
+tenant/consent/reviewer approvals, signed real provider evidence, durable
+transactional suppression, legal/privacy/security review, and written
+human go/no-go remain unverified. No HTTP endpoint, sender, live customer
+data, provider, database mutation, dependency or required CI gate changed.
