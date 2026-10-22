@@ -23,7 +23,7 @@ Provide these environment variables **in a protected execution session**, withou
 python -m ci.item6_rls_readonly_probe --live-readonly
 ```
 
-Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships** paths. Redirects and environment proxies are disabled. The input URL must exactly equal the canonical lowercase HTTPS origin (no whitespace, control characters, path, query, port or fragment); URL parsing that would silently normalize those bytes is rejected before either JWT is sent. A redirect response, oversized body or malformed JSON is never accepted as proof of isolation. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
+Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships/brief revisions** paths. Redirects and environment proxies are disabled. The input URL must exactly equal the canonical lowercase HTTPS origin (no whitespace, control characters, path, query, port or fragment); URL parsing that would silently normalize those bytes is rejected before either JWT is sent. A redirect response, oversized body or malformed JSON is never accepted as proof of isolation. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
 
 The 23-case read matrix verifies:
 
