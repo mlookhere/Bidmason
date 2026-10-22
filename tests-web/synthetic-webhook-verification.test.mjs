@@ -79,6 +79,28 @@ test("timestamps expire in both directions and event observation must agree",()=
   assert.equal(verify(altered,signed(altered)).state,"blocked");
 });
 
+test("event observation freshness is bounded directly to receipt, not chained windows",()=>{
+  // Previously both comparisons were within 300 seconds, but their
+  // composition admitted an observation 600 seconds from receipt.
+  for (const sign of [-1,1]) {
+    const eventAt=instant+sign*600;
+    const signedAt=instant+sign*300;
+    const raw=body({...event,observedAt:new Date(eventAt*1000).toISOString()});
+    assert.equal(verify(raw,signed(raw,signedAt),instant).state,"blocked");
+  }
+  for (const sign of [-1,1]) {
+    const observedAt=instant+sign*300;
+    const raw=body({...event,observedAt:new Date(observedAt*1000).toISOString()});
+    assert.equal(verify(raw,signed(raw,instant),instant).state,"fixture-verified-only");
+  }
+  const tooOld=body({...event,
+    observedAt:new Date((instant-301)*1000).toISOString()});
+  assert.equal(verify(tooOld,signed(tooOld,instant),instant).state,"blocked");
+  const tooNew=body({...event,
+    observedAt:new Date((instant+301)*1000).toISOString()});
+  assert.equal(verify(tooNew,signed(tooNew,instant),instant).state,"blocked");
+});
+
 test("changed tenant, recipient, revision key and unsupported reserved events are blocked",()=>{
   for(const change of [{organizationId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"},
     {recipient:"someone-else@example.test"},
