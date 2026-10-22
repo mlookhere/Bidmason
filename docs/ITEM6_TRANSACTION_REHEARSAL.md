@@ -84,3 +84,38 @@ uncertain send with the selected provider's authenticated idempotency and
 status APIs, log/reconcile ambiguous outcomes, and test crashes at every
 actual DB/provider boundary. A fictional rollback/restart test does not
 prove H07/H08/H09/H11; H01–H13 all remain unverified and release blocked.
+
+## Exclusive fixture creation and source identity checks
+
+The temporary rehearsal previously accepted **any** existing SQLite file
+beneath the operating system's temporary directory. A similarly named
+non-rehearsal database could be opened for a transaction without confirming
+that this test model had initialized its schema. Initialization also checked
+for an existing path separately from creating it, leaving a pathname race.
+
+`initialize_fixture_db` now claims the new temporary file **exclusively**
+using `O_CREAT | O_EXCL` (and `O_NOFOLLOW` where supported), requests
+owner-only file permissions, and writes a dedicated
+`bidmason:fictional-item6-sqlite:v1` marker with the disposable schema.
+Rehearsal transactions open existing files with SQLite `mode=rw`
+(no implicit create), then require **exactly one** valid marker row before
+any simulated reservation/contact/closure operation. Missing, altered,
+or foreign SQLite fixture identities fail closed with a diagnostic error;
+nothing is copied or migrated from another database.
+
+Five new required cross-platform Python regressions first failed on the
+previous source and now cover unrelated SQLite files without mutation,
+a partial lookalike schema without the marker, concurrent initialization
+of one pathname, marker continuity across new connections and an unknown
+handoff, and deletion of the identity marker. The existing 24 SQLite
+rehearsal/recovery tests also pass unchanged; 29/29 total locally.
+This fix does not create an app storage layer or add a new CI gate.
+
+**Boundary:** The marker is a stable schema tag, **not** a signed credential,
+a tamper-proof attestation, authenticated tenant ownership, or protection
+against a hostile process that can modify the same files. A privileged
+attacker can spoof a static marker, and filesystem path replacement races
+require OS-level isolation beyond the fixture helper. The model must remain
+inside isolated CI temporary directories with only fabricated addresses.
+It cannot satisfy H01–H13 or authorize any provider, customer, send, or
+database deployment.
