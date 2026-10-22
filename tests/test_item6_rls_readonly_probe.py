@@ -35,6 +35,10 @@ class FakeTransport:
         self.missing_own = False
         self.auth_rejected = False
         self.anon_leak = False
+        self.anon_member_leak = False
+        self.member_leak = False
+        self.member_list_leak = False
+        self.reject_auth_user = None
 
     def __call__(self, url, headers):
         self.requests.append((url, headers))
@@ -42,10 +46,13 @@ class FakeTransport:
         query = parse_qs(parts.query)
         bearer = headers.get("Authorization", "").removeprefix("Bearer ")
         if parts.path == "/auth/v1/user":
-            if self.auth_rejected:
+            if self.auth_rejected or self.tokens[bearer][0] == self.reject_auth_user:
                 return 401, {"message": "not authorized"}
             return 200, {"id": self.tokens[bearer][0], "is_anonymous": False}
         if not bearer:
+            if parts.path.endswith("/bm_memberships"):
+                return 200, ([{"organization_id": ORG_B, "user_id": USER_B}]
+                             if self.anon_member_leak else [])
             return 200, ([{"id": ORG_A}] if self.anon_leak else [])
         user, own = self.tokens[bearer]
         if parts.path.endswith("/bm_organizations"):
@@ -56,9 +63,15 @@ class FakeTransport:
             if self.missing_own and requested == own:
                 rows = []
         elif parts.path.endswith("/bm_memberships"):
-            requested = query["organization_id"][0].removeprefix("eq.")
+            requested = query.get("organization_id", [""])[0].removeprefix("eq.")
+            other = ORG_B if own == ORG_A else ORG_A
+            other_user = USER_B if user == USER_A else USER_A
             rows = ([{"organization_id": own, "user_id": user}]
-                    if requested == own else [])
+                    if requested in ("", own) else [])
+            if self.member_leak and requested == other:
+                rows = [{"organization_id": other, "user_id": other_user}]
+            if self.member_list_leak and not requested:
+                rows.append({"organization_id": other, "user_id": other_user})
         else:
             raise AssertionError("Unexpected endpoint: " + parts.path)
         return 200, rows
@@ -79,9 +92,9 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(result["state"], "requires-independent-review")
         self.assertIs(result["releaseAuthorized"], False)
         self.assertIs(result["h01Accepted"], False)
-        self.assertEqual(len(result["checks"]), 13)
+        self.assertEqual(len(result["checks"]), 16)
         self.assertTrue(all(row["passed"] for row in result["checks"]))
-        self.assertEqual(len(fake.requests), 13)
+        self.assertEqual(len(fake.requests), 16)
         self.assertEqual(sum(url.endswith("/auth/v1/user") for url, _ in fake.requests), 2)
         self.assertNotIn("Authorization", fake.requests[-1][1])
         # No JWT, project hostname, recipient or tenant identity is emitted.
@@ -97,7 +110,7 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         fake.missing_own = True
         result, fake = self.run_probe(fake)
         self.assertEqual(result["state"], "blocked")
-        self.assertEqual(len(fake.requests), 2)
+        self.assertEqual(len(fake.requests), 3)
         self.assertFalse(result["checks"][-1]["passed"])
 
     def test_cross_tenant_data_is_blocking_even_with_positive_own_reads(self):
@@ -106,6 +119,39 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         result, _ = self.run_probe(fake)
         self.assertEqual(result["state"], "blocked")
         self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_other_authenticated_users_membership_cannot_be_read(self):
+        fake = FakeTransport()
+        fake.member_leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "user-1-other-membership")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_unfiltered_membership_listing_detects_cross_tenant_leak(self):
+        fake = FakeTransport()
+        fake.member_list_leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "user-1-enumerate-memberships")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_anonymous_membership_visibility_is_not_a_success(self):
+        fake = FakeTransport()
+        fake.anon_member_leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "anonymous-memberships")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_both_sessions_must_be_authenticated_before_tenant_reads(self):
+        fake = FakeTransport()
+        fake.reject_auth_user = USER_B
+        result, fake = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual([urlsplit(url).path for url, _ in fake.requests],
+                         ["/auth/v1/user", "/auth/v1/user"])
+        self.assertEqual(result["checks"][-1]["name"], "user-2-auth")
 
     def test_anonymous_visibility_is_not_a_success(self):
         fake = FakeTransport()
