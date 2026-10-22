@@ -239,3 +239,24 @@ Only counts are returned; individual identity or evidence details remain
 redacted. The checker never updates rows, releases holds, infers actual
 customer consent, or asserts that even a "consistent" fictional reservation
 would be safe to send. This is **not** a live database integrity monitor.
+
+## Low-level handoff and withdrawn fictional consent
+
+In addition to the strict reviewed reservation/handoff gates, the legacy
+`mark_fictional_handoff_unknown` now independently checks the **recipient's
+fictional consent-withdrawal ledger** before attempting its raw reservation
+transition. Previously a pending raw CAS fixture row restored or corrupted
+after a withdrawal could move to `outcome_unknown` because the legacy
+handoff checked only contact signals and deal closures. Normal withdrawal
+still atomically invalidates pending work, while this independent check
+protects the **handoff boundary even when fixture state is inconsistent**.
+
+The check is tenant-and-recipient scoped, does not require or fabricate a
+reviewer for an intentionally unreviewed raw CAS fixture, and does not
+change an already uncertain outcome. Four adversarial regression tests
+cover normal invalidation, a deliberately restored corrupted pending row
+(flagged by the read-only hold summary), isolation between fictional
+tenants, and competing legacy handoff and withdrawal transactions. These
+are disposable offline state-machine tests only; no actual provider handoff,
+customer consent, authenticated revocation, send, or release authority
+has been implemented. H01–H13 remain unverified.
