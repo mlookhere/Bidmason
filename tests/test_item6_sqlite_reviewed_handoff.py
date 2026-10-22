@@ -79,6 +79,28 @@ class ReviewedHandoffTests(unittest.TestCase):
         self.assertEqual(fictional_unknown_count(self.path, ORG), 1)
         self.assertEqual(self.reserve(), 'blocked-existing-key')
 
+    def test_legacy_unknown_handoff_cannot_bypass_strict_reviewed_reservation(self):
+        self.approved()
+        self.assertEqual(self.reserve(), 'reserved-simulation-only')
+        self.assertEqual(
+            mark_fictional_handoff_unknown(self.path, ORG, PROP, RECIPIENT, KEY),
+            'blocked-reviewed-reservation-use-strict-handoff')
+        self.assertEqual(fictional_unknown_count(self.path, ORG), 0)
+        self.assertEqual(self.handoff(), 'outcome-unknown-simulation-only')
+
+    def test_legacy_unknown_handoff_cannot_bypass_revoked_recipient_confirmation(self):
+        self.approved()
+        self.assertEqual(self.reserve(), 'reserved-simulation-only')
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute('DELETE FROM rehearsal_recipient_confirmations')
+            db.commit()
+        self.assertEqual(
+            mark_fictional_handoff_unknown(self.path, ORG, PROP, RECIPIENT, KEY),
+            'blocked-reviewed-reservation-use-strict-handoff')
+        self.assertEqual(self.handoff(), 'blocked-missing-recipient-confirmation')
+        self.assertEqual(fictional_counts(self.path, ORG), (1, 0, 0))
+        self.assertEqual(fictional_unknown_count(self.path, ORG), 0)
+
     def test_revision_hash_tenant_proposal_recipient_and_key_are_immutable(self):
         self.approved()
         self.reserve()
