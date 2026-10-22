@@ -122,11 +122,29 @@ simulations. The preview exception is confined to the exact
 `app/delivery-lab/page.tsx` (or future `src/` equivalent), provided it
 does **not** declare a server action. A shared layout, nested route handler,
 or newly introduced public page under that URL receives no exception.
-Nineteen negative/positive Python tests cover direct and transitive imports,
+Twenty-five negative/positive Python tests cover direct and transitive imports,
 aliases, server actions, dynamic imports, middleware/proxy,
 server-rendered pages and shared layouts, scoped pages/API routes,
-unresolved modules and narrow preview isolation. A passing gate means only
+unresolved modules and narrow preview isolation, including both
+`lib/` and `src/lib/` source layouts. A passing gate means only
 that **known static entrypoints** do not currently expose offline modules; it is **not** a guarantee of
 authenticity, complete dependency resolution, real API authorization,
 or production readiness. Any future real sender, webhook receiver,
 buyer portal or API still requires H01–H13 live external verification.
+
+### Offline-model path migration must not remove the guard
+
+The scanner's fixed offline-only module prefixes are now checked against
+both repository-root `lib/` and Next's common `src/lib/` layout. This
+closes a source-location bypass: a future move to `src/lib/synthetic-*`
+would otherwise avoid the same restriction already enforced for `lib/`.
+Both roots can coexist; a protected helper in **either** root is rejected
+when reachable from a live server entrypoint. Existing aliases and
+transitive barrel/re-export imports follow the same rule.
+
+Six extra adversarial tests cover a direct `src/app/api` import,
+root-page alias into `src/lib`, transitive barrel resolution,
+simultaneous protection of both source layouts, an unrelated permitted
+`src/lib` module, and preservation of the tightly scoped fictional
+preview exception. This remains static source containment only and
+does not grant provider, tenant or customer authority.
