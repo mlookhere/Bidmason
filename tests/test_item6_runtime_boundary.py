@@ -187,6 +187,42 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'export {x} from "./outbound-preflight";')
         self.verify("lib/exported-action.ts imports offline-only lib/outbound-preflight.ts")
 
+    def test_leading_module_block_comment_does_not_hide_server_action(self):
+        self.write("lib/buyer-view-grant.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   '/* file header */ "use server";'
+                   ' import {x} from "../lib/buyer-view-grant";')
+        self.verify("src/actions.ts imports offline-only lib/buyer-view-grant.ts")
+
+    def test_line_comment_before_module_directive_cannot_hide_server_action(self):
+        self.write("lib/outbound-preflight.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   '// ownership review\n"use server";'
+                   ' export {x} from "../lib/outbound-preflight";')
+        self.verify("src/actions.ts imports offline-only lib/outbound-preflight.ts")
+
+    def test_function_scoped_server_action_with_line_comment_blocks(self):
+        self.write("src/lib/buyer-view-grant.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   'export async function grant() { // review rationale\n'
+                   ' "use server"; return import("./lib/buyer-view-grant"); }')
+        self.verify("src/actions.ts imports offline-only src/lib/buyer-view-grant.ts")
+
+    def test_preview_leading_comment_cannot_preserve_server_action_exception(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   '/* fictional only */ "use server";'
+                   ' import "../../lib/synthetic-dispatch-reservation";')
+        self.verify("app/delivery-lab/page.tsx imports offline-only lib/synthetic-dispatch-reservation.ts")
+
+    def test_comments_without_server_directive_do_not_block_safe_modules(self):
+        self.write("lib/ordinary.ts", "export const x=true;")
+        self.write("src/actions.ts",
+                   '/* header */ // note\n'
+                   'export const action = () => import("./lib/ordinary");')
+        self.write("src/lib/ordinary.ts", "export const ok=true;")
+        self.verify()
+
     def test_inline_server_directive_removes_named_preview_exemption(self):
         self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
         self.write("app/delivery-lab/page.tsx",
