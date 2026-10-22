@@ -51,6 +51,19 @@ export function classifySimulatedRecipientAwareTriage(
       contactAuthorized: false,
     };
   }
+  // A current permanent stop is stricter than an older reply-review hold.
+  // Keep its stop-contact priority while still disclosing validated history;
+  // an old reply must never downgrade a current opt-out, bounce or complaint.
+  if (current.category === "contact-suppressed") {
+    return {
+      ...current,
+      historicalContact: prior.contact,
+      historicalSuppression: prior.suppression,
+      historicalReplyObserved: prior.repliedInHistory,
+      historicalStreams: prior.examinedStreams,
+      contactAuthorized: false,
+    };
+  }
   if (prior.repliedInHistory) {
     return {
       ...current,
