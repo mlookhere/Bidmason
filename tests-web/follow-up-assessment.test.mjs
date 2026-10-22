@@ -149,3 +149,26 @@ test("a past-revision terminal deal cannot be reactivated by current-revision re
       /closed-deal chronology/);
   }
 });
+
+
+test("post-closure dispatch reservations are contradictory even with valid provider callbacks",()=>{
+  for(const kind of ["won","lost"]){
+    const closed={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:2,kind,observedAt:"2026-10-21T09:00:00.000Z"};
+    const after=delivered.map((event,index)=>({...event,
+      observedAt:"2026-10-22T08:0"+index+":00.000Z"}));
+    assert.throws(()=>run({events:after,dealEvents:[closed]}),
+      /Simulated delivery reservation conflicts with closed-deal chronology/);
+    const boundary=delivered.map((event,index)=>({...event,
+      observedAt:index===0?closed.observedAt:"2026-10-22T08:0"+index+":00.000Z"}));
+    assert.throws(()=>run({events:boundary,dealEvents:[closed]}),
+      /Simulated delivery reservation conflicts with closed-deal chronology/);
+    // Delivery may complete AFTER a deal closes if the dispatch was reserved BEFORE.
+    const acceptedLater=delivered.map((event,index)=>index===0?event:{...event,
+      observedAt:"2026-10-22T08:0"+index+":00.000Z"});
+    const result=run({events:acceptedLater,dealEvents:[closed]});
+    assert.equal(result.state,"blocked");
+    assert.ok(result.blockers.includes("Fictional won/lost deal stops follow-up"));
+  }
+});

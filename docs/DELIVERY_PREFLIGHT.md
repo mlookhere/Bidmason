@@ -1465,3 +1465,25 @@ global CRM, complete historical search, durable transaction, or verified
 customer contact decision. In particular, **absence of caller-supplied
 history grants nothing**. All thirteen external release evidence categories
 still require actual independently reviewed implementations.
+
+## Post-closure dispatch reservation chronology (fictional only)
+
+A terminal deal record already blocks later follow-up attempts and propagates
+through the redacted CRM batch across revisions/recipients of one proposal.
+The fictional follow-up evaluator now also rejects a **new `reserved` delivery
+event at or after a supplied won/lost closure timestamp**, even when later
+fictional provider callbacks are otherwise well-formed. This models a
+contradictory new dispatch after a known deal closure, not real provider
+authorization. A reservation strictly **before** closure remains
+chronologically valid even when subsequent provider callbacks occur later:
+those callbacks do not prove the creation of another dispatch.
+
+In the tenant-level summary, closure evidence may be supplied in another
+recipient or revision row; the review reconciles every row's already validated
+reservation time against the same proposal's known terminal timestamp
+regardless of row ordering. A conflicting post-closure reservation fails the
+whole simulation rather than merely being counted as deferred. Different
+proposals are independent. Without supplied closure evidence the review
+cannot assert a closure or absence thereof, and never grants contact
+authority. This logic has no authenticated history, database transaction,
+provider integration, sending queue, or live customer endpoint.

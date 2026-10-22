@@ -562,3 +562,44 @@ test("cross-revision recorded reminders cannot survive a closing deal in another
   const unrelated=summarizeSyntheticDeliveryReview(org,[outside],now,undefined,[[]]);
   assert.equal(count(unrelated,"external-authorization-required"),1);
 });
+
+
+test("CRM rejects later-revision dispatch reservations after a separate row closes the deal",()=>{
+  const first=make(0);
+  const secondTemplate=make(1);
+  const {idempotencyKey:_old,...identity}=secondTemplate.intent;
+  const revised={...identity,proposalId:first.intent.proposalId,revision:2,
+    recipient:"separate@fictional.example"};
+  const idempotencyKey=deliveryIdempotencyKey(revised);
+  const after={...secondTemplate,intent:{...revised,idempotencyKey},
+    events:secondTemplate.events.map((event,index)=>({...event,
+      recipient:revised.recipient,idempotencyKey,
+      observedAt:"2026-10-22T08:0"+index+":00.000Z"}))};
+  const close={eventId:"77777777-7777-4777-8777-777777777777",
+    organizationId:org,proposalId:first.intent.proposalId,revision:1,
+    kind:"won",observedAt:"2026-10-21T09:00:00.000Z"};
+  for(const [entries,outcomes] of [
+    [[first,after],[[close],[]]],
+    [[after,first],[[],[close]]],
+  ])assert.throws(()=>summarizeSyntheticDeliveryReview(org,entries,now,
+    undefined,outcomes),/Cross-revision synthetic CRM dispatch reserved after deal closure/);
+  // Same recipient chronology without any supplied closure is never an approval.
+  const unknown=summarizeSyntheticDeliveryReview(org,[first,after],now,
+    undefined,[[],[]]);
+  assert.equal(count(unknown,"deal-closed"),0);
+  const inFlight={...after,events:after.events.map((event,index)=>index===0
+    ?{...event,observedAt:"2026-10-20T09:00:00.000Z"}:event)};
+  const alreadyReserved=summarizeSyntheticDeliveryReview(org,[first,inFlight],now,
+    undefined,[[close],[]]);
+  assert.equal(count(alreadyReserved,"deal-closed"),2);
+  const independent={...after,intent:{...after.intent,
+    proposalId:secondTemplate.intent.proposalId}};
+  const {idempotencyKey:_ignore,...otherFields}=independent.intent;
+  const otherKey=deliveryIdempotencyKey(otherFields);
+  const other={...independent,intent:{...otherFields,idempotencyKey:otherKey},
+    events:after.events.map(event=>({...event,idempotencyKey:otherKey}))};
+  const distinct=summarizeSyntheticDeliveryReview(org,[first,other],now,
+    undefined,[[close],[]]);
+  assert.equal(count(distinct,"deal-closed"),1);
+  assert.equal(count(distinct,"waiting-for-cooldown"),1);
+});

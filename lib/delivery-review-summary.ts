@@ -152,7 +152,7 @@ export function summarizeSyntheticDeliveryReview(
   // regardless of which proposal supplied the evidence. Do not infer that
   // the supplied batch is a complete or authorized recipient history.
   const reviewed: {recipient: string; proposalId: string; result: DeliveryTriage;
-    attempts: readonly FollowUpRecord[]}[] = [];
+    reservationAt: string | null; attempts: readonly FollowUpRecord[]}[] = [];
   const recipientHolds = new Map<string, "stop-contact" | "reply-review">();
   // A fictional terminal outcome belongs to the deal/proposal, not a single
   // recipient's delivery key or revision. A later revised quote cannot erase
@@ -258,6 +258,8 @@ export function summarizeSyntheticDeliveryReview(
     }
     reviewed.push({recipient: entry.intent.recipient,
       proposalId:entry.intent.proposalId,result,
+      // The per-entry triage already validated this entire stream.
+      reservationAt:entry.events.find(event=>event.kind==="reserved")?.observedAt ?? null,
       attempts: entry.previousAttempts});
     const hold = recipientHolds.get(entry.intent.recipient);
     if (result.category === "contact-suppressed") {
@@ -269,12 +271,15 @@ export function summarizeSyntheticDeliveryReview(
   // A stop-contact or reply signal already observed in another proposal for
   // this exact tenant and recipient must not be concealed by a clean-looking
   // case. This changes only redacted counts; it creates no contact authority.
-  for (const {recipient, proposalId, result, attempts} of reviewed) {
+  for (const {recipient, proposalId, reservationAt, result, attempts} of reviewed) {
     const stoppedAt = earliestStop.get(recipient);
     if (stoppedAt !== undefined && attempts.some(attempt => attempt.recordedAt >= stoppedAt)) {
       throw new TypeError("Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology");
     }
     const closure = proposalClosures.get(proposalId);
+    if (closure && reservationAt !== null && reservationAt >= closure.closedAt) {
+      throw new TypeError("Cross-revision synthetic CRM dispatch reserved after deal closure");
+    }
     if (closure && attempts.some(attempt => attempt.recordedAt >= closure.closedAt)) {
       throw new TypeError(
         "Cross-revision synthetic CRM follow-up attempt after deal closure",
