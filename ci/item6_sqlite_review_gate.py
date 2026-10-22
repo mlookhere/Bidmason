@@ -131,32 +131,101 @@ def reserve_reviewed_fictional(
         raise ValueError("Invalid fictional reviewed reservation")
 
     def act(db: sqlite3.Connection) -> str:
-        # A newer *partial* review freezes older revisions, including a forged
-        # single-signer revocation race; there is no reopen or downgrade path.
-        newest = db.execute(
-            "SELECT MAX(revision) FROM rehearsal_review_receipts "
-            "WHERE organization_id=? AND proposal_id=?",
-            (organization_id, proposal_id)).fetchone()[0]
-        if newest is not None and newest > revision:
-            return "blocked-stale-revision"
-        reviewers = db.execute(
-            "SELECT role,actor_id,content_sha256 FROM rehearsal_review_receipts "
-            "WHERE organization_id=? AND proposal_id=? AND revision=?",
-            (organization_id, proposal_id, revision)).fetchall()
-        if (len(reviewers) != 2 or {role for role, _, _ in reviewers} != _ROLES
-                or reviewers[0][1] == reviewers[1][1]):
-            return "blocked-missing-independent-reviews"
-        if any(review_hash != content_sha256 for _, _, review_hash in reviewers):
-            return "blocked-review-content-mismatch"
-        if not db.execute(
-            "SELECT 1 FROM rehearsal_consent_confirmations "
-            "WHERE organization_id=? AND recipient=?",
-            (organization_id, recipient)).fetchone():
-            return "blocked-unconfirmed-consent"
+        verdict = _review_gate_in_transaction(
+            db, organization_id, proposal_id, revision, content_sha256, recipient)
+        if verdict is not None:
+            return verdict
         # Shared core CAS inside this SAME BEGIN IMMEDIATE transaction, so a
         # concurrent opt-out or won/lost closure cannot interleave here.
         return _reserve_in_transaction(
             db, organization_id, proposal_id, recipient, idempotency_key,
             reviewed_revision=revision, reviewed_sha256=content_sha256)
+
+    return _transaction(path, act)
+
+
+def _review_gate_in_transaction(
+    db: sqlite3.Connection, organization_id: str, proposal_id: str,
+    revision: int, content_sha256: str, recipient: str,
+) -> str | None:
+    """Fictional review and consent checks, with an existing write transaction."""
+    # A newer *partial* review freezes older revisions, including a forged
+    # single-signer revocation race; there is no reopen or downgrade path.
+    newest = db.execute(
+        "SELECT MAX(revision) FROM rehearsal_review_receipts "
+        "WHERE organization_id=? AND proposal_id=?",
+        (organization_id, proposal_id)).fetchone()[0]
+    if newest is not None and newest > revision:
+        return "blocked-stale-revision"
+    reviewers = db.execute(
+        "SELECT role,actor_id,content_sha256 FROM rehearsal_review_receipts "
+        "WHERE organization_id=? AND proposal_id=? AND revision=?",
+        (organization_id, proposal_id, revision)).fetchall()
+    if (len(reviewers) != 2 or {role for role, _, _ in reviewers} != _ROLES
+            or reviewers[0][1] == reviewers[1][1]):
+        return "blocked-missing-independent-reviews"
+    if any(review_hash != content_sha256 for _, _, review_hash in reviewers):
+        return "blocked-review-content-mismatch"
+    if not db.execute(
+        "SELECT 1 FROM rehearsal_consent_confirmations "
+        "WHERE organization_id=? AND recipient=?",
+        (organization_id, recipient)).fetchone():
+        return "blocked-unconfirmed-consent"
+    return None
+
+
+def mark_reviewed_fictional_handoff_unknown(
+    path: Path, organization_id: str, proposal_id: str, revision: int,
+    content_sha256: str, recipient: str, idempotency_key: str,
+) -> str:
+    """Re-check a made-up review before recording an UNKNOWN simulated handoff.
+
+    Does not call a provider, send, clear uncertainty, or authorize contact.
+    """
+    _identity(organization_id, proposal_id, recipient)
+    if (not _revision(revision) or not _digest(content_sha256)
+            or type(idempotency_key) is not str
+            or _DRY_KEY.fullmatch(idempotency_key) is None):
+        raise ValueError("Invalid fictional reviewed handoff")
+
+    def act(db: sqlite3.Connection) -> str:
+        claim = db.execute(
+            "SELECT proposal_id,recipient,reviewed_revision,reviewed_sha256,state "
+            "FROM rehearsal_reservations WHERE organization_id=? AND idempotency_key=?",
+            (organization_id, idempotency_key)).fetchone()
+        if claim is None:
+            return "blocked-no-matching-reservation"
+        claimed_proposal, claimed_recipient, old_revision, old_hash, state = claim
+        if (claimed_proposal, claimed_recipient) != (proposal_id, recipient):
+            raise ValueError("Conflicting fictional handoff identity")
+        if state == "outcome_unknown":
+            return "blocked-unknown-outcome-existing"
+        if state != "reserved":
+            return "blocked-no-matching-reservation"
+        if old_revision is None or old_hash is None:
+            return "blocked-unreviewed-reservation"
+        if (old_revision, old_hash) != (revision, content_sha256):
+            raise ValueError("Conflicting fictional handoff revision or content")
+        verdict = _review_gate_in_transaction(
+            db, organization_id, proposal_id, revision, content_sha256, recipient)
+        if verdict is not None:
+            return verdict
+        if db.execute(
+            "SELECT 1 FROM rehearsal_contact_signals "
+            "WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)).fetchone():
+            return "blocked-contact-hold"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_deal_closures "
+            "WHERE organization_id=? AND proposal_id=?",
+            (organization_id, proposal_id)).fetchone():
+            return "blocked-closed-deal"
+        changed = db.execute(
+            "UPDATE rehearsal_reservations SET state='outcome_unknown' "
+            "WHERE organization_id=? AND idempotency_key=? AND state='reserved'",
+            (organization_id, idempotency_key))
+        if changed.rowcount != 1:
+            raise RuntimeError("Fictional handoff CAS unexpectedly changed")
+        return "outcome-unknown-simulation-only"
 
     return _transaction(path, act)

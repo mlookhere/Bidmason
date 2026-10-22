@@ -61,3 +61,39 @@ This is a disposable SQLite rehearsal, not a real versioned approval ledger,
 real provider cancellation, real buyer consent or a production database.
 No code here authorizes sending. All H01–H13 independent release requirements
 remain UNVERIFIED and `releaseState=blocked`; PR #15 stays draft.
+
+## Same-transaction pre-handoff review and consent recheck (fictional)
+
+The stricter `reserve_reviewed_fictional` already required two distinct
+invented reviewers, an exact revision/content digest, a fabricated consent
+event, and an unlocked recipient **at reservation time**. The older low-level
+fixture function `mark_fictional_handoff_unknown` did not recheck these
+prerequisites **at handoff time**. The isolated review gate now exposes
+`mark_reviewed_fictional_handoff_unknown`, a fail-closed test-only state
+transition that never calls a provider, sends or authorizes a message.
+
+Inside one temporary SQLite `BEGIN IMMEDIATE` transaction the new helper
+requires the exact tenant/key/proposal/recipient and stored reviewed
+revision/hash, a still-active reviewed reservation, no newer partially
+reviewed revision, two distinct matching fictional reviewer receipts,
+persisted fictional consent, no recipient stop-contact signal and no
+terminal-deal closure. A low-level *unreviewed* test reservation cannot
+pass the stricter handoff. Already `outcome_unknown` handoffs remain
+unknown rather than being retried or cleared. It shares the existing
+atomic review predicate with the reservation preflight to avoid drift.
+
+Eight new adversarial groups cover absent or unreviewed reservations,
+immutable identity and content, deleted or modified fictional receipts,
+newer revisions, recipient opt-out/closure, restart-safe unknown replay,
+and competing revision-review/handoff transitions. The test started red
+before the helper existed; after reconciliation with the separately
+committed review-recording validation, the full local **95/95 Python test
+discovery passed**, including **61/61 SQLite tests** on that local tree.
+
+**This remains a fabricated, non-sending CI-only model.** Passing a mock
+handoff check cannot establish actual customer consent, verified identity,
+immutable production document bytes, authenticated reviewers, a real email
+provider, real database transactions, or provider crash recovery. Live
+integration must separately enforce authenticated, server-owned checks
+at the actual send boundary. All **H01–H13 release requirements remain
+unverified**; `releaseState=blocked`, and PR #15 remains draft.
