@@ -8,6 +8,8 @@ below are pinned by `tests/test_item6_release_evidence.py`; they are **not**
 authenticated evidence or release status. No category has been independently
 verified as of this runbook's creation.
 
+**Connected metadata reconnaissance:** [BidMason Supabase read-only inventory](ITEM6_CONNECTED_ENVIRONMENT_INVENTORY.md) records observed existing RLS tables, private storage and missing live test coverage. It is **not** authenticated two-tenant H01/H02 acceptance or permission to update the release evidence status.
+
 ## How to assemble a review packet
 
 1. **Identify the actual environment.** Record the intended authenticated
