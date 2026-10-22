@@ -83,6 +83,60 @@ test("prior permanent suppression outranks a separate earlier reply",()=>{
   assert.equal(result.historicalReplyObserved,true);
   assert.equal(result.contactAuthorized,false);
 });
+test("individual triage rejects current reservations at or after historical stops",()=>{
+  const old=past("recipient_opted_out");
+  const historyAt=(stoppedAt)=>[{
+    intent:old.intent,
+    events:old.events.map((event,index)=>({...event,
+      observedAt:index===3?stoppedAt:
+        "2026-10-19T08:"+String(index).padStart(2,"0")+":00.000Z"})),
+  }];
+  for(const stop of ["2026-10-19T08:03:00.000Z",
+    "2026-10-20T08:00:00.000Z"]){
+    assert.throws(()=>triage(entry,historyAt(stop)),
+      /Cross-proposal simulated reservation conflicts with contact-stop chronology/);
+    assert.throws(()=>summarize([entry],[historyAt(stop)]),
+      /Cross-proposal simulated reservation conflicts with contact-stop chronology/);
+  }
+  // An earlier reservation is coherent even when a late reply or opt-out
+  // to the older proposal subsequently blocks follow-up on the new proposal.
+  for(const stop of ["2026-10-20T08:00:00.001Z",
+    "2026-10-21T08:03:00.000Z"]){
+    const result=triage(entry,historyAt(stop));
+    assert.equal(result.category,"contact-suppressed");
+    assert.equal(result.attention,"stop-contact");
+    assert.equal(result.contactAuthorized,false);
+    assert.equal(summarize([entry],[historyAt(stop)]).reviewedCases,1);
+  }
+});
+
+test("historical reservations cannot postdate a current reply or permanent stop",()=>{
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const current=make(0,kind==="provider_bounced"
+      ?["reserved","provider_accepted","provider_bounced"]
+      :["reserved","provider_accepted","provider_delivered",kind]);
+    const stoppedAt=current.events.at(-1).observedAt;
+    const old=make(1,["reserved","provider_accepted","provider_delivered"],
+      ORG,EMAIL,1);
+    const historyAt=(reservedAt)=>[{
+      intent:old.intent,
+      events:old.events.map((event,index)=>({...event,observedAt:index===0
+        ?reservedAt:
+        "2026-10-21T08:"+String(index).padStart(2,"0")+":00.000Z"})),
+    }];
+    for(const reservedAt of [stoppedAt,
+      new Date(Date.parse(stoppedAt)+1).toISOString()]){
+      assert.throws(()=>triage(current,historyAt(reservedAt)),
+        /Cross-proposal simulated reservation conflicts with contact-stop chronology/,kind);
+    }
+    const earlier=new Date(Date.parse(stoppedAt)-1).toISOString();
+    const valid=triage(current,historyAt(earlier));
+    assert.equal(valid.category,"contact-suppressed",kind);
+    assert.equal(valid.contactAuthorized,false);
+  }
+});
+
 test("current permanent stop-contact always outranks an earlier recipient reply",()=>{
   const prior=past("recipient_replied");
   const historical=[{intent:prior.intent,events:prior.events}];
