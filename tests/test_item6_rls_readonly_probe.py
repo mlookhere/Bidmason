@@ -20,6 +20,8 @@ ORG_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 ORG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 USER_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 USER_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+REV_A = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+REV_B = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 URL = "https://" + "a" * 20 + ".supabase.co"
 KEY = "sb_publishable_" + "k" * 25
 
@@ -42,6 +44,10 @@ class FakeTransport:
         self.anon_member_leak = False
         self.member_leak = False
         self.member_list_leak = False
+        self.revision_leak = False
+        self.revision_list_leak = False
+        self.revision_missing = False
+        self.anon_revision_leak = False
         self.reject_auth_user = None
 
     def __call__(self, url, headers):
@@ -54,6 +60,9 @@ class FakeTransport:
                 return 401, {"message": "not authorized"}
             return 200, {"id": self.tokens[bearer][0], "is_anonymous": False}
         if not bearer:
+            if parts.path.endswith("/bm_brief_revisions"):
+                return 200, ([{"id": REV_B, "organization_id": ORG_B}]
+                             if self.anon_revision_leak else [])
             if parts.path.endswith("/bm_memberships"):
                 return 200, ([{"organization_id": ORG_B, "user_id": USER_B}]
                              if self.anon_member_leak else [])
@@ -77,6 +86,18 @@ class FakeTransport:
                 rows = [{"organization_id": other, "user_id": other_user}]
             if self.member_list_leak and not requested:
                 rows.append({"organization_id": other, "user_id": other_user})
+        elif parts.path.endswith("/bm_brief_revisions"):
+            requested = query.get("id", [""])[0].removeprefix("eq.")
+            own_rev, other_rev = (REV_A, REV_B) if own == ORG_A else (REV_B, REV_A)
+            other_org = ORG_B if own == ORG_A else ORG_A
+            rows = ([{"id": own_rev, "organization_id": own}]
+                    if requested in ("", own_rev) else [])
+            if self.revision_missing and requested == own_rev:
+                rows = []
+            if self.revision_leak and requested == other_rev:
+                rows = [{"id": other_rev, "organization_id": other_org}]
+            if self.revision_list_leak and not requested:
+                rows.append({"id": other_rev, "organization_id": other_org})
         else:
             raise AssertionError("Unexpected endpoint: " + parts.path)
         return 200, rows
@@ -88,7 +109,8 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         args = dict(base=URL, publishable_key=KEY,
                     token_a=next(iter(transport.tokens)),
                     token_b=list(transport.tokens)[1],
-                    org_a=ORG_A, org_b=ORG_B, get=transport)
+                    org_a=ORG_A, org_b=ORG_B,
+                    revision_a=REV_A, revision_b=REV_B, get=transport)
         args.update(replacements)
         return probe_readonly_rls(**args), transport
 
@@ -97,14 +119,14 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(result["state"], "requires-independent-review")
         self.assertIs(result["releaseAuthorized"], False)
         self.assertIs(result["h01Accepted"], False)
-        self.assertEqual(len(result["checks"]), 16)
+        self.assertEqual(len(result["checks"]), 23)
         self.assertTrue(all(row["passed"] for row in result["checks"]))
-        self.assertEqual(len(fake.requests), 16)
+        self.assertEqual(len(fake.requests), 23)
         self.assertEqual(sum(url.endswith("/auth/v1/user") for url, _ in fake.requests), 2)
         self.assertNotIn("Authorization", fake.requests[-1][1])
         # No JWT, project hostname, recipient or tenant identity is emitted.
         rendered = json.dumps(result)
-        for secret in (KEY, URL, USER_A, USER_B, ORG_A, ORG_B,
+        for secret in (KEY, URL, USER_A, USER_B, ORG_A, ORG_B, REV_A, REV_B,
                        *fake.tokens):
             self.assertNotIn(secret, rendered)
         self.assertIn("session-revocation", result["notTested"])
@@ -142,6 +164,40 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         result, _ = self.run_probe(fake)
         self.assertEqual(result["state"], "blocked")
         self.assertEqual(result["checks"][-1]["name"], "user-1-enumerate-memberships")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_foreign_tenant_brief_revision_is_not_visible(self):
+        fake = FakeTransport()
+        fake.revision_leak = True
+        result, fake = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "user-1-other-brief-revision")
+        self.assertFalse(result["checks"][-1]["passed"])
+        self.assertEqual(parse_qs(urlsplit(fake.requests[-1][0]).query)["id"],
+                         ["eq." + REV_B])
+
+    def test_brief_revision_list_detects_cross_tenant_content_exposure(self):
+        fake = FakeTransport()
+        fake.revision_list_leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "user-1-enumerate-brief-revisions")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_missing_own_brief_revision_is_not_a_false_positive(self):
+        fake = FakeTransport()
+        fake.revision_missing = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "user-1-own-brief-revision")
+        self.assertFalse(result["checks"][-1]["passed"])
+
+    def test_anonymous_brief_revisions_must_remain_invisible(self):
+        fake = FakeTransport()
+        fake.anon_revision_leak = True
+        result, _ = self.run_probe(fake)
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(result["checks"][-1]["name"], "anonymous-brief-revisions")
         self.assertFalse(result["checks"][-1]["passed"])
 
     def test_anonymous_membership_visibility_is_not_a_success(self):
@@ -211,6 +267,9 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
             {"publishable_key": "service_role"},
             {"org_b": ORG_A},
             {"org_a": "not-a-uuid"},
+            {"revision_a": "not-a-uuid"},
+            {"revision_b": REV_A},
+            {"revision_b": ORG_B, "revision_a": ORG_B},
         ]
         for changes in invalid:
             with self.subTest(changes=list(changes)):
