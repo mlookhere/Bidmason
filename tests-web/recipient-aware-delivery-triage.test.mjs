@@ -83,6 +83,31 @@ test("prior permanent suppression outranks a separate earlier reply",()=>{
   assert.equal(result.historicalReplyObserved,true);
   assert.equal(result.contactAuthorized,false);
 });
+test("current permanent stop-contact always outranks an earlier recipient reply",()=>{
+  const prior=past("recipient_replied");
+  const historical=[{intent:prior.intent,events:prior.events}];
+  for(const kind of ["recipient_opted_out","provider_bounced","provider_complained"]){
+    const kinds=kind==="provider_bounced"
+      ?["reserved","provider_accepted","provider_bounced"]
+      :["reserved","provider_accepted","provider_delivered",kind];
+    const current=make(0,kinds);
+    const result=triage(current,historical);
+    assert.equal(result.category,"contact-suppressed",kind);
+    assert.equal(result.attention,"stop-contact",kind);
+    assert.equal(result.historicalReplyObserved,true,kind);
+    assert.deepEqual(result.historicalSuppression,[],kind);
+    assert.equal(result.historicalStreams,1,kind);
+    assert.equal(result.contactAuthorized,false,kind);
+    assert.match(result.rationale,/stop contact/i);
+    const aggregate=summarize([current],[historical]);
+    assert.equal(aggregate.categories
+      .find(x=>x.category==="contact-suppressed").count,1,kind);
+    assert.equal(aggregate.attention.stopContact,1,kind);
+  }
+  // No current permanent stop: a historical reply still means human review.
+  assert.equal(triage(entry,historical).category,"reply-needs-review");
+});
+
 test("invalid prior reply or current event is never converted into a normal review",()=>{
   const reply=past("recipient_replied");
   const historical=[{intent:reply.intent,events:reply.events}];
