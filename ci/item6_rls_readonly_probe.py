@@ -42,7 +42,7 @@ def _claims(token: str) -> str:
 
 
 def _validate(base: str, publishable_key: str, tokens: tuple[str, str],
-              orgs: tuple[str, str]) -> tuple[str, str]:
+              orgs: tuple[str, str], revisions: tuple[str, str]) -> tuple[str, str]:
     if type(base) is not str:
         raise ValueError("Explicit Supabase HTTPS endpoint required")
     parts = urlsplit(base)
@@ -58,6 +58,11 @@ def _validate(base: str, publishable_key: str, tokens: tuple[str, str],
             or any(type(org) is not str or not UUID.fullmatch(org) for org in orgs)
             or orgs[0] == orgs[1]):
         raise ValueError("Two distinct synthetic organization IDs required")
+    if (len(revisions) != 2
+            or any(type(value) is not str or not UUID.fullmatch(value)
+                   for value in revisions)
+            or revisions[0] == revisions[1]):
+        raise ValueError("Two distinct synthetic brief revision IDs required")
     users = tuple(_claims(token) for token in tokens)
     if users[0] == users[1] or tokens[0] == tokens[1]:
         raise ValueError("Two distinct authenticated user sessions required")
@@ -89,14 +94,16 @@ def _get(url: str, headers: dict[str, str]) -> tuple[int, object]:
 
 
 def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: str,
-                       org_a: str, org_b: str, get=_get) -> dict:
+                       org_a: str, org_b: str,
+                       revision_a: str, revision_b: str, get=_get) -> dict:
     """Positive controls + cross-tenant and anonymous reads; NO mutation.
 
     A passing matrix is still NOT H01 acceptance: writes, missing membership,
     session revocation, RLS adversarial cases and independent signoff remain.
     """
     tokens, orgs = (token_a, token_b), (org_a, org_b)
-    users = _validate(base, publishable_key, tokens, orgs)
+    revisions = (revision_a, revision_b)
+    users = _validate(base, publishable_key, tokens, orgs, revisions)
     cases: dict[str, bool] = {}
 
     for index, (token, user) in enumerate(zip(tokens, users)):
@@ -129,6 +136,19 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
             ("enumerate-memberships", "bm_memberships",
              {"select": "organization_id,user_id", "limit": "100"},
              [{"organization_id": own, "user_id": user}]),
+            # Proposal content is sensitive: verify a real seeded revision is
+            # visible to its tenant but not to the other signed-in tenant.
+            # Return only immutable IDs, never the document JSON or hashes.
+            ("own-brief-revision", "bm_brief_revisions",
+             {"select": "id,organization_id", "id": "eq." + revisions[index],
+              "organization_id": "eq." + own},
+             [{"id": revisions[index], "organization_id": own}]),
+            ("other-brief-revision", "bm_brief_revisions",
+             {"select": "id,organization_id", "id": "eq." + revisions[1-index],
+              "organization_id": "eq." + other}, []),
+            ("enumerate-brief-revisions", "bm_brief_revisions",
+             {"select": "id,organization_id", "limit": "100"},
+             [{"id": revisions[index], "organization_id": own}]),
         )
         for name, table, query, expected in checks:
             status, rows = get(base + "/rest/v1/" + table + "?" + urlencode(query), headers)
@@ -146,6 +166,12 @@ def probe_readonly_rls(base: str, publishable_key: str, token_a: str, token_b: s
     status, rows = get(base + "/rest/v1/bm_memberships?select=organization_id,user_id&limit=100",
                        anonymous_headers)
     cases["anonymous-memberships"] = status == 200 and rows == []
+    if not cases["anonymous-memberships"]:
+        return _result(cases)
+    status, rows = get(
+        base + "/rest/v1/bm_brief_revisions?select=id,organization_id&limit=100",
+        anonymous_headers)
+    cases["anonymous-brief-revisions"] = status == 200 and rows == []
     return _result(cases)
 
 
@@ -155,8 +181,11 @@ def _result(cases: dict[str, bool]) -> dict:
         for index in (1, 2)
         for case in ("own-organization", "other-organization",
                      "enumerate-organizations", "own-membership",
-                     "other-membership", "enumerate-memberships")
-    ), "anonymous-organizations", "anonymous-memberships")
+                     "other-membership", "enumerate-memberships",
+                     "own-brief-revision", "other-brief-revision",
+                     "enumerate-brief-revisions")
+    ), "anonymous-organizations", "anonymous-memberships",
+        "anonymous-brief-revisions")
     return {"schema": "bidmason.item6.h01-readonly-probe.v1",
             "state": "requires-independent-review" if tuple(cases) == expected
                      and all(cases.values()) else "blocked",
@@ -175,7 +204,8 @@ def main() -> int:
         return 2
     names = ("BIDMASON_H01_URL", "BIDMASON_H01_PUBLISHABLE_KEY",
              "BIDMASON_H01_USER_A_JWT", "BIDMASON_H01_USER_B_JWT",
-             "BIDMASON_H01_ORG_A", "BIDMASON_H01_ORG_B")
+             "BIDMASON_H01_ORG_A", "BIDMASON_H01_ORG_B",
+             "BIDMASON_H01_REVISION_A", "BIDMASON_H01_REVISION_B")
     try:
         result = probe_readonly_rls(*(os.environ[name] for name in names))
     except (KeyError, ValueError, OSError, urllib.error.URLError):
