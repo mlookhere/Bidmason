@@ -34,7 +34,7 @@ FORBIDDEN = (
 # Keep this separator narrow: the scanner does not claim full JS parsing.
 GAP = r"(?:\s|/\*[\s\S]*?\*/)*"
 FROM = re.compile(
-    r"\b(?:import|export)\s+(?:(?!;)[\s\S])*?\bfrom" + GAP
+    r"\b(?:import|export)" + GAP + r"(?:(?!;)[\s\S])*?\bfrom" + GAP
     + r"(['\"])([^'\"\r\n]+)\1"
 )
 SIDE_EFFECT = re.compile(r"\bimport" + GAP + r"(['\"])([^'\"\r\n]+)\1")
