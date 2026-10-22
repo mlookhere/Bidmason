@@ -67,6 +67,32 @@ class PublishGuardTests(unittest.TestCase):
                 self.assertTrue(any("Unreviewed public lab transitive imports" in e
                                     for e in findings(self.root)))
 
+    def test_reviewed_crm_pipeline_module_cannot_add_network_or_side_effects(self):
+        self.with_lab()
+        self.assertEqual(findings(self.root), [])
+        target = self.root / "lib/synthetic-crm-pipeline.ts"
+        for code in (
+            "fetch('/api/real-customers');",
+            "process.env.SENDER_SECRET;",
+            'import {send} from "./mailer.ts";',
+            'import "./unreviewed-side-effect.ts";',
+            'export {send} from "./mailer.ts";',
+        ):
+            with self.subTest(code=code):
+                self.with_lab()
+                target.write_text(target.read_text() + "\\n" + code + "\\n")
+                self.assertTrue(any(
+                    "lib/synthetic-crm-pipeline.ts" in finding
+                    and ("offline and read-only" in finding or "transitive imports" in finding)
+                    for finding in findings(self.root)
+                ))
+        self.with_lab()
+        target.unlink()
+        self.assertTrue(any(
+            "Missing or symlinked lab dependency: lib/synthetic-crm-pipeline.ts" in item
+            for item in findings(self.root)
+        ))
+
     def test_new_deal_outcome_dependency_stays_publicly_safe(self):
         # The exact fictional outcome helper is reachable from the public lab
         # via current CRM triage; additions must not gain external side effects.
