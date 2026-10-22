@@ -151,9 +151,14 @@ export function summarizeSyntheticDeliveryReview(
   // Reconcile known fictional recipient signals across all case records,
   // regardless of which proposal supplied the evidence. Do not infer that
   // the supplied batch is a complete or authorized recipient history.
-  const reviewed: {recipient: string; result: DeliveryTriage;
+  const reviewed: {recipient: string; proposalId: string; result: DeliveryTriage;
     attempts: readonly FollowUpRecord[]}[] = [];
   const recipientHolds = new Map<string, "stop-contact" | "reply-review">();
+  // A fictional terminal outcome belongs to the deal/proposal, not a single
+  // recipient's delivery key or revision. A later revised quote cannot erase
+  // a known fictional win/loss elsewhere in this reviewed batch.
+  const proposalClosures = new Map<string, {claim:string; closedAt:string}>();
+  const dealEventClaims = new Map<string,string>();
   // Every caller-supplied stop signal belongs to the recipient, not merely
   // to its proposal. Check attempts against the earliest observed stop only
   // after all current and historical streams have passed existing validation.
@@ -191,6 +196,28 @@ export function summarizeSyntheticDeliveryReview(
       throw new TypeError("Duplicate simulated review identity");
     }
     seen.add(key);
+    // The per-entry projector already validated exact tenant, proposal,
+    // canonical time, bounded array and revision <= current revision.
+    // Now enforce one immutable terminal decision across ALL entries of
+    // this proposal and forbid reuse of the event ID for another claim.
+    for (const decision of dealEvents) {
+      const claim=JSON.stringify([
+        decision.eventId, decision.organizationId, decision.proposalId,
+        decision.revision, decision.kind, decision.observedAt,
+      ]);
+      const earlierId=dealEventClaims.get(decision.eventId);
+      if (earlierId !== undefined && earlierId !== claim) {
+        throw new TypeError("Conflicting synthetic CRM deal outcome event ID");
+      }
+      dealEventClaims.set(decision.eventId,claim);
+      const earlierDeal=proposalClosures.get(entry.intent.proposalId);
+      if (earlierDeal !== undefined && earlierDeal.claim !== claim) {
+        throw new TypeError("Conflicting synthetic CRM proposal terminal outcomes");
+      }
+      proposalClosures.set(entry.intent.proposalId,{
+        claim,closedAt:decision.observedAt,
+      });
+    }
     // Different hashes cannot create multiple delivery records for the same
     // immutable proposal revision and recipient, even with distinct keys.
     const revisionRecipient = JSON.stringify([
@@ -229,7 +256,8 @@ export function summarizeSyntheticDeliveryReview(
       recordEventIds(history, false);
       observeStops(history.intent.recipient, history.events);
     }
-    reviewed.push({recipient: entry.intent.recipient, result,
+    reviewed.push({recipient: entry.intent.recipient,
+      proposalId:entry.intent.proposalId,result,
       attempts: entry.previousAttempts});
     const hold = recipientHolds.get(entry.intent.recipient);
     if (result.category === "contact-suppressed") {
@@ -241,16 +269,24 @@ export function summarizeSyntheticDeliveryReview(
   // A stop-contact or reply signal already observed in another proposal for
   // this exact tenant and recipient must not be concealed by a clean-looking
   // case. This changes only redacted counts; it creates no contact authority.
-  for (const {recipient, result, attempts} of reviewed) {
+  for (const {recipient, proposalId, result, attempts} of reviewed) {
     const stoppedAt = earliestStop.get(recipient);
     if (stoppedAt !== undefined && attempts.some(attempt => attempt.recordedAt >= stoppedAt)) {
       throw new TypeError("Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology");
     }
+    const closure = proposalClosures.get(proposalId);
+    if (closure && attempts.some(attempt => attempt.recordedAt >= closure.closedAt)) {
+      throw new TypeError(
+        "Cross-revision synthetic CRM follow-up attempt after deal closure",
+      );
+    }
     const hold = recipientHolds.get(recipient);
     const category = hold === "stop-contact" ? "contact-suppressed"
-      : hold === "reply-review" ? "reply-needs-review" : result.category;
+      : hold === "reply-review" ? "reply-needs-review"
+      : closure ? "deal-closed" : result.category;
     const priority = hold === "stop-contact" ? "stop-contact"
-      : hold === "reply-review" ? "operator-review" : result.attention;
+      : hold === "reply-review" ? "operator-review"
+      : closure ? "deferred" : result.attention;
     counts.set(category, (counts.get(category) ?? 0) + 1);
     if (priority === "stop-contact") attention.stopContact++;
     else if (priority === "operator-review") attention.operatorReview++;

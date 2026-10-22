@@ -134,3 +134,18 @@ test("fictional won/lost closes follow-up even with consent and elapsed timing",
     assert.throws(()=>run({dealEvents:[changed]}),/cross-tenant/);
   }
 });
+
+
+test("a past-revision terminal deal cannot be reactivated by current-revision reminders",()=>{
+  for(const kind of ["won","lost"]){
+    const closed={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:2,kind,observedAt:"2026-10-22T09:00:00.000Z"};
+    const state=run({dealEvents:[closed]});
+    assert.equal(state.state,"blocked");
+    assert.equal(state.nextEligibleAt,null);
+    assert.ok(state.blockers.includes("Fictional won/lost deal stops follow-up"));
+    assert.throws(()=>run({dealEvents:[closed],attempts:[attempt(1)]}),
+      /closed-deal chronology/);
+  }
+});

@@ -69,3 +69,19 @@ test("malformed target identity fails even for an empty outcome collection",()=>
  assert.throws(()=>projectSyntheticDealOutcome({...intent,revision:4},[],at),
  /Invalid simulated delivery identity/);
 });
+
+
+test("prior-revision win or loss remains closed on a later revision",()=>{
+ const older={...won,revision:2};
+ const prior=evaluate([older]);
+ assert.equal(prior.outcome,"won");
+ assert.equal(prior.closedAt,won.observedAt);
+ assert.equal(prior.contactAuthorized,false);
+ assert.equal(evaluate([{...older,kind:"lost"}]).outcome,"lost");
+ assert.deepEqual(evaluate([older,{...older}]),prior);
+ const variant={...won,revision:3,eventId:"22222222-2222-4222-8222-222222222222"};
+ assert.throws(()=>evaluate([older,variant]),/Conflicting synthetic terminal/);
+ for(const revision of [0,-1,1.5,4,100,Number.NaN,null]){
+  assert.throws(()=>evaluate([{...older,revision}]),/cross-tenant/);
+ }
+});

@@ -1439,3 +1439,29 @@ No database, provider, dispatch, queue, contact decision, buyer portal,
 HTTP route, customer data or independent source authentication was added.
 All H01–H13 external tenant, provider, consent, transactional, security,
 legal and written human go/no-go gates remain unverified and blocking.
+
+## Cross-revision fictional deal closure reconciliation
+
+A follow-up that is internally consistent on revision 4 must not become
+eligible solely because revision 3 of the **same proposal** was already
+recorded as won or lost. `projectSyntheticDealOutcome` now accepts
+explicitly caller-supplied terminal records from earlier positive revisions
+of the same tenant/proposal; records from future, invalid or other proposals
+remain rejected. The provided stream is still not authenticated evidence
+and an omitted history is **unverified**, not proven open.
+
+The optional full deal-outcome matrix in the redacted tenant review now
+reconciles these terminal events **by proposal ID across case rows and
+recipients**, including revision changes. Identical repeats are idempotent;
+different terminal claims for one proposal or event ID collisions are
+reconciliation errors. Known closure holds `deal-closed` / `deferred`
+across rows, while replies and permanent stop-contact signals retain
+precedence. The review rejects prior fictional reminders on another
+revision at or after the closing instant instead of counting them as
+permitted. An unrelated proposal is not closed by that event.
+
+This is a bounded, offline fictional-batch review, not an authenticated
+global CRM, complete historical search, durable transaction, or verified
+customer contact decision. In particular, **absence of caller-supplied
+history grants nothing**. All thirteen external release evidence categories
+still require actual independently reviewed implementations.

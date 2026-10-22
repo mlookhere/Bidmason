@@ -503,3 +503,62 @@ test("closed-deal evidence cannot conceal opt-out or contradictory follow-up aud
     [{...make(0),previousAttempts:[attempt]}],now,undefined,[[closed]]),
     /closed-deal chronology/);
 });
+
+
+test("earlier-version won/lost closes ALL fictional recipients and later revisions in the same deal",()=>{
+  const makeRevision=(template,changes)=>{
+    const {idempotencyKey:_ignored,...raw}=template.intent;
+    const revised={...raw,...changes};
+    const idempotencyKey=deliveryIdempotencyKey(revised);
+    return {...template,intent:{...revised,idempotencyKey},
+      events:template.events.map(e=>({...e,recipient:revised.recipient,idempotencyKey}))};
+  };
+  const before=make(0);
+  const after=makeRevision(make(1),{
+    proposalId:before.intent.proposalId,revision:2,
+    recipient:"other@fictional.example",
+  });
+  const closure={eventId:"77777777-7777-4777-8777-777777777777",
+    organizationId:org,proposalId:before.intent.proposalId,revision:1,
+    kind:"won",observedAt:"2026-10-21T09:00:00.000Z"};
+  const report=summarizeSyntheticDeliveryReview(org,[before,after],now,
+    undefined,[[closure],[]]);
+  assert.equal(count(report,"deal-closed"),2);
+  assert.deepEqual(report.attention,{stopContact:0,operatorReview:0,deferred:2});
+  const other=summarizeSyntheticDeliveryReview(org,[after,before],now,
+    undefined,[[],[closure]]);
+  assert.deepEqual(report,other);
+  // An earlier revision also inherits closure appearing only on a later row.
+  const newer={...closure,revision:2};
+  assert.equal(count(summarizeSyntheticDeliveryReview(org,[before,after],
+    now,undefined,[[],[newer]]),"deal-closed"),2);
+  const conflict={...closure,eventId:"88888888-8888-4888-8888-888888888888",
+    kind:"lost"};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[before,after],
+    now,undefined,[[closure],[conflict]]),
+    /Conflicting synthetic CRM proposal terminal outcomes/);
+  // Repeating one immutable event for the same proposal is idempotent.
+  assert.equal(count(summarizeSyntheticDeliveryReview(org,[before,after],
+    now,undefined,[[closure],[closure]]),"deal-closed"),2);
+});
+test("cross-revision recorded reminders cannot survive a closing deal in another case",()=>{
+  const first=make(0),other=make(1);
+  const {idempotencyKey:_ignored,...raw}=other.intent;
+  const revised={...raw,proposalId:first.intent.proposalId,revision:2,
+    recipient:"another@fictional.example"};
+  const idempotencyKey=deliveryIdempotencyKey(revised);
+  const second={...other,intent:{...revised,idempotencyKey},
+    events:other.events.map(e=>({...e,recipient:revised.recipient,idempotencyKey})),
+    previousAttempts:[{attemptId:"55555555-5555-4555-8555-555555555555",
+      organizationId:org,idempotencyKey,recipient:revised.recipient,
+      recordedAt:"2026-10-22T08:00:00.000Z"}]};
+  const close={eventId:"66666666-6666-4666-8666-666666666666",
+    organizationId:org,proposalId:first.intent.proposalId,revision:1,
+    kind:"lost",observedAt:"2026-10-21T12:00:00.000Z"};
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,[first,second],
+    now,undefined,[[close],[]]),
+    /Cross-revision synthetic CRM follow-up attempt after deal closure/);
+  const outside=make(2);
+  const unrelated=summarizeSyntheticDeliveryReview(org,[outside],now,undefined,[[]]);
+  assert.equal(count(unrelated,"external-authorization-required"),1);
+});

@@ -47,8 +47,10 @@ function dense(value:unknown):value is SyntheticDealOutcomeEvent[]{
   return true;
 }
 
-/** Review immutable fictional won/lost decisions for one proposal revision.
- * An absent event means UNKNOWN, never an independently verified open deal.
+/** Review immutable fictional won/lost decisions for a proposal, including
+ * explicitly supplied terminal events from earlier revisions. A new revision
+ * cannot reset a supplied fictional closure, and an absent event means UNKNOWN,
+ * never an independently verified open deal.
  * Each proposal has at most one distinct terminal decision; exact ID/body
  * replays are idempotent, while a second terminal claim fails closed.
  * No storage, authenticated user, event source, live CRM, or sending occurs. */
@@ -66,7 +68,9 @@ export function projectSyntheticDealOutcome(
   for(const event of events){
     if(!exact(event)||typeof event.eventId!=="string"||!UUID.test(event.eventId)
       ||event.organizationId!==intent.organizationId
-      ||event.proposalId!==intent.proposalId||event.revision!==intent.revision
+      ||event.proposalId!==intent.proposalId
+      ||!Number.isSafeInteger(event.revision)||event.revision<1
+      ||event.revision>intent.revision
       ||(event.kind!=="won"&&event.kind!=="lost")||!utc(event.observedAt)
       ||event.observedAt>nowUtc){
       throw new TypeError("Invalid or cross-tenant synthetic deal outcome");
