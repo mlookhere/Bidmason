@@ -114,8 +114,10 @@ export function evaluateDeliveryDryRun(
     || Object.getPrototypeOf(receipts) !== Array.prototype
     || receipts.length !== 2
     || Reflect.ownKeys(receipts).length !== 3
-    || ![0, 1].every(i => Object.hasOwn(
-      Object.getOwnPropertyDescriptor(receipts, String(i)) ?? {}, "value"))
+    || ![0, 1].every(i => {
+      const entry = Object.getOwnPropertyDescriptor(receipts, String(i));
+      return entry?.enumerable === true && Object.hasOwn(entry, "value");
+    })
     || !receipts.every(item => validRevision(item, ["role", "actorId"])
       && typeof item.role === "string" && ["operator", "contractor"].includes(item.role)
       && typeof item.actorId === "string" && UUID.test(item.actorId))

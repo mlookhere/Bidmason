@@ -109,6 +109,26 @@ test("an invalid, missing or accessor-backed evidence field fails closed",()=>{
   assert.equal(calls,0);
 });
 
+test("hidden or accessor-backed reviewer receipt indexes never satisfy two-person preflight",()=>{
+  for (const index of [0,1]){
+    const f=fixture();
+    Object.defineProperty(f.receipts,String(index),{
+      value:f.receipts[index],enumerable:false,configurable:true,writable:true,
+    });
+    assert.equal(Object.keys(f.receipts).length,1);
+    assert.throws(()=>run(f),/Invalid internal delivery preflight evidence/);
+  }
+  for (const index of [0,1]){
+    const f=fixture();let reads=0;
+    Object.defineProperty(f.receipts,String(index),{
+      enumerable:true,configurable:true,get(){reads++;throw Error("unsafe receipt getter")},
+    });
+    assert.throws(()=>run(f),/Invalid internal delivery preflight evidence/);
+    assert.equal(reads,0);
+  }
+  assert.deepEqual(run(fixture()),{state:"consistent-internal-only",blockers:[]});
+});
+
 test("idempotency key distinguishes recipients, revisions and QA fingerprints",()=>{
   const {idempotencyKey, ...base}=fixture().intent;
   assert.notEqual(deliveryIdempotencyKey({...base,revision:4}),idempotencyKey);

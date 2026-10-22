@@ -1324,3 +1324,30 @@ No API, provider, Supabase/SQL, user data, external call or CI gate was
 added or relaxed. H01–H13 verified tenant/Auth/RLS/Storage, exact revision
 approvals, provider/domain, durable replay/stop-contact, privacy/security/
 legal review and written human go/no-go remain blocked.
+
+## Visible, reviewable two-party approval evidence (fictional delivery preflight)
+
+The offline `evaluateDeliveryDryRun` validator now requires each of its
+two exact-revision reviewer receipts to be a **plain enumerable, own data
+array entry**. Previously it checked only for an own data descriptor,
+allowing a non-enumerable reviewer entry to satisfy the operator/contractor
+two-person review while disappearing from ordinary key enumeration and JSON
+serialization. A hidden synthetic signoff is not coherent review evidence.
+
+New adversarial Node tests prove the previous code incorrectly accepted a
+hidden receipt at either index, then verify the tightened validator rejects
+both positions, refuses hostile getter-backed indexes **without running
+their getters**, and still permits two legitimate distinct fictional
+operator/contractor receipts. The prior strict object, identity, signature-
+free dry-run key, recipient, revision, revocation and suppression checks
+remain intact; all existing Linux/Windows/browser/PDF/security checks
+stay required, without relaxed gate thresholds.
+
+This validates only *caller-supplied fictional* receipt shape. It cannot
+authenticate an operator or contractor, prove approval provenance, make a
+binding signoff, authorize a customer send or protect a live database.
+H01–H13 actual tenant Auth/RLS/private Storage, verified identity and
+exact-revision approvals, recipient consent, selected provider/domain
+and native signed callbacks, transactional replay/stop-contact and
+independent human security/legal/privacy/ops go/no-go remain blocked.
+No email, live route, provider, customer data, SQL mutation or deployment.
