@@ -246,6 +246,40 @@ test("shared fictional proposal revisions agree across historical recipients",()
     /Conflicting synthetic CRM proposal revision across recipients/);
 });
 
+test("follow-up attempt IDs are unique across fictional proposals within a tenant",()=>{
+  const id="22222222-2222-4222-8222-222222222222";
+  const first=make(0),second=make(1);
+  const withAttempt=(entry,attemptId,recordedAt="2026-10-21T09:00:00.000Z")=>({
+    ...entry,previousAttempts:[{attemptId,organizationId:entry.intent.organizationId,
+      idempotencyKey:entry.intent.idempotencyKey,recipient:entry.intent.recipient,
+      recordedAt}],
+  });
+  const initial=withAttempt(first,id),colliding=withAttempt(second,id);
+  for(const records of [[initial,colliding],[colliding,initial]]){
+    assert.throws(()=>summary(records),/Cross-proposal simulated follow-up attempt ID collision/);
+  }
+  assert.equal(summary([initial,withAttempt(second,"33333333-3333-4333-8333-333333333333")]).reviewedCases,2);
+  // An identical replay in one proposal is countable once and is not a
+  // separate cross-proposal follow-up attempt.
+  const replay={...initial,previousAttempts:[initial.previousAttempts[0],
+    {...initial.previousAttempts[0]}]};
+  assert.equal(summary([replay,second]).reviewedCases,2);
+  const otherRecipient="other@fictional.example";
+  const {idempotencyKey: _old,...fields}=second.intent;
+  const recipientIntent={...fields,recipient:otherRecipient};
+  const recipientKey=deliveryIdempotencyKey(recipientIntent);
+  const recipientCase={...second,intent:{...recipientIntent,idempotencyKey:recipientKey},
+    events:second.events.map(event=>({...event,recipient:otherRecipient,
+      idempotencyKey:recipientKey}))};
+  assert.throws(()=>summary([initial,withAttempt(recipientCase,id)]),
+    /Cross-proposal simulated follow-up attempt ID collision/);
+  // Only tenant-local reports are reconciled; the same synthetic ID in a
+  // separately reviewed tenant is not a cross-tenant collision.
+  const outside="99999999-9999-4999-8999-999999999999";
+  const separate=withAttempt(make(1,undefined,"confirmed",outside),id);
+  assert.equal(summarizeSyntheticDeliveryReview(outside,[separate],now).reviewedCases,1);
+});
+
 test("empty, oversized, sparse and decorated collections are rejected",()=>{
   for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
     assert.throws(()=>summary(entries),/Invalid simulated review batch/);

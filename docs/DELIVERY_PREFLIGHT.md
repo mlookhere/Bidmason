@@ -1067,3 +1067,24 @@ A live provider, tenant RLS, durable transactions, signed callbacks,
 operator/contractor approval and all H01-H13 release gates remain mandatory
 and unverified. No endpoint, email, customer data, database, deployment,
 dependency, required CI job or gate policy was added or weakened.
+
+## Tenant-local follow-up attempt-ID audit integrity (fictional only)
+
+The read-only `summarizeSyntheticDeliveryReview` now enforces one
+fictional follow-up `attemptId` per unique proposal delivery within
+a single tenant's CRM batch. Prior per-proposal checks validated replay
+and chronology but did not detect the same attempt identifier claimed by
+two different proposal delivery streams or different recipients. That
+would make the aggregated audit evidence ambiguous. The summary rejects
+these cross-proposal IDs rather than silently counting them as separate
+legitimate follow-ups. Each stream's original validator still recognizes
+an exact attempt-ID/body replay as a single attempt.
+
+Tests cover reversed case order, cross-recipient collisions, separate
+legitimate IDs, exact same-stream replay, and independent tenant
+summaries. This adds no new backend, provider, endpoint, storage,
+recipient data, credential or CI configuration. Attempt IDs remain only
+synthetic caller-supplied strings, not a trustworthy provider audit or
+durable tenant-unique constraint. Authenticated event origins, RLS,
+transactional persistence and H01-H13 release acceptance remain
+unverified and blocking; a review can never authorize sending.

@@ -82,6 +82,9 @@ export function summarizeSyntheticDeliveryReview(
   }
   const seen = new Set<string>();
   const revisionRecipients = new Set<string>();
+  // IDs identify a fictional attempt across this tenant's whole review,
+  // not just inside a single proposal's follow-up timeline.
+  const attemptIds = new Set<string>();
   const revisionClaims = new Map<string,string>();
   const proposalRevisions = new Map<string,string>();
   const recordRevision = (intent: DeliveryIntent) => {
@@ -160,6 +163,14 @@ export function summarizeSyntheticDeliveryReview(
     // earlier evidence which may be repeated in multiple fictional cases.
     recordRevision(entry.intent);
     recordEventIds({intent: entry.intent, events: entry.events}, true);
+    // Each entry's follow-up assessor has already validated its own
+    // chronology and exact duplicate replays. De-duplicate locally first
+    // so harmless replays do not masquerade as a cross-proposal collision.
+    const uniqueAttempts = new Set(entry.previousAttempts.map(attempt => attempt.attemptId));
+    if ([...uniqueAttempts].some(attemptId => attemptIds.has(attemptId))) {
+      throw new TypeError("Cross-proposal simulated follow-up attempt ID collision");
+    }
+    for (const attemptId of uniqueAttempts) attemptIds.add(attemptId);
     for (const history of historicalStreams?.[seen.size - 1] ?? []) {
       recordRevision(history.intent);
       recordEventIds(history, false);
