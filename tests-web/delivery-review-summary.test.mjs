@@ -172,6 +172,80 @@ test("historical proposal revisions cannot silently change fingerprints across c
     [[asHistory(earlier)],[validRevision]]).reviewedCases,2);
 });
 
+test("the same immutable proposal revision retains fingerprints across recipients",()=>{
+  const first=make(0),alternate="second@fictional.example";
+  const deliveryFor=(template,changes)=>{
+    const {idempotencyKey: _old, ...original}=template.intent;
+    const identity={...original,...changes};
+    const idempotencyKey=deliveryIdempotencyKey(identity);
+    return {...template,intent:{...identity,idempotencyKey},
+      events:template.events.map(event=>({
+        ...event,recipient:identity.recipient,idempotencyKey,
+      }))};
+  };
+  const second=deliveryFor(make(1),{
+    proposalId:first.intent.proposalId,recipient:alternate,
+  });
+  assert.equal(summary([first,second]).reviewedCases,2);
+  for(const field of ["sourceSha256","policySha256","contentSha256","qaSha256"]){
+    const changed=deliveryFor(make(1),{
+      proposalId:first.intent.proposalId,recipient:alternate,[field]:"e".repeat(64),
+    });
+    for(const cases of [[first,changed],[changed,first]]){
+      assert.throws(()=>summary(cases),
+        /Conflicting synthetic CRM proposal revision across recipients/,field);
+    }
+  }
+  const revised=deliveryFor(make(1),{
+    proposalId:first.intent.proposalId,revision:2,recipient:alternate,
+    contentSha256:"e".repeat(64),
+  });
+  assert.equal(summary([first,revised]).reviewedCases,2);
+  // Other customers' proposal IDs are independent, even with different hashes.
+  assert.equal(summary([first,deliveryFor(make(1),{
+    recipient:alternate,contentSha256:"e".repeat(64),
+  })]).reviewedCases,2);
+});
+
+test("shared fictional proposal revisions agree across historical recipients",()=>{
+  const original=make(0),alternate="second@fictional.example";
+  const clone=(template,changes)=>{
+    const {idempotencyKey: _old,...rest}=template.intent;
+    const identity={...rest,...changes};
+    const idempotencyKey=deliveryIdempotencyKey(identity);
+    return {intent:{...identity,idempotencyKey},events:template.events.map(event=>({
+      ...event,recipient:identity.recipient,idempotencyKey,
+    }))};
+  };
+  const second=clone(make(1),{recipient:alternate});
+  const historical=make(4);
+  const firstHistory={intent:historical.intent,events:historical.events};
+  const sameRevision=clone(make(5),{
+    proposalId:historical.intent.proposalId,revision:historical.intent.revision,
+    recipient:alternate,
+  });
+  assert.equal(summarizeSyntheticDeliveryReview(org,[original,{...make(1),...second}],now,
+    [[firstHistory],[sameRevision]]).reviewedCases,2);
+  const changed=clone(make(5),{
+    proposalId:historical.intent.proposalId,revision:historical.intent.revision,
+    recipient:alternate,contentSha256:"e".repeat(64),
+  });
+  for(const [records,histories] of [
+    [[original,{...make(1),...second}],[[firstHistory],[changed]]],
+    [[{...make(1),...second},original],[[changed],[firstHistory]]],
+  ]) assert.throws(()=>summarizeSyntheticDeliveryReview(org,records,now,histories),
+    /Conflicting synthetic CRM proposal revision across recipients/);
+  // The claim for a current revision is also immutable when reused as
+  // another recipient's historical proposal with independent event IDs.
+  const conflictedCurrent=clone(make(5),{
+    proposalId:original.intent.proposalId,recipient:alternate,
+    qaSha256:"e".repeat(64),
+  });
+  assert.throws(()=>summarizeSyntheticDeliveryReview(org,
+    [original,{...make(1),...second}],now,[[],[conflictedCurrent]]),
+    /Conflicting synthetic CRM proposal revision across recipients/);
+});
+
 test("empty, oversized, sparse and decorated collections are rejected",()=>{
   for(const entries of [[],Array(101).fill(make(0)),new Array(1)]){
     assert.throws(()=>summary(entries),/Invalid simulated review batch/);

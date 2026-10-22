@@ -1042,3 +1042,28 @@ immutable persistence or authorize contact. Production H01-H13 RLS/Auth,
 transactional consistency, provider signature, approval and human release
 gates remain blocked. No API, sender, external provider, database,
 credentials, build configuration or CI gates were added or weakened.
+
+## Immutable proposal evidence across fictional recipients
+
+A proposal revision's source, pricing-policy, content and QA SHA-256
+fingerprints are now checked across **all recipients** in the same tenant CRM
+review, including validated earlier-proposal histories. The per-recipient
+idempotency key properly changes with the recipient, but cannot conceal
+different proposal evidence being presented as the *same* immutable
+proposal ID and revision. Previously only conflicting claims for the exact
+same recipient were rejected; different recipients could conceal divergent
+content hashes behind independently valid dry-run dispatch keys.
+
+Positive and adversarial Node regressions check all four hashes, reversed
+entry order, different recipients with identical revision fingerprints,
+legitimate distinct revisions/proposals, and contradictions in historical
+and current-vs-historical streams. Existing same-recipient, replay, event-ID,
+tenant-isolation and simulation-only outputs remain unchanged.
+
+This checks only local, invented, caller-supplied identities. It does NOT
+establish approved source material, authenticated buyers, complete history,
+immutable production storage, consent, real delivery, or permission to send.
+A live provider, tenant RLS, durable transactions, signed callbacks,
+operator/contractor approval and all H01-H13 release gates remain mandatory
+and unverified. No endpoint, email, customer data, database, deployment,
+dependency, required CI job or gate policy was added or weakened.

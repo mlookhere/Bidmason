@@ -83,9 +83,10 @@ export function summarizeSyntheticDeliveryReview(
   const seen = new Set<string>();
   const revisionRecipients = new Set<string>();
   const revisionClaims = new Map<string,string>();
+  const proposalRevisions = new Map<string,string>();
   const recordRevision = (intent: DeliveryIntent) => {
-    // One immutable proposal revision/recipient must have one dry-run identity,
-    // whether encountered as current or as earlier evidence in another case.
+    // Per-recipient dry-run identities may differ, but the underlying proposal
+    // revision's source, policy, content and QA hashes must remain identical.
     const revisionId = JSON.stringify([
       intent.proposalId, intent.revision, intent.recipient,
     ]);
@@ -93,7 +94,16 @@ export function summarizeSyntheticDeliveryReview(
     if (previous !== undefined && previous !== intent.idempotencyKey) {
       throw new TypeError("Conflicting synthetic CRM revision across streams");
     }
+    const proposalRevision = JSON.stringify([intent.proposalId, intent.revision]);
+    const fingerprint = JSON.stringify([
+      intent.sourceSha256, intent.policySha256, intent.contentSha256, intent.qaSha256,
+    ]);
+    const earlier = proposalRevisions.get(proposalRevision);
+    if (earlier !== undefined && earlier !== fingerprint) {
+      throw new TypeError("Conflicting synthetic CRM proposal revision across recipients");
+    }
     revisionClaims.set(revisionId, intent.idempotencyKey);
+    proposalRevisions.set(proposalRevision, fingerprint);
   };
   const eventClaims = new Map<string,{claim:string; current:boolean}>();
   const recordEventIds = (stream: SyntheticRecipientHistory, current: boolean) => {
