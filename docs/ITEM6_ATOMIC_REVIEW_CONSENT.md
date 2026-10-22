@@ -105,3 +105,30 @@ General recipient consent, two exact-revision review receipts, and contractor pe
 `record_fictional_recipient_confirmation` checks fabricated contractor review, content hash, current revision, invented consent and contact/closed-deal holds in one SQLite transaction. `reserve_reviewed_fictional` refuses any missing or mismatched exact-recipient confirmation. The same reusable check applies before the separate **unknown-handoff rehearsal**; an old confirmation cannot unlock a superseding revision, another fictional proposal or another recipient. Known opt-outs, other contact stops and closed deals take priority over missing paperwork. Reconciliation of `outcome_unknown` remains a **manual held state**, not a retry or permission to send.
 
 The new negative tests cover a missing recipient confirmation despite valid consent and review, incorrect actor/content, replay and event identity collision, scope separation between recipients/proposals/versions, late revisions, and contact stops. These are invented claims in throwaway SQLite files with `*.example` recipients, **not proof of authenticated human approval, independent real recipient consent, actual provider delivery or production Postgres/RLS**. All H01–H13 external requirements remain unverified; no new endpoint or sender has been enabled. Treat earlier reported 53/53 local SQLite checks as historical only, not as verification of this new branch head; inspect its Actions results before reporting a pass.
+
+## Revoking a fictional recipient confirmation
+
+A previously recorded invented contractor recipient confirmation now has a
+**sticky, independently keyed revocation** in the disposable SQLite fixture.
+`revoke_fictional_recipient_confirmation` requires the exact invented tenant,
+proposal, revision and recipient. It checks that the confirmation exists,
+stores a tenant-unique revocation event identity, and atomically invalidates
+**pending reviewed** reservations for that exact scope in one
+`BEGIN IMMEDIATE` transaction. Replays of the same revocation are idempotently
+blocked; different events for the same scope and cross-recipient event reuse
+fail closed. Unrelated recipients remain independent.
+
+Both the strict fictional reservation and the strict reviewed handoff now read
+that revocation and return `blocked-recipient-confirmation-revoked`. The
+original confirmation cannot be re-recorded to revive the revoked scope.
+Critically, any `outcome_unknown` claim remains held for reconciliation:
+revocation cannot prove that an uncertain external side effect did not occur.
+The isolated legacy handoff still cannot bypass reviewed claims.
+
+Adversarial tests cover already-pending reservations, recipient separation,
+event collisions and replay, reservation-vs-revocation transactions, and
+revocation after an uncertain handoff. These are **caller-fabricated, CI-only**
+fixtures and cannot establish a real authenticated revocation, unsubscribe,
+customer preference, provider cancellation or buyer identity. There is no live
+PostgreSQL migration, provider integration, sending endpoint or release
+permission. All H01–H13 external requirements remain unverified.
