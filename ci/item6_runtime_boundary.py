@@ -35,6 +35,17 @@ LITERAL = re.compile(r"^(['\"])([^'\"]+)\1$")
 SERVER_ACTION = re.compile(r"(?m)^\s*['\"]use server['\"]\s*;?\s*$")
 
 
+# This exact public development preview deliberately renders offline models.
+# Every other page/layout shares normal live deployment reachability. The
+# publishing guard separately pins and audits the fictional preview page.
+PREVIEW_ENTRIES = {"app/delivery-lab/page.tsx", "src/app/delivery-lab/page.tsx"}
+APP_ENTRY_STEMS = {
+    "route", "page", "layout", "template", "default", "error", "global-error",
+    "loading", "not-found",
+}
+GLOBAL_STEMS = {"middleware", "instrumentation", "proxy"}
+
+
 def _entrypoints(root: Path) -> list[Path]:
     found = []
     for p in root.rglob("*"):
@@ -43,17 +54,27 @@ def _entrypoints(root: Path) -> list[Path]:
             continue
         rel = p.relative_to(root).as_posix()
         pieces = rel.split("/")
-        is_route = ((len(pieces) >= 2 and pieces[0] == "app"
-                     and p.stem == "route")
-                    or (len(pieces) >= 3 and pieces[:2] == ["pages", "api"]))
-        is_src_route = (len(pieces) >= 3 and pieces[0] == "src"
-                        and ((pieces[1] == "app" and p.stem == "route")
-                             or (len(pieces) >= 4 and pieces[1:3] == ["pages", "api"])))
-        is_global = rel in {f"{base}{name}{suffix}"
-                            for base in ("", "src/")
-                            for name in ("middleware", "instrumentation")
-                            for suffix in SOURCE_SUFFIXES}
-        if is_route or is_src_route or is_global or SERVER_ACTION.search(p.read_text(encoding="utf-8")):
+        if rel in PREVIEW_ENTRIES:
+            # A future server-action directive on the public preview removes
+            # this exception rather than quietly opening a write-capable path.
+            if not SERVER_ACTION.search(p.read_text(encoding="utf-8")):
+                continue
+        is_app = ((len(pieces) >= 2 and pieces[0] == "app")
+                  or (len(pieces) >= 3 and pieces[:2] == ["src", "app"]))
+        is_pages = ((len(pieces) >= 2 and pieces[0] == "pages")
+                    or (len(pieces) >= 3 and pieces[:2] == ["src", "pages"]))
+        # Next.js pages and layouts are server-rendered entrypoints by
+        # default; guarding only API handlers leaves a real execution path.
+        is_live_render = (is_app and p.stem in APP_ENTRY_STEMS) or is_pages
+        is_global = rel in {
+            f"{prefix}{stem}{suffix}"
+            for prefix in ("", "src/")
+            for stem in GLOBAL_STEMS
+            for suffix in SOURCE_SUFFIXES
+        }
+        if is_live_render or is_global or SERVER_ACTION.search(
+            p.read_text(encoding="utf-8")
+        ):
             found.append(p)
     return sorted(found)
 
