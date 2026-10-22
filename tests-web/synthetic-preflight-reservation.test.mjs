@@ -156,7 +156,10 @@ test("permanent opt-out outranks earlier reply and no reservation occurs",()=>{
     organizationId:bounceIdentity.intent.organizationId,
     idempotencyKey:bounceIdentity.intent.idempotencyKey,
     recipient:bounceIdentity.intent.recipient,kind,
-    observedAt:"2026-10-19T08:"+String(index).padStart(2,"0")+":00.000Z",
+    // The historical reservation and acceptance preceded the reply;
+    // a delayed provider bounce was observed after that reply.
+    observedAt:(index===2?"2026-10-19":"2026-10-17")
+      +"T08:"+String(index).padStart(2,"0")+":00.000Z",
   }));
   const priorBounce={intent:bounceIdentity.intent,events:bounceEvents};
   for(const records of [[priorReply,priorBounce],[priorBounce,priorReply]]){
