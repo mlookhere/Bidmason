@@ -59,11 +59,15 @@ class FictionalHoldSummaryTests(unittest.TestCase):
             "inconsistentPendingReservations": 0,
             "contactAuthorized": False,
             "pendingReservations": 0,
+            "rawPendingReservations": 0,
+            "reviewedPendingReservations": 0,
             "invalidatedReservations": 0,
             "unknownOutcomeHolds": 0,
             "consentWithdrawals": 0,
             "recipientConfirmationRevocations": 0,
             "suppressedRecipients": 0,
+            "hardStopRecipients": 0,
+            "replyOnlyReviewRecipients": 0,
             "closedProposals": 0,
         })
         self.assertNotIn(ORG, json.dumps(result))
@@ -86,8 +90,84 @@ class FictionalHoldSummaryTests(unittest.TestCase):
         record_fictional_contact_signal(self.path, ORG, SECOND, BUYER, "opted_out")
         record_fictional_contact_signal(self.path, ORG, PROPOSAL, NEXT, "complained")
         self.assertEqual(self.summary()["suppressedRecipients"], 2)
+        self.assertEqual(self.summary()["hardStopRecipients"], 2)
+        self.assertEqual(self.summary()["replyOnlyReviewRecipients"], 0)
         self.assertEqual(self.summary()["unknownOutcomeHolds"], 0)
         self.assertEqual(self.summary(OTHER)["suppressedRecipients"], 0)
+
+    def test_reply_only_is_manual_review_not_permanent_stop(self):
+        record_fictional_contact_signal(self.path, ORG, PROPOSAL, BUYER, "replied")
+        result = self.summary()
+        self.assertEqual(result["suppressedRecipients"], 1)
+        self.assertEqual(result["replyOnlyReviewRecipients"], 1)
+        self.assertEqual(result["hardStopRecipients"], 0)
+        record_fictional_contact_signal(self.path, ORG, SECOND, BUYER, "opted_out")
+        result = self.summary()
+        self.assertEqual(result["suppressedRecipients"], 1)
+        self.assertEqual(result["replyOnlyReviewRecipients"], 0)
+        self.assertEqual(result["hardStopRecipients"], 1)
+        self.assertFalse(result["contactAuthorized"])
+        self.assertNotIn(BUYER, json.dumps(result))
+
+    def test_hard_stops_take_priority_across_kinds_and_tenants(self):
+        THIRD = "third@fictional.example"
+        record_fictional_contact_signal(self.path, ORG, PROPOSAL, BUYER, "replied")
+        record_fictional_contact_signal(self.path, ORG, SECOND, NEXT, "replied")
+        record_fictional_contact_signal(self.path, ORG, PROPOSAL, BUYER, "complained")
+        record_fictional_contact_signal(self.path, ORG, SECOND, BUYER, "bounced")
+        record_fictional_contact_signal(self.path, ORG, SECOND, THIRD, "bounced")
+        record_fictional_contact_signal(self.path, OTHER, PROPOSAL, BUYER, "opted_out")
+        result = self.summary()
+        self.assertEqual(result["suppressedRecipients"], 3)
+        self.assertEqual(result["hardStopRecipients"], 2)
+        self.assertEqual(result["replyOnlyReviewRecipients"], 1)
+        self.assertEqual(result["hardStopRecipients"] +
+                         result["replyOnlyReviewRecipients"],
+                         result["suppressedRecipients"])
+        other = self.summary(OTHER)
+        self.assertEqual(other["suppressedRecipients"], 1)
+        self.assertEqual(other["hardStopRecipients"], 1)
+        self.assertEqual(other["replyOnlyReviewRecipients"], 0)
+        for value in (BUYER, NEXT, THIRD, ORG, OTHER):
+            self.assertNotIn(value, json.dumps(result))
+
+    def test_pending_breakdown_distinguishes_unreviewed_fixtures_from_reviewed(self):
+        self.reviewed_ready()
+        self.assertEqual(self.reserve(recipient=NEXT, seed="raw-other"),
+                         "reserved-simulation-only")
+        result = self.summary()
+        self.assertEqual(result["pendingReservations"], 2)
+        self.assertEqual(result["rawPendingReservations"], 1)
+        self.assertEqual(result["reviewedPendingReservations"], 1)
+        self.assertEqual(result["inconsistentPendingReservations"], 0)
+        self.assertEqual(result["pendingEvidenceState"], "consistent-simulation-only")
+        self.assertFalse(result["contactAuthorized"])
+        record_fictional_contact_signal(self.path, ORG, PROPOSAL, NEXT, "opted_out")
+        result = self.summary()
+        self.assertEqual(result["pendingReservations"], 1)
+        self.assertEqual(result["rawPendingReservations"], 0)
+        self.assertEqual(result["reviewedPendingReservations"], 1)
+        self.assertEqual(result["invalidatedReservations"], 1)
+        self.assertEqual(result["inconsistentPendingReservations"], 0)
+
+    def test_contact_priority_changes_atomically_in_read_only_snapshots(self):
+        record_fictional_contact_signal(self.path, ORG, PROPOSAL, BUYER, "replied")
+        before = self.summary()
+        with ThreadPoolExecutor(max_workers=9) as pool:
+            transition = pool.submit(
+                record_fictional_contact_signal,
+                self.path, ORG, SECOND, BUYER, "complained")
+            snapshots = list(pool.map(lambda _: self.summary(), range(24)))
+            self.assertEqual(transition.result(), 0)
+        after = self.summary()
+        self.assertEqual(
+            (before["hardStopRecipients"], before["replyOnlyReviewRecipients"]),
+            (0, 1))
+        self.assertEqual(
+            (after["hardStopRecipients"], after["replyOnlyReviewRecipients"]),
+            (1, 0))
+        self.assertTrue(all(snapshot in (before, after) for snapshot in snapshots))
+        self.assertEqual(after["suppressedRecipients"], 1)
 
     def test_unknown_handoff_and_withdrawn_consent_are_separate_counts(self):
         record_fictional_consent(self.path, ORG, BUYER, CONSENT)
