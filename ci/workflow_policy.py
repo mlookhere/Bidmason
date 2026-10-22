@@ -18,7 +18,66 @@ UNSAFE = (
 )
 
 
-def findings(source: str) -> list[str]:
+# Once a slice's substantive tests exist in the combined tree, its CI job
+# must survive workflow merges. Independent work branches keep their gate
+# sets; an integration conflict must not replace an earlier runner with a stub.
+# The command must occur in an executable run step, not only a comment.
+MERGED_SLICE_GATES = (
+    ("ci/db_rls_test.sql", "db-rls",
+     "psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql"),
+    ("ci/clamav_real_integration.test.mjs", "av-real",
+     "node --test ci/clamav_real_integration.test.mjs"),
+    ("db/typed_note_foundation.sql", "intake-db",
+     "psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql"),
+    ("ci/item3_item4_migration_parity.test.mjs", "item3-intake-compat",
+     "node --test ci/item3_item4_migration_parity.test.mjs"),
+    ("ci/branded_pdf_qa.py", "proposal-pdf-qa",
+     "python3 ci/branded_pdf_qa.py"),
+    ("ci/item6_release_evidence.py", "synthetic-webhook-qa",
+     "node --test tests-web/synthetic-webhook-*.test.mjs"),
+)
+
+
+def _job_blocks(source: str) -> tuple[dict[str, str], set[str]]:
+    """Extract top-level job bodies, not unrelated YAML or comments."""
+    _, sep, jobs_source = source.partition("\njobs:\n")
+    if not sep:
+        return {}, set()
+    boundaries = list(re.finditer(
+        r"(?m)^  ([a-z][a-z0-9-]*):[ \t]*$", jobs_source,
+    ))
+    blocks: dict[str, str] = {}
+    duplicates: set[str] = set()
+    for index, match in enumerate(boundaries):
+        name = match.group(1)
+        if name in blocks:
+            duplicates.add(name)
+        blocks[name] = jobs_source[match.end():(
+            boundaries[index + 1].start()
+            if index + 1 < len(boundaries) else len(jobs_source)
+        )]
+    return blocks, duplicates
+
+
+def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
+    """Require every job whose substantive feature test exists in checkout."""
+    blocks, duplicates = _job_blocks(source)
+    problems = [f"duplicate workflow job: {name}" for name in sorted(duplicates)]
+    for marker, name, command in MERGED_SLICE_GATES:
+        if not (root / marker).is_file():
+            continue
+        block = blocks.get(name)
+        if block is None:
+            problems.append(f"missing {name} job for {marker}")
+        elif not re.search(
+            r"(?m)^[ \t]+run:[ \t]*" + re.escape(command) + r"[ \t]*$",
+            block,
+        ):
+            problems.append(f"missing substantive {name} run command for {marker}")
+    return problems
+
+
+def findings(source: str, root: Path = ROOT) -> list[str]:
     problems = []
     if not re.search(r"(?m)^permissions:\s*$", source) or "contents: read" not in source:
         problems.append("missing explicit read-only permissions")
@@ -36,6 +95,7 @@ def findings(source: str) -> list[str]:
     for pattern, reason in UNSAFE:
         if re.search(pattern, source):
             problems.append(reason)
+    problems.extend(merged_gate_findings(source, root))
     return problems
 
 
