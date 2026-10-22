@@ -84,6 +84,8 @@ def initialize_fixture_db(path: Path) -> None:
           kind TEXT NOT NULL CHECK (kind IN ('won','lost')),
           PRIMARY KEY (organization_id, proposal_id)
         );
+        CREATE UNIQUE INDEX rehearsal_one_terminal_event_identity
+          ON rehearsal_deal_closures (organization_id, event_id);
         """)
 
 
@@ -125,8 +127,16 @@ def reserve_fictional(
         raise ValueError("Expected a fabricated, scoped dry-run key")
 
     def act(db: sqlite3.Connection) -> str:
-        if db.execute("SELECT 1 FROM rehearsal_reservations WHERE organization_id=? AND idempotency_key=?",
-                      (organization_id, idempotency_key)).fetchone():
+        existing = db.execute(
+            "SELECT proposal_id, recipient FROM rehearsal_reservations "
+            "WHERE organization_id=? AND idempotency_key=?",
+            (organization_id, idempotency_key)).fetchone()
+        if existing is not None:
+            # An idempotency replay is only the SAME immutable delivery claim.
+            # Reusing its key for another recipient or proposal is a conflict,
+            # even when the earlier claim was invalidated or is outcome_unknown.
+            if existing != (proposal_id, recipient):
+                raise ValueError("Conflicting fictional idempotency key reuse")
             return "blocked-existing-key"
         if db.execute("SELECT 1 FROM rehearsal_contact_signals WHERE organization_id=? AND recipient=?",
                       (organization_id, recipient)).fetchone():
@@ -235,6 +245,14 @@ def close_fictional_deal(
             if previous != (event_id, kind):
                 raise ValueError("Conflicting fictional terminal deal claim")
             return "blocked-duplicate-deal-closure", 0
+        # Event identities are unique within a tenant across ALL proposals.
+        # Without this, a replay can close a second unrelated fictional deal.
+        seen_proposal = db.execute(
+            "SELECT proposal_id FROM rehearsal_deal_closures "
+            "WHERE organization_id=? AND event_id=?",
+            (organization_id, event_id)).fetchone()
+        if seen_proposal is not None:
+            raise ValueError("Conflicting fictional terminal event ID reuse")
         db.execute("INSERT INTO rehearsal_deal_closures VALUES (?,?,?,?)",
                    (organization_id, proposal_id, event_id, kind))
         changed = db.execute(

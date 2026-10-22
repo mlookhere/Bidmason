@@ -119,3 +119,31 @@ require OS-level isolation beyond the fixture helper. The model must remain
 inside isolated CI temporary directories with only fabricated addresses.
 It cannot satisfy H01–H13 or authorize any provider, customer, send, or
 database deployment.
+
+## Immutable fictional idempotency and terminal-event identities
+
+The SQLite rehearsal now distinguishes **an identical delivery-key replay**
+from a new recipient or proposal attempting to reuse an existing key. A
+key collision across claims is a transaction error and cannot silently
+return the benign duplicate verdict, whether the original reservation is
+still active, invalidated or marked `outcome_unknown`. The `organization_id`
+continues to scope keys, permitting the same fictional hash in independent
+tenants.
+
+Won/lost closure events now have a tenant-scoped **unique event-ID index**
+in addition to the existing tenant/proposal primary key. A terminal event
+ID cannot close a second proposal belonging to the same fictional tenant.
+The logic checks for a cross-proposal replay before mutation and the SQLite
+unique constraint provides a second integrity boundary under concurrent
+connections. Exact same-proposal ID/body replays remain idempotent; use of
+the same fabricated event ID in a different tenant remains isolated.
+
+Seven new adversarial tests were run fail-first: **six failed against the
+previous source** and all seven now pass. They exercise duplicate keys
+with changed recipients/proposals, collisions surviving an uncertain
+handoff and later opt-out, independently scoped tenants, reused terminal
+event IDs, and simultaneous competing closure claims. Full local SQLite
+rehearsal/recovery/fixture/identity suite: **36/36 passed**. This is
+internal CI-only fixture correctness; no provider-origin authenticity,
+immutable actual approval, real consent or H01–H13 independent evidence
+has been established. All production release gates remain BLOCKED.
