@@ -83,8 +83,15 @@ def _get(url: str, headers: dict[str, str]) -> tuple[int, object]:
             raw = response.read(MAX_RESPONSE + 1)
             status = response.status
     except urllib.error.HTTPError as error:
-        # Never log provider response bodies (they may contain secrets).
-        return error.code, None
+        # A denial is not evidence of non-disclosure if its body was never
+        # inspected. Peek only one byte; never retain or log provider content.
+        # Ordinary PostgREST JSON error bodies also block this narrow probe
+        # until separately reviewed, rather than being assumed harmless.
+        try:
+            has_body = error.fp is not None and bool(error.read(1))
+        finally:
+            error.close()
+        return error.code, True if has_body else None
     if len(raw) > MAX_RESPONSE:
         raise ValueError("Oversized authentication or PostgREST response")
     try:
