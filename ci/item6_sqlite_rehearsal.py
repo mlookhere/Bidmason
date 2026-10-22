@@ -47,12 +47,12 @@ def initialize_fixture_db(path: Path) -> None:
           idempotency_key TEXT NOT NULL,
           proposal_id TEXT NOT NULL,
           recipient TEXT NOT NULL,
-          state TEXT NOT NULL CHECK (state IN ('reserved', 'invalidated')),
+          state TEXT NOT NULL CHECK (state IN ('reserved', 'invalidated', 'outcome_unknown')),
           PRIMARY KEY (organization_id, idempotency_key)
         );
         CREATE UNIQUE INDEX rehearsal_one_live_recipient
           ON rehearsal_reservations (organization_id, recipient)
-          WHERE state = 'reserved';
+          WHERE state IN ('reserved', 'outcome_unknown');
         CREATE TABLE rehearsal_contact_signals (
           organization_id TEXT NOT NULL,
           recipient TEXT NOT NULL,
@@ -105,13 +105,65 @@ def reserve_fictional(
         if db.execute("SELECT 1 FROM rehearsal_deal_closures WHERE organization_id=? AND proposal_id=?",
                       (organization_id, proposal_id)).fetchone():
             return "blocked-closed-deal"
-        if db.execute("SELECT 1 FROM rehearsal_reservations WHERE organization_id=? AND recipient=? AND state='reserved'",
+        if db.execute("SELECT 1 FROM rehearsal_reservations WHERE organization_id=? AND recipient=? AND state IN ('reserved','outcome_unknown')",
                       (organization_id, recipient)).fetchone():
             return "blocked-existing-recipient-reservation"
         db.execute("INSERT INTO rehearsal_reservations VALUES (?,?,?,?, 'reserved')",
                    (organization_id, idempotency_key, proposal_id, recipient))
         return "reserved-simulation-only"
 
+    return _transaction(path, act)
+
+
+def mark_fictional_handoff_unknown(
+    path: Path, organization_id: str, proposal_id: str, recipient: str,
+    idempotency_key: str,
+) -> str:
+    """Model an uncertain local handoff without contacting or claiming a provider.
+
+    The uncertainty is sticky and survives a new database connection/process.
+    There is deliberately no retry, mark-sent, or clear-uncertain operation.
+    """
+    _identity(organization_id, proposal_id, recipient)
+    if type(idempotency_key) is not str or not _DRY_KEY.fullmatch(idempotency_key):
+        raise ValueError("Expected a fabricated, scoped dry-run key")
+
+    def act(db: sqlite3.Connection) -> str:
+        claim = db.execute(
+            "SELECT state FROM rehearsal_reservations "
+            "WHERE organization_id=? AND proposal_id=? AND recipient=? AND idempotency_key=?",
+            (organization_id, proposal_id, recipient, idempotency_key)).fetchone()
+        if claim is None or claim[0] == "invalidated":
+            return "blocked-no-matching-reservation"
+        if claim[0] == "outcome_unknown":
+            return "blocked-unknown-outcome-existing"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_contact_signals WHERE organization_id=? AND recipient=?",
+            (organization_id, recipient)).fetchone():
+            return "blocked-contact-hold"
+        if db.execute(
+            "SELECT 1 FROM rehearsal_deal_closures WHERE organization_id=? AND proposal_id=?",
+            (organization_id, proposal_id)).fetchone():
+            return "blocked-closed-deal"
+        db.execute(
+            "UPDATE rehearsal_reservations SET state='outcome_unknown' "
+            "WHERE organization_id=? AND proposal_id=? AND recipient=? "
+            "AND idempotency_key=? AND state='reserved'",
+            (organization_id, proposal_id, recipient, idempotency_key))
+        return "outcome-unknown-simulation-only"
+
+    return _transaction(path, act)
+
+
+def fictional_unknown_count(path: Path, organization_id: str) -> int:
+    """Only report aggregate unresolved synthetic handoffs, never identities."""
+    if type(organization_id) is not str or not _UUID.fullmatch(organization_id):
+        raise ValueError("Invalid fictional tenant")
+    def act(db: sqlite3.Connection) -> int:
+        return db.execute(
+            "SELECT COUNT(*) FROM rehearsal_reservations "
+            "WHERE organization_id=? AND state='outcome_unknown'",
+            (organization_id,)).fetchone()[0]
     return _transaction(path, act)
 
 
