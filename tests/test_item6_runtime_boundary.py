@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from ci.item6_runtime_boundary import findings
@@ -344,6 +345,33 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    '{"name":"safe-fictional-preview","private":true}')
         self.write("app/page.tsx", 'import {fake} from "external-package";')
         self.verify()
+
+    def test_symlinked_live_route_is_not_trusted_as_scanned_source(self):
+        entry = self.write("app/api/send/route.ts", "export const GET = () => null;")
+        with patch.object(Path, "is_symlink",
+                          autospec=True, side_effect=lambda p: p == entry):
+            self.verify("app/api/send/route.ts: unreviewed symlinked source path")
+
+    def test_symlinked_local_helper_is_not_assumed_to_resolve_safely(self):
+        helper = self.write("lib/safe-looking-helper.ts", "export const x = true;")
+        self.write("app/api/ping/route.ts",
+                   'import {x} from "../../../lib/safe-looking-helper";')
+        with patch.object(Path, "is_symlink",
+                          autospec=True, side_effect=lambda p: p == helper):
+            self.verify("lib/safe-looking-helper.ts: unreviewed symlinked source path")
+
+    def test_symlinked_source_directory_blocks_even_without_visible_children(self):
+        self.write("src/lib/ordinary-helper.ts", "export const ok = true;")
+        suspect = self.root / "src/lib"
+        with patch.object(Path, "is_symlink",
+                          autospec=True, side_effect=lambda p: p == suspect):
+            self.verify("src/lib: unreviewed symlinked source path")
+
+    def test_symlinked_root_proxy_is_a_runtime_boundary_violation(self):
+        proxy = self.write("proxy.ts", "export const proxy = () => null;")
+        with patch.object(Path, "is_symlink",
+                          autospec=True, side_effect=lambda p: p == proxy):
+            self.verify("proxy.ts: unreviewed symlinked source path")
 
     def test_real_repository_remains_safe_without_live_api_entrypoints(self):
         repo = Path(__file__).resolve().parents[1]
