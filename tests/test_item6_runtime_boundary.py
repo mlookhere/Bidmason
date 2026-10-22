@@ -215,12 +215,12 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    ' import "../../lib/synthetic-dispatch-reservation";')
         self.verify("app/delivery-lab/page.tsx imports offline-only lib/synthetic-dispatch-reservation.ts")
 
-    def test_comments_without_server_directive_do_not_block_safe_modules(self):
-        self.write("lib/ordinary.ts", "export const x=true;")
-        self.write("src/actions.ts",
-                   '/* header */ // note\n'
-                   'export const action = () => import("./lib/ordinary");')
+    def test_comment_header_with_safe_local_dependency_remains_permitted(self):
         self.write("src/lib/ordinary.ts", "export const ok=true;")
+        self.write("src/app/api/health/route.ts",
+                   '/* header */ // note\n'
+                   'import {ok} from "../../../lib/ordinary";'
+                   ' export const GET = () => ok;')
         self.verify()
 
     def test_inline_server_directive_removes_named_preview_exemption(self):
