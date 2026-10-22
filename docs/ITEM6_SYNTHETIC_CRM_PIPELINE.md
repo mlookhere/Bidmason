@@ -12,6 +12,8 @@ The pure `summarizeSyntheticCrmPipeline` function in `lib/synthetic-crm-pipeline
 - **Output privacy:** returns **only counts and static state strings**. No organization ID, recipient, proposal ID, JWT, provider payload, message contents, policy hash, financial amount, link, grant, or contact permission.
 - **Hard invariants:** the full aligned deal-outcome matrix is mandatory. The underlying review validator rejects malformed input, cross-tenant streams, collisions, conflicting revision hashes, contradictory terminal outcomes, replay collisions, stop-contact chronology and unsafe follow-up history **before aggregation**. Historical streams are accepted only when explicitly supplied for each case.
 
+Across one supplied tenant review, the same fictional UUID cannot identify a delivery callback, a follow-up attempt, and/or a won/lost terminal event. The review gathers IDs from current delivery streams, explicitly provided historical streams, previous attempts, and deal-outcome events, then rejects cross-family collisions regardless of input order. This mirrors the existing disposable SQLite cross-ledger event-identity test. It is an **in-memory consistency check over supplied fixtures only**, not proof of a persistent production-wide event namespace.
+
 The output always contains `state:"crm-simulation-only"`, `contactAuthorized:false`, `dataComplete:false`. No action, send endpoint, webhook, live CRM integration, storage write or proposal access was added.
 
 ## Fictional delivery-lab presentation
