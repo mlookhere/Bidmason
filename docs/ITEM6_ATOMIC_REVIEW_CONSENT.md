@@ -19,7 +19,7 @@ The test model rejects invalid revisions, noncanonical hashes, duplicate review 
 
 ## Verification and limitations
 
-`tests/test_item6_sqlite_review_gate.py` adds **11** adversarial regression groups, including two independent connection races against stop-contact and terminal-deal closure. The full targeted SQLite suite currently contains **47 tests** and passes locally. It is discovered by existing required Linux/Windows Python CI jobs; no test gate is relaxed.
+`tests/test_item6_sqlite_review_gate.py` now contains **13** adversarial regression groups, including independent connection races against stop-contact and terminal-deal closure, concurrent different-hash reviewers, and stale receipts after partial supersession. The original review/consent checkpoint had 47 SQLite tests; these later regressions must be verified on their own exact Actions commit. It is discovered by existing required Linux/Windows Python CI jobs; no test gate is relaxed.
 
 This is **not verification of actual consent or approval**: any caller can fabricate these local records. It has **no authenticated reviewer identity, real policy authority, immutable actual document, actual subscriber, event signatures, RLS, private storage, provider, queue worker, buyer portal, or SQL/PostgreSQL staging database**. An invented SHA-256 string is not proof the bytes were approved. The low-level synthetic reservation API remains available only inside isolated tests and therefore must **not** be connected to real sending. No `contactAuthorized` or `releaseAuthorized` result is exposed.
 
@@ -54,7 +54,7 @@ new review and reserving the old revision serialize inside SQLite. A
 separate set of six adversarial test groups reproduced **four failures**
 against the prior code and now passes; the existing test expectation for
 a fully reviewed newer revision was updated to require the safe transition.
-Full SQLite regression run: **53/53 passing** locally. Mandatory CI gates
+Prior supersession checkpoint: **53/53 passing** locally, before the subsequent review-recording consistency tests. Do not substitute that historical result for current-head CI. Mandatory CI gates
 and release-evidence requirements are unchanged.
 
 This is a disposable SQLite rehearsal, not a real versioned approval ledger,
