@@ -211,6 +211,50 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    'import "../../../src/lib/synthetic-dispatch-reservation";')
         self.verify("imports offline-only src/lib/synthetic-dispatch-reservation.ts")
 
+    def test_long_multiline_named_import_cannot_bypass_policy(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const sample=true;")
+        imports = ",\n  ".join(f"illustrativeIdentifier{number:03d}" for number in range(110))
+        self.assertGreater(len(imports), 800)
+        self.write("app/page.tsx",
+                   'import {\n  ' + imports
+                   + '\n} from "../lib/synthetic-dispatch-reservation";')
+        self.verify("imports offline-only lib/synthetic-dispatch-reservation.ts")
+
+    def test_long_reexport_from_barrel_is_also_checked(self):
+        self.write("src/lib/recipient-suppression-history.ts",
+                   "export const sample=true;")
+        names = ",\n  ".join(f"syntheticName{number:03d}" for number in range(125))
+        self.write("src/lib/barrel.ts",
+                   'export {\n  ' + names
+                   + '\n} from "./recipient-suppression-history";')
+        self.write("src/app/page.tsx", 'import "../../lib/barrel";')
+        self.verify("imports offline-only src/lib/recipient-suppression-history.ts")
+
+    def test_long_type_only_import_does_not_hide_offline_code(self):
+        self.write("lib/buyer-view-grant.ts", "export type BuyerView=never;")
+        names = ",\n  ".join(f"UnverifiedClaim{number:03d}" for number in range(130))
+        self.write("app/api/grants/route.ts",
+                   'import type {\n  ' + names
+                   + '\n} from "../../../lib/buyer-view-grant";')
+        self.verify("imports offline-only lib/buyer-view-grant.ts")
+
+    def test_long_safe_import_does_not_hide_a_later_forbidden_import(self):
+        self.write("lib/delivery-event-projection.ts", "export const sample=true;")
+        self.write("app/api/test/long-import.ts", "export const fake=true;")
+        names = ",\n  ".join(f"AllowedIdentifier{number:03d}" for number in range(100))
+        self.write("app/api/test/route.ts",
+                   'import {\n  ' + names + '\n} from "./long-import";\n'
+                   + 'import "../../../lib/delivery-event-projection";')
+        self.verify("imports offline-only lib/delivery-event-projection.ts")
+
+    def test_unbounded_import_rule_does_not_drop_safe_long_module(self):
+        names = ",\n  ".join(f"ReadableField{number:03d}" for number in range(160))
+        self.write("lib/normal-data-shape.ts", "export const sample=true;")
+        self.write("app/page.tsx",
+                   'import {\n  ' + names
+                   + '\n} from "../lib/normal-data-shape";')
+        self.verify()
+
     def test_real_repository_remains_safe_without_live_api_entrypoints(self):
         repo = Path(__file__).resolve().parents[1]
         self.assertEqual(findings(repo), [])
