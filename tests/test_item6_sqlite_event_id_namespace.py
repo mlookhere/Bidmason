@@ -112,7 +112,7 @@ class FictionalEventIdentityNamespaceTests(unittest.TestCase):
         self.assertEqual(close_fictional_deal(
             self.path, OTHER, PROPOSAL, RECIPIENT, event("consent"), "won"),
             ("closed-simulation-only", 0))
-        self.assertEqual(self.consent(RECIPIENT, "consent", OTHER),
+        self.assertEqual(self.consent(RECIPIENT, "other-tenant-consent", OTHER),
                          "fictional-consent-recorded")
         self.assertEqual(self.consent(), "blocked-duplicate-consent")
         self.assertEqual(self.consent(SECOND, "second-consent"), "fictional-consent-recorded")
