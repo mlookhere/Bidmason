@@ -47,6 +47,19 @@ def _peek(url: str, headers: dict[str, str]) -> tuple[int, bool]:
             match = CONTENT_RANGE.fullmatch(content_range)
             if not match or int(match.group(1)) > MAX_OBJECT_BYTES:
                 return status, False
+            # A successful read also needs a declared media type consistent
+            # with the private bucket's allowed, extension-scoped test object.
+            # These metadata checks are not proof of server-side MIME scanning.
+            object_path = urlsplit(url).path.partition("/bm-evidence/")[2]
+            path_match = PATH.fullmatch(object_path)
+            expected_type = {
+                "pdf": "application/pdf", "png": "image/png",
+                "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            }.get(path_match.group(3)) if path_match else None
+            mime = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            encoding = response.headers.get("Content-Encoding", "identity").lower()
+            if not expected_type or mime != expected_type or encoding != "identity":
+                return status, False
             return status, len(response.read(2)) == 1
     except urllib.error.HTTPError as error:
         # A denial is not evidence of non-disclosure unless its body is
