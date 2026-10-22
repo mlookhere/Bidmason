@@ -73,7 +73,7 @@ test("lab renders explicit case-versus-proposal semantics without enabling conta
   assert.match(page,/Reported delivered · cases/);
   assert.match(page,/Won · unique proposals/);
   assert.match(page,/Unverified · unique proposals/);
-  assert.match(page,/Incomplete fictional evidence; no contact authorization/);
+  assert.match(page,/Incomplete fictional evidence\. No contact authorization/);
   assert.doesNotMatch(page,/<form\b|<input\b|<button\b|<textarea\b/i);
 });
 
