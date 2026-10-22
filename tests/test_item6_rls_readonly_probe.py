@@ -241,7 +241,7 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
         self.assertEqual(len(handlers), 2)
         self.assertIsInstance(handlers[0], urllib.request.ProxyHandler)
         self.assertEqual(handlers[0].proxies, {})
-        self.assertIsInstance(handlers[1], _NoRedirect)
+        self.assertIs(handlers[1], _NoRedirect)
 
     def test_transport_redirects_and_large_or_malformed_bodies_fail_closed(self):
         class FakeOpener:
