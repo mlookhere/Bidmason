@@ -18,6 +18,8 @@ PATH = re.compile(
 )
 CONTENT_RANGE = re.compile(r"bytes 0-0/([1-9][0-9]{0,9})\Z")
 BUCKET = "bm-evidence"
+# Observed private bucket file_size_limit, not a claim of live enforcement.
+MAX_OBJECT_BYTES = 15_728_640
 EXPECTED = (
     "user-1-auth", "user-2-auth",
     "user-1-own-membership", "user-1-foreign-memberships",
@@ -42,7 +44,8 @@ def _peek(url: str, headers: dict[str, str]) -> tuple[int, bool]:
             if status != 206:
                 return status, False
             content_range = response.headers.get("Content-Range", "")
-            if not CONTENT_RANGE.fullmatch(content_range):
+            match = CONTENT_RANGE.fullmatch(content_range)
+            if not match or int(match.group(1)) > MAX_OBJECT_BYTES:
                 return status, False
             return status, len(response.read(2)) == 1
     except urllib.error.HTTPError as error:
