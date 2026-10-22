@@ -365,6 +365,56 @@ test("historical stop-contact evidence propagates to same-recipient cases in CRM
     .attention.stopContact,0);
 });
 
+test("cross-proposal reservations after a known recipient stop must fail closed",()=>{
+  const lastPossibleBefore="2026-10-20T08:02:59.999Z";
+  const stoppedAt="2026-10-20T08:03:00.000Z";
+  const afterStop="2026-10-20T08:03:00.001Z";
+  const reservationAt=(entry,at)=>({...entry,
+    events:entry.events.map(event=>({...event,observedAt:at}))});
+  for (const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]) {
+    const stopped=make(0,["reserved","provider_accepted","provider_delivered",kind]);
+    const reservedOnly=make(1,["reserved"]);
+    for(const at of [stoppedAt,afterStop]){
+      const later=reservationAt(reservedOnly,at);
+      for(const batch of [[stopped,later],[later,stopped]]) {
+        assert.throws(()=>summary(batch),
+          /Cross-proposal simulated reservation conflicts with contact-stop chronology/,
+          kind+" "+at);
+      }
+    }
+    // A reservation strictly BEFORE a stop is historical evidence, not
+    // an attempted new dispatch after the stop.
+    const prior=reservationAt(reservedOnly,lastPossibleBefore);
+    assert.equal(summary([stopped,prior]).reviewedCases,2);
+    assert.equal(count(summary([prior,stopped]),
+      kind==="recipient_replied"?"reply-needs-review":"contact-suppressed"),2);
+    const unrelated=recipientCase(reservationAt(reservedOnly,afterStop),
+      "unrelated@fictional.example");
+    assert.equal(summary([stopped,unrelated]).reviewedCases,2);
+  }
+});
+
+test("historical proposal stop evidence blocks later reservation in a new case",()=>{
+  const source=make(4,["reserved","provider_accepted",
+    "provider_delivered","recipient_opted_out"]);
+  const history={intent:source.intent,events:source.events};
+  const later=make(1,["reserved"]);
+  const moved={...later,events:[{...later.events[0],
+    observedAt:"2026-10-21T09:00:00.000Z"}]};
+  const other=make(0,["reserved"]);
+  for(const [cases,histories] of [
+    [[other,moved],[[history],[]]],
+    [[moved,other],[[],[history]]],
+  ]) {
+    assert.throws(()=>summarizeSyntheticDeliveryReview(org,cases,now,histories),
+      /Cross-proposal simulated reservation conflicts with contact-stop chronology/);
+  }
+  const clean=recipientCase(moved,"other@fictional.example");
+  assert.equal(summarizeSyntheticDeliveryReview(org,[other,clean],now,
+    [[history],[]]).reviewedCases,2);
+});
+
 test("known stop-contact events invalidate later cross-proposal follow-up attempts",()=>{
   const withAttempt=(entry,recordedAt)=>({...entry,previousAttempts:[{
     attemptId:"55555555-5555-4555-8555-555555555555",
