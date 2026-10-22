@@ -44,7 +44,7 @@ async function request(url,path,key,method='GET',body=undefined,auth=key,content
     redirect:'manual',signal:AbortSignal.timeout(14000)});
   // Never print provider bodies: they may carry JWTs, emails or secrets.
   if(response.status<200||response.status>=300)
-    throw Error(method+' '+path.split('?')[0]+' rejected (HTTP '+response.status+')');
+    throw Error('Supabase fixture operation rejected (HTTP '+response.status+')');
   const raw=await response.text();
   if(raw.length>100000)throw Error('Oversized provider response');
   try{return raw?JSON.parse(raw):null;}
