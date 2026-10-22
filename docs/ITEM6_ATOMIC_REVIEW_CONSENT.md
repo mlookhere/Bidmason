@@ -132,3 +132,34 @@ fixtures and cannot establish a real authenticated revocation, unsubscribe,
 customer preference, provider cancellation or buyer identity. There is no live
 PostgreSQL migration, provider integration, sending endpoint or release
 permission. All H01–H13 external requirements remain unverified.
+
+## Fictional contact-consent withdrawal
+
+The invented per-recipient contractor delivery confirmation and the **separate**
+invented tenant/recipient contact-consent record are not interchangeable.
+The disposable SQLite test fixture now models a **sticky contact-consent
+withdrawal**, distinct from the permanent bounce/complaint/opt-out suppression
+signal. `revoke_fictional_consent` requires an already recorded fabricated
+consent confirmation and an independently unique withdrawal event ID. An exact
+replay is blocked; a conflicting replay or event-ID collision fails closed.
+
+The withdrawal records only the fictional **organization + recipient** scope
+and atomically invalidates all pending `reserved` rows for that recipient
+across *all proposals* under the same fictional organization. It does not
+affect a different organization or recipient, and it never erases any
+`outcome_unknown` row because an uncertain external handoff requires
+reconciliation. The original consent cannot be replayed to restore permission.
+The shared low-level SQLite CAS, strict review gate, recipient confirmation
+recorder, and reviewed handoff all reject withdrawn consent; the legacy
+handoff is still prohibited for any reviewed claim. Existing opt-out/complaint/
+bounce contact stops retain priority over consent-withdrawal holds.
+
+The new tests cover withdrawal before/after a fictional reviewed handoff,
+cross-proposal blocking, event replay and event-ID collisions, an opt-out's
+stronger priority, simultaneous reservation/withdrawal, and low-level CAS
+bypass prevention. The fixture intentionally contains only reserved-domain
+fabricated recipient addresses; this **does not** represent authenticated
+customer permission, live unsubscribe processing, an auditable permission
+source, or a PostgreSQL migration. The state is conservative: no re-consent
+flow exists, and no real provider or sending operation was enabled. All
+H01–H13 real external and human gates remain outstanding.
