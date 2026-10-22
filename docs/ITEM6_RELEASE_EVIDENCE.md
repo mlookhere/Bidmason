@@ -37,9 +37,13 @@ security/privacy/legal/operations review plus a written go/no-go.
   `releaseAuthorized: false`. It reads local JSON and makes **no**
   network, provider or database requests.
 - `tests/test_item6_release_evidence.py` runs under existing required
-  Python `fast`, `pr` and `security` suites. An ordinary **green CI
-  result means that the release block is recorded correctly**, never that
-  Item 6 is approved to send.
+  Python `fast`, `pr` and `security` suites. In addition, all three
+  `ci/run.py` stages now invoke `ci/item6_release_evidence.py` as a
+  separate mandatory gate even if the regression tests are later moved
+  or omitted. It fails on missing/invalid evidence input. This adds
+  enforcement without replacing or relaxing any existing gate. A **green
+  CI result means that the release block is recorded correctly**, never
+  that Item 6 is approved to send.
 
 Run `python3 ci/item6_release_evidence.py` to see the current gap count.
 A future authorized release needs a separate server-enforced,

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from ci.item6_release_evidence import REQUIRED, evaluate, load
+from ci.run import STAGES
 
 
 class Item6EvidenceTests(unittest.TestCase):
@@ -24,6 +25,46 @@ class Item6EvidenceTests(unittest.TestCase):
             "required": len(REQUIRED), "unverified": len(REQUIRED),
             "submittedForIndependentReview": 0,
         })
+
+    def test_every_required_python_ci_stage_enforces_release_inventory(self):
+        for stage in ("fast", "pr", "security"):
+            with self.subTest(stage=stage):
+                self.assertIn("item6-release-evidence", STAGES[stage])
+                self.assertEqual(STAGES[stage].count("item6-release-evidence"), 1)
+                # Added enforcement must never remove the original stage gates.
+                for original in (("tests", "source-integrity", "publish")
+                                 if stage == "fast" else
+                                 ("tests", "source-integrity", "publish", "workflow", "security")):
+                    self.assertIn(original, STAGES[stage])
+        self.assertEqual(STAGES["web"], ("web",))
+        self.assertEqual(STAGES["pdf"], ("pdf",))
+
+    def test_corrupted_or_missing_manifest_fails_independent_gate(self):
+        import subprocess
+        import sys
+        source = Path(__file__).resolve().parents[1] / "ci" / "item6_release_evidence.py"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "ci").mkdir()
+            (root / "docs").mkdir()
+            (root / "ci/item6_release_evidence.py").write_bytes(source.read_bytes())
+            manifest = root / "docs/ITEM6_RELEASE_EVIDENCE.json"
+            valid = json.dumps(self.original)
+            for content in (None, valid.replace('"blocked"', '"ready"', 1),
+                            valid.replace('"tenant-auth-and-rls"', '"send-allowed"', 1)):
+                if content is None:
+                    manifest.unlink(missing_ok=True)
+                else:
+                    manifest.write_text(content)
+                result = subprocess.run(
+                    [sys.executable, str(root / "ci/item6_release_evidence.py")],
+                    cwd=root, text=True, capture_output=True, check=False)
+                self.assertNotEqual(result.returncode, 0)
+            manifest.write_text(valid)
+            result = subprocess.run([sys.executable, str(root / "ci/item6_release_evidence.py")],
+                                    cwd=root, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("BLOCKED: Item 6 has 13 unverified", result.stdout)
 
     def test_missing_requirement_never_passes(self):
         with self.assertRaisesRegex(ValueError, "Missing"):
