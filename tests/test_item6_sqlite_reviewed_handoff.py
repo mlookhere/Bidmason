@@ -16,6 +16,7 @@ from ci.item6_sqlite_review_gate import (
     mark_reviewed_fictional_handoff_unknown, record_fictional_review,
     record_fictional_consent, reserve_reviewed_fictional,
     record_fictional_recipient_confirmation,
+    revoke_fictional_recipient_confirmation,
 )
 
 ORG = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -100,6 +101,18 @@ class ReviewedHandoffTests(unittest.TestCase):
         self.assertEqual(self.handoff(), 'blocked-missing-recipient-confirmation')
         self.assertEqual(fictional_counts(self.path, ORG), (1, 0, 0))
         self.assertEqual(fictional_unknown_count(self.path, ORG), 0)
+
+    def test_revocation_after_unknown_handoff_preserves_reconciliation_hold(self):
+        self.approved()
+        self.assertEqual(self.reserve(), 'reserved-simulation-only')
+        self.assertEqual(self.handoff(), 'outcome-unknown-simulation-only')
+        self.assertEqual(
+            revoke_fictional_recipient_confirmation(
+                self.path, ORG, PROP, REV, RECIPIENT, CLOSE),
+            'fictional-confirmation-revoked')
+        self.assertEqual(fictional_unknown_count(self.path, ORG), 1)
+        self.assertEqual(self.handoff(), 'blocked-unknown-outcome-existing')
+        self.assertEqual(self.reserve(), 'blocked-recipient-confirmation-revoked')
 
     def test_revision_hash_tenant_proposal_recipient_and_key_are_immutable(self):
         self.approved()
