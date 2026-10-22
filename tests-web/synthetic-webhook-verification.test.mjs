@@ -101,6 +101,30 @@ test("event observation freshness is bounded directly to receipt, not chained wi
   assert.equal(verify(tooNew,signed(tooNew,instant),instant).state,"blocked");
 });
 
+test("subsecond timestamps cannot escape the exact five-minute freshness window",()=>{
+  const baseMs=instant*1000;
+  for (const direction of [-1,1]) {
+    const onBoundary=body({...event,observedAt:
+      new Date(baseMs+direction*300000).toISOString()});
+    const beyondOneMillisecond=body({...event,observedAt:
+      new Date(baseMs+direction*300001).toISOString()});
+    const beyondNearlyOneSecond=body({...event,observedAt:
+      new Date(baseMs+direction*300999).toISOString()});
+    assert.equal(verify(onBoundary,signed(onBoundary,instant),instant).state,
+      "fixture-verified-only");
+    for (const raw of [beyondOneMillisecond,beyondNearlyOneSecond]) {
+      assert.equal(verify(raw,signed(raw,instant),instant).state,"blocked");
+    }
+  }
+  // The event-header check must also use milliseconds when the signed
+  // header sits at the extreme edge of the independent receive allowance.
+  const futureHeader=instant+300;
+  const eventAfterHeader=body({...event,observedAt:
+    new Date((futureHeader+300)*1000+1).toISOString()});
+  assert.equal(verify(eventAfterHeader,signed(eventAfterHeader,futureHeader),instant)
+    .state,"blocked");
+});
+
 test("changed tenant, recipient, revision key and unsupported reserved events are blocked",()=>{
   for(const change of [{organizationId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"},
     {recipient:"someone-else@example.test"},
