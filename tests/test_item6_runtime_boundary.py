@@ -163,6 +163,54 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.verify("src/app/page.tsx", "src/app/(portal)/error.tsx",
                     "src/app/(portal)/not-found.tsx")
 
+    def test_direct_src_lib_import_from_src_api_route_fails_closed(self):
+        self.write("src/lib/synthetic-dispatch-reservation.ts",
+                   "export const volatile=true;")
+        self.write("src/app/api/delivery/route.ts",
+                   'import "../../../lib/synthetic-dispatch-reservation";')
+        self.verify("imports offline-only src/lib/synthetic-dispatch-reservation.ts")
+
+    def test_root_app_page_detects_alias_to_src_lib_offline_module(self):
+        self.write("src/lib/buyer-view-grant.ts", "export const claim=true;")
+        self.write("app/buyer/page.tsx",
+                   'import "@/src/lib/buyer-view-grant";')
+        self.verify("app/buyer/page.tsx imports offline-only src/lib/buyer-view-grant.ts")
+
+    def test_transitive_src_lib_barrel_does_not_hide_synthetic_module(self):
+        self.write("src/lib/synthetic-webhook-contact-hold.ts",
+                   "export const pending=true;")
+        self.write("src/lib/index.ts",
+                   'export {pending} from "./synthetic-webhook-contact-hold";')
+        self.write("src/app/api/callback/route.ts",
+                   'import {pending} from "../../../lib";')
+        self.verify("imports offline-only src/lib/synthetic-webhook-contact-hold.ts")
+
+    def test_both_source_roots_reject_their_own_synthetic_module(self):
+        self.write("lib/follow-up-assessment.ts", "export const x=true;")
+        self.write("src/lib/follow-up-assessment.ts", "export const x=true;")
+        self.write("app/api/first/route.ts",
+                   'import "../../../lib/follow-up-assessment";')
+        self.write("app/api/second/route.ts",
+                   'import "../../../src/lib/follow-up-assessment";')
+        self.verify("lib/follow-up-assessment.ts",
+                    "src/lib/follow-up-assessment.ts")
+
+    def test_src_lib_only_protects_named_helpers_not_unrelated_library(self):
+        self.write("src/lib/ordinary-display.ts", "export const text=true;")
+        self.write("src/app/api/health/route.ts",
+                   'import "../../../lib/ordinary-display";')
+        self.verify()
+
+    def test_fictional_preview_exception_still_scoped_with_src_lib_module(self):
+        self.write("src/lib/synthetic-dispatch-reservation.ts",
+                   "export const fake=true;")
+        self.write("app/delivery-lab/page.tsx",
+                   'import "../../src/lib/synthetic-dispatch-reservation";')
+        self.verify()  # Only the exact non-sending preview remains exempt.
+        self.write("app/delivery-lab/api/route.ts",
+                   'import "../../../src/lib/synthetic-dispatch-reservation";')
+        self.verify("imports offline-only src/lib/synthetic-dispatch-reservation.ts")
+
     def test_real_repository_remains_safe_without_live_api_entrypoints(self):
         repo = Path(__file__).resolve().parents[1]
         self.assertEqual(findings(repo), [])
