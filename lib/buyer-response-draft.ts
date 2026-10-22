@@ -23,6 +23,9 @@ const KINDS = ["question", "request_changes", "decline"] as const;
 // Exclude invisible separators and formatting controls that can conceal
 // material text from reviewers. Printable multilingual letters remain valid.
 const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff<>]/u;
+// In Unicode-aware regex mode a valid surrogate pair is a single code point;
+// this range catches only lone UTF-16 surrogates, which cannot be shown faithfully.
+const UNPAIRED_SURROGATE = /[\ud800-\udfff]/u;
 
 function ownData(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)
@@ -45,7 +48,7 @@ function validDraft(value: unknown): value is BuyerResponseDraftInput {
     && KINDS.includes(value.kind as BuyerResponseDraftInput["kind"])
     && typeof value.note === "string" && value.note.length <= 500
     && value.note === value.note.trim() && value.note === value.note.normalize("NFC")
-    && !UNSAFE_TEXT.test(value.note)
+    && !UNSAFE_TEXT.test(value.note) && !UNPAIRED_SURROGATE.test(value.note)
     && (value.kind === "decline" || value.note.length > 0);
 }
 

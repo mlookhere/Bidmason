@@ -1297,3 +1297,30 @@ the code. This change does not authenticate fictional events, establish
 real delivery/recipient identity or consent, authorize a send, or add a
 production route, provider, database, user record or external side effect.
 All H01-H13 real evidence and human release holds remain unresolved.
+
+## Unicode scalar integrity in fictional buyer-review notes
+
+The offline, nonbinding `assessBuyerResponseDraft` now refuses unpaired
+UTF-16 high and low surrogate code units in reviewer-supplied notes.
+Previously these malformed code units passed NFC normalization and the
+existing control/invisible formatting filter, even though different
+serialization/rendering paths may display replacement characters rather
+than the note's actual code-unit sequence. A forged or misunderstood
+review-note fingerprint should never silently rely on that ambiguity.
+
+The validator now uses a Unicode-mode scalar check that **permits valid
+surrogate pairs** (for example, emoji and printable multilingual text)
+while rejecting lone surrogates before computing an internal-only draft
+fingerprint. Tests first demonstrated a failing negative case on the
+previous source, then covered standalone, embedded and separated surrogate
+halves as well as printable Korean, Chinese, Arabic and emoji positives.
+The existing tests for consent scope, expired view grants, unverified
+buyer identity, controls, review-only states and signature mismatch remain.
+
+This is an offline review-data consistency check only. It cannot
+authenticate a recipient, issue a legally binding response, prove
+consent, store a response, send email or unlock a protected buyer portal.
+No API, provider, Supabase/SQL, user data, external call or CI gate was
+added or relaxed. H01–H13 verified tenant/Auth/RLS/Storage, exact revision
+approvals, provider/domain, durable replay/stop-contact, privacy/security/
+legal review and written human go/no-go remain blocked.

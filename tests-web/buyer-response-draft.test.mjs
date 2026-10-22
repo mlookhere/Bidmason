@@ -92,6 +92,22 @@ test("invisible Unicode format and line separators cannot obscure internal revie
   }
 });
 
+test("unpaired UTF-16 surrogates cannot create visually inconsistent reviewer evidence",()=>{
+  // Lone surrogates pass NFC but stringify as escapes and display as replacement
+  // glyphs; reject them before computing the nonbinding note fingerprint.
+  const malformed=["\ud800", "\udfff", "before\ud800after", "before\udc00after",
+    "\ud83dX\ude80"];
+  for (const note of malformed){
+    assert.throws(()=>run({...draft,note}),/Invalid nonbinding/,JSON.stringify(note));
+    assert.throws(()=>run({...draft,kind:"decline",note}),/Invalid nonbinding/);
+  }
+  // Valid paired Unicode is not equivalent to a malformed UTF-16 code unit.
+  for (const note of ["Please review 🚀", "작업을 확인해 주세요 🎨",
+    "请确认报价 🧾", "هل يمكن مراجعة العرض؟ ✅"]){
+    assert.equal(run({...draft,note}).state,"draft-internal-only");
+  }
+});
+
 test("extra privileges, invalid record arrays and accessor-backed properties fail closed",()=>{
   for(const addition of [{approved:true},{recipientEmail:"buyer@example.test"},
     {kind:"submit"},{note:21},{revision:0}]) {
