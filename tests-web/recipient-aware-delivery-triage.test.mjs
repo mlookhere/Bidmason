@@ -140,6 +140,22 @@ test("historical reservations cannot postdate a current reply or permanent stop"
   }
 });
 
+
+test("review and CRM reject hidden late reservations between two historical proposals",()=>{
+  const stopped=past("recipient_opted_out");
+  const later=make(2,["reserved","provider_accepted","provider_delivered"],
+    ORG,EMAIL,1);
+  const moved={intent:later.intent,events:later.events.map((event,index)=>({
+    ...event,observedAt:"2026-10-20T09:0"+index+":00.000Z",
+  }))};
+  const earlier={intent:stopped.intent,events:stopped.events};
+  const diagnostic=/Cross-proposal synthetic historical reservation conflicts with contact-stop chronology/;
+  for(const history of [[earlier,moved],[moved,earlier]]){
+    assert.throws(()=>triage(entry,history),diagnostic);
+    assert.throws(()=>summarize([entry],[history]),diagnostic);
+  }
+});
+
 test("current permanent stop-contact always outranks an earlier recipient reply",()=>{
   const prior=past("recipient_replied");
   const historical=[{intent:prior.intent,events:prior.events}];
