@@ -1276,3 +1276,24 @@ persistent CRM, sender, database transaction or CI requirement was
 changed. H01–H13 verified tenant identity, consent, provider signatures,
 durable recipient-wide holds, independent review and written human
 go/no-go remain unverified and blocking.
+
+## Enumerable-only event arrays in fictional CRM projection
+
+The read-only `projectSimulatedDeliveryEvents` stream guard now rejects
+non-enumerable indexed event entries, in addition to the existing sparse,
+decorated, accessor-backed and malformed event arrays. Previously, an
+array element with an own non-enumerable `value` descriptor was accepted
+and could affect a fictional delivery or contact-stop timeline even though
+ordinary key enumeration concealed the indexed record. The requirement
+is now consistent with the reviewed synthetic webhook batch's strict
+enumerable own-data index contract.
+
+A negative regression proved the prior reducer accepted the hidden record;
+the corrected reducer rejects it before event processing. A hostile index
+getter is not invoked, and ordinary chronological fictional reservations
+remain valid. The offline Node regression suite and unchanged mandatory
+Linux/Windows/webhook/Chromium/security/PDF gates continue to exercise
+the code. This change does not authenticate fictional events, establish
+real delivery/recipient identity or consent, authorize a send, or add a
+production route, provider, database, user record or external side effect.
+All H01-H13 real evidence and human release holds remain unresolved.

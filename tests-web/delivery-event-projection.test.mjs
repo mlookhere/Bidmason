@@ -100,6 +100,23 @@ test("malformed, accessor-backed and sparse events cannot enter the projection",
   assert.throws(()=>run(new Array(1)),/Invalid simulated delivery stream/);
 });
 
+test("non-enumerable array events cannot hide contact observations from reviewers",()=>{
+  const hidden=[evt("reserved")];
+  Object.defineProperty(hidden,"0",{value:hidden[0],enumerable:false,configurable:true,writable:true});
+  // A hidden indexed entry is not present in normal enumeration/JSON, even
+  // though direct iteration would consume it as a delivery transition.
+  assert.deepEqual(Object.keys(hidden),[]);
+  assert.throws(()=>run(hidden),/Invalid simulated delivery stream/);
+  let getterReads=0;
+  const accessor=[evt("reserved")];
+  Object.defineProperty(accessor,"0",{enumerable:true,configurable:true,get(){
+    getterReads++;throw Error("getter should not run");
+  }});
+  assert.throws(()=>run(accessor),/Invalid simulated delivery stream/);
+  assert.equal(getterReads,0);
+  assert.equal(run([evt("reserved")]).delivery,"reserved");
+});
+
 test("empty evidence remains not started, not authorized",()=>{
   assert.deepEqual(run([]),{state:"simulation-only",delivery:"not_started",
     suppression:[],replied:false,eventCount:0,timeline:[]});

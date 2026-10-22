@@ -48,8 +48,10 @@ function validArray(value: unknown): value is DeliveryEvent[] {
     && Object.getPrototypeOf(value) === Array.prototype
     && value.length <= 500
     && Reflect.ownKeys(value).length === value.length + 1
-    && Array.from({length:value.length},(_,i) => Object.hasOwn(
-      Object.getOwnPropertyDescriptor(value,String(i)) ?? {},"value")).every(Boolean);
+    && Array.from({length:value.length},(_,i) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+      return descriptor?.enumerable === true && Object.hasOwn(descriptor, "value");
+    }).every(Boolean);
 }
 
 function validEvent(input: unknown): input is DeliveryEvent {
