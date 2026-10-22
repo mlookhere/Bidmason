@@ -255,6 +255,66 @@ class RuntimeBoundaryTests(unittest.TestCase):
                    + '\n} from "../lib/normal-data-shape";')
         self.verify()
 
+    def test_tsconfig_paths_alias_cannot_redirect_ignored_specifier(self):
+        self.write("lib/synthetic-dispatch-reservation.ts", "export const x=true;")
+        self.write("app/api/send/route.ts", 'import "#hidden";')
+        self.verify()  # No module alias currently resolves this bare specifier.
+        self.write("tsconfig.json",
+                   '{"compilerOptions":{"paths":{"#hidden":["./lib/synthetic-dispatch-reservation"]}}}')
+        self.verify("unreviewed TS path aliases/baseUrl resolution")
+
+    def test_src_tsconfig_alias_does_not_escape_scan(self):
+        self.write("src/tsconfig.json",
+                   '{"compilerOptions":{"paths":{"@/*":["lib/*"]}}}')
+        self.verify("src/tsconfig.json: unreviewed TS path aliases/baseUrl")
+
+    def test_baseurl_only_is_not_treated_as_external_package_resolution(self):
+        self.write("tsconfig.json",
+                   '{"compilerOptions":{"baseUrl":"./"}}')
+        self.verify("unreviewed TS path aliases/baseUrl")
+
+    def test_extended_tsconfig_cannot_inherit_unreviewed_aliases(self):
+        self.write("tsconfig.json",
+                   '{"extends":"./tsconfig.aliases.json","compilerOptions":{}}')
+        self.write("tsconfig.aliases.json",
+                   '{"compilerOptions":{"paths":{"#private":["./lib/synthetic-dispatch-reservation"]}}}')
+        self.verify("unreviewed inherited/referenced TS module resolution",
+                    "unreviewed TS path aliases/baseUrl resolution")
+
+    def test_referenced_tsconfig_requires_explicit_resolver_review(self):
+        self.write("tsconfig.json",
+                   '{"references":[{"path":"./src"}],"compilerOptions":{}}')
+        self.verify("unreviewed inherited/referenced TS module resolution")
+
+    def test_jsconfig_alias_is_not_implicitly_trusted(self):
+        self.write("jsconfig.json",
+                   '{"compilerOptions":{"baseUrl":".","paths":{"#/*":["lib/*"]}}}')
+        self.verify("jsconfig.json: unreviewed TS path aliases/baseUrl")
+
+    def test_package_import_map_cannot_hide_offline_model(self):
+        self.write("package.json",
+                   '{"name":"fictional-package","imports":{"#internal":"./lib/synthetic-dispatch-reservation.ts"}}')
+        self.verify("package.json: unreviewed package imports/exports resolution")
+
+    def test_package_self_exports_cannot_hide_offline_model(self):
+        self.write("app/package.json",
+                   '{"name":"app","exports":{"./private":"../lib/buyer-view-grant.ts"}}')
+        self.verify("app/package.json: unreviewed package imports/exports resolution")
+
+    def test_malformed_or_nonobject_module_configs_fail_closed(self):
+        self.write("tsconfig.json", "{\n // hidden aliases\n }")
+        self.write("jsconfig.json", "[]")
+        self.verify("tsconfig.json: unreadable/unreviewed module configuration",
+                    "jsconfig.json: module configuration must be an object")
+
+    def test_unrelated_valid_module_config_remains_permitted(self):
+        self.write("tsconfig.json",
+                   '{"compilerOptions":{"strict":true,"moduleResolution":"bundler"}}')
+        self.write("package.json",
+                   '{"name":"safe-fictional-preview","private":true}')
+        self.write("app/page.tsx", 'import {fake} from "external-package";')
+        self.verify()
+
     def test_real_repository_remains_safe_without_live_api_entrypoints(self):
         repo = Path(__file__).resolve().parents[1]
         self.assertEqual(findings(repo), [])
