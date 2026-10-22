@@ -105,11 +105,11 @@ test("signed fictional opt-out before acceptance rejects both callback order mod
   const optOut=signed(event("recipient_opted_out",1));
   const laterAcceptance=signed(event("provider_accepted",2));
   assert.throws(()=>projectSignedSyntheticWebhookBatch(intent,reservation,
-    [optOut,laterAcceptance],secret),/suppressed provider acceptance/);
+    [optOut,laterAcceptance],secret),/provider acceptance after recipient stop-contact/);
   // A valid HMAC and callbacks arriving in reverse order must not conceal
   // stop-before-acceptance once signed timestamps are reconciled.
   assert.throws(()=>reconcile([laterAcceptance,optOut]),
-    /suppressed provider acceptance/);
+    /provider acceptance after recipient stop-contact/);
   const onlyStop=reconcile([optOut]);
   assert.deepEqual(onlyStop.projection.suppression,["opted_out"]);
   assert.equal(onlyStop.projection.delivery,"reserved");
