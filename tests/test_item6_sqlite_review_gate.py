@@ -8,7 +8,7 @@ from uuid import uuid5, NAMESPACE_DNS
 
 from ci.item6_sqlite_rehearsal import (
     initialize_fixture_db, fictional_counts, record_fictional_contact_signal,
-    close_fictional_deal, fictional_unknown_count,
+    close_fictional_deal, fictional_unknown_count, reserve_fictional,
 )
 from ci.item6_sqlite_review_gate import (
     record_fictional_review, record_fictional_consent, reserve_reviewed_fictional,
@@ -380,6 +380,17 @@ class FictionalReviewedReservationTests(unittest.TestCase):
         self.assertEqual(
             self.withdraw_consent(recipient=second, org=OTHER),
             "blocked-no-existing-consent")
+
+    def test_withdrawn_consent_cannot_be_bypassed_by_raw_cas(self):
+        self.consent()
+        self.assertEqual(
+            reserve_fictional(self.db, ORG, PROPOSAL, RECIPIENT, key("raw")),
+            "reserved-simulation-only")
+        self.assertEqual(self.withdraw_consent(), "fictional-consent-withdrawn")
+        self.assertEqual(fictional_counts(self.db, ORG), (0, 1, 0))
+        self.assertEqual(
+            reserve_fictional(self.db, ORG, OTHER_PROPOSAL, RECIPIENT, key("raw-later")),
+            "blocked-consent-withdrawn")
 
     def test_consent_withdrawal_racing_reviewed_reservation_blocks_work(self):
         self.both()
