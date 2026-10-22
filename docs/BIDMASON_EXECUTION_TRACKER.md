@@ -3,7 +3,7 @@
 **Document ID:** BM-TRACK-001  
 **Version:** 1.0  
 **Date:** 2026-10-14  
-**Status:** Proposed / all items unverified until inspected against durable repository and deployment state  
+**Status:** Active development, Item 6/8 draft PR; external release authorization BLOCKED (read-only reconfirmed 2026-10-22)  
 **Companion source:** `BIDMASON_MASTER_IMPLEMENTATION_PLAN.md` (authoritative scope, architecture, checks, and priorities)
 
 > **Tracker truth rule:** An unchecked item means **not yet verified**, NOT necessarily unimplemented. On the first implementation session, inspect the live repository and mark genuinely completed items only with matching code, tests, and deployment evidence. Do not recreate existing work. Do not infer proof from mockups, prompts or prior narratives.
@@ -12,19 +12,19 @@
 
 | Field | Current value |
 |---|---|
-| Verified source | Uploaded `bidmason.zip` (June 2026 artifact snapshot) |
-| Active GitHub repository | **Unknown — discover, do not assume** |
-| Active default/development branches | Unknown |
-| Latest inspected commit | Unknown |
-| Public marketing site URL | Unknown / not independently verified |
-| Auth/database project | Unknown |
-| Production email/provider | Unknown |
-| Live Stripe billing | Unknown |
-| Working transcription/proposal pipeline | Not present in supplied archive; live state unknown |
-| Current implementation phase | Phase 0 verification and correction |
-| Last verified release | None confirmed from uploaded archive |
-| Responsible operator/approver | To be assigned |
-| Next recommended ticket | **BM-001** |
+| Verified source | GitHub `mlookhere/Bidmason` plus original uploaded `bidmason.zip` (historical snapshot) |
+| Active GitHub repository | [mlookhere/Bidmason](https://github.com/mlookhere/Bidmason), public; authoritative live source |
+| Active default/development branches | `main` (production target), `dev` (integration); active `work/7-delivery-preflight` → `dev`, draft [PR #15](https://github.com/mlookhere/Bidmason/pull/15) |
+| Latest independently inspected commit | `629acfaacb740dbcdf4056b1fc425306d74d7722` (2026-10-22), eight required Actions jobs completed successfully on [run #39828108716](https://github.com/mlookhere/Bidmason/actions/runs/39828108716); **historical for any later commit** |
+| Public marketing site URL | No production site deployment independently verified |
+| Auth/database project | Connected Supabase project named BidMason: ACTIVE_HEALTHY; eight RLS-enabled public `bm_*` tables, all zero rows; true two-user Auth/RLS tests unverified |
+| Production email/provider | No verified provider/domain or real outbound send |
+| Live Stripe billing | No verified production billing |
+| Working transcription/proposal pipeline | Synthetic/offline and preview modules in draft PRs; no end-to-end live customer pipeline verified |
+| Current implementation phase | GitHub plan **6/8**, Issue [#7](https://github.com/mlookhere/Bidmason/issues/7); predecessor slices 3–5 remain draft/unmerged (PRs #12–#14) |
+| Last verified release | **None**; `releaseAuthorized=false`, H01–H13 unverified |
+| Responsible operator/approver | External privacy/legal/security/operations/contractor reviewers not independently identified or signed off |
+| Next recommended ticket | Continue existing Issue #7 / PR #15; no duplicate ticket; obtain genuine staging H01–H13 evidence before release |
 
 **Before changing any live system:** resolve repository, infrastructure ownership and current state. Never create a replacement project simply because the archive omits a URL.
 
@@ -39,7 +39,7 @@
 - **Blocked:** leave unchecked, annotate exact blocker; never pass a gate by skipping it.
 - **Partial:** leave unchecked and note the remaining acceptance requirement.
 
-**Current counts:** 0 items verified in this tracker as of its creation; this is not a claim that the real repository is empty.
+**Current release-gate interpretation (reconciled October 22, 2026):** The original October 14 checkbox inventory was not an implementation audit. GitHub contains substantive code and passing offline CI, but checkboxes requiring live persistence, authenticated two-tenant execution, signed approvals and production release **remain unchecked** without that evidence. Source-file existence and green synthetic CI are not production acceptance. Consult the dated work log below for exact commits and current-head CI.
 
 ---
 
