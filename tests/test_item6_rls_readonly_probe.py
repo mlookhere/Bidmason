@@ -102,8 +102,9 @@ class FakeTransport:
             requested = query.get("id", [""])[0].removeprefix("eq.")
             own_rev, other_rev = (REV_A, REV_B) if own == ORG_A else (REV_B, REV_A)
             other_org = ORG_B if own == ORG_A else ORG_A
+            scoped_org = query.get("organization_id", [""])[0].removeprefix("eq.")
             rows = ([{"id": own_rev, "organization_id": own}]
-                    if requested in ("", own_rev) else [])
+                    if requested in ("", own_rev) and scoped_org in ("", own) else [])
             if self.revision_missing and requested == own_rev:
                 rows = []
             if self.revision_leak and requested == other_rev:
