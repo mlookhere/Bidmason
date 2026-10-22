@@ -273,6 +273,13 @@ export function summarizeSyntheticDeliveryReview(
   // case. This changes only redacted counts; it creates no contact authority.
   for (const {recipient, proposalId, reservationAt, result, attempts} of reviewed) {
     const stoppedAt = earliestStop.get(recipient);
+    // Suppression and reply events from ANY earlier proposal are tenant-wide
+    // recipient holds. A later newly reserved dispatch is contradictory
+    // history, not merely a case to count as suppressed in the summary.
+    if (stoppedAt !== undefined && reservationAt !== null
+        && reservationAt >= stoppedAt) {
+      throw new TypeError("Cross-proposal simulated reservation conflicts with contact-stop chronology");
+    }
     if (stoppedAt !== undefined && attempts.some(attempt => attempt.recordedAt >= stoppedAt)) {
       throw new TypeError("Cross-proposal simulated follow-up attempt conflicts with contact-stop chronology");
     }
