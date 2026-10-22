@@ -1,0 +1,85 @@
+"""A merged BidMason tree may not lose previously delivered CI job gates."""
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from ci.workflow_policy import (
+    ROOT, WORKFLOW, MERGED_SLICE_GATES, _job_blocks, findings,
+    merged_gate_findings,
+)
+
+
+class PreservedSliceCiTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def source(self, relative_path):
+        file = self.root / relative_path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text("synthetic marker only", encoding="utf-8")
+
+    def test_item6_branch_still_enforces_existing_required_jobs(self):
+        self.assertEqual(findings(self.workflow, ROOT), [])
+        self.source("ci/item6_release_evidence.py")
+        self.assertEqual(merged_gate_findings(self.workflow, self.root), [])
+        jobs, duplicates = _job_blocks(self.workflow)
+        self.assertEqual(len(jobs), 8)
+        self.assertEqual(duplicates, set())
+
+    def test_missing_predecessor_job_fails_when_its_source_is_integrated(self):
+        for marker, job, _ in MERGED_SLICE_GATES[:-1]:
+            with self.subTest(job=job):
+                self.source(marker)
+                self.assertIn(
+                    f"missing {job} job for {marker}",
+                    merged_gate_findings(self.workflow, self.root),
+                )
+                (self.root / marker).unlink()
+
+    def test_stub_and_comment_cannot_replace_actual_runner(self):
+        marker, job, command = MERGED_SLICE_GATES[0]
+        self.source(marker)
+        fake_job = f"\n  {job}:\n    name: {job}\n    runs-on: ubuntu-latest\n    # run: {command}\n"
+        self.assertIn(
+            f"missing substantive {job} run command for {marker}",
+            merged_gate_findings(self.workflow + fake_job, self.root),
+        )
+        fake_job += f"    steps:\n      - name: Verify RLS\n        run: {command}\n"
+        self.assertEqual(merged_gate_findings(self.workflow + fake_job, self.root), [])
+
+    def test_duplicate_job_keys_cannot_silently_override_a_required_gate(self):
+        fake = self.workflow + (
+            "\n  synthetic-webhook-qa:\n    name: synthetic-webhook-qa\n"
+            "    runs-on: ubuntu-latest\n    steps: []\n"
+        )
+        self.assertIn(
+            "duplicate workflow job: synthetic-webhook-qa",
+            merged_gate_findings(fake, self.root),
+        )
+
+    def test_all_six_feature_gates_survive_a_simulated_combined_workflow(self):
+        extra_jobs = []
+        for marker, job, command in MERGED_SLICE_GATES:
+            self.source(marker)
+            if job == "synthetic-webhook-qa":
+                continue  # Already implemented by the current Item 6 branch.
+            extra_jobs.append(
+                f"\n  {job}:\n    name: {job}\n"
+                "    runs-on: ubuntu-latest\n    steps:\n"
+                f"      - name: Preserve {job} gate\n        run: {command}\n"
+            )
+        union = self.workflow + "".join(extra_jobs)
+        jobs, duplicates = _job_blocks(union)
+        self.assertEqual(len(jobs), 13)
+        self.assertEqual(duplicates, set())
+        self.assertEqual(merged_gate_findings(union, self.root), [])
+        self.assertEqual(findings(union, self.root), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
