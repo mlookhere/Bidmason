@@ -73,6 +73,11 @@ export function verifySyntheticWebhookFixture(
       || !validIntent(intent) || !validLedger(processed)) {
     throw new TypeError("Invalid synthetic webhook verification context");
   }
+  // Consume one copy of the caller-owned bytes for every cryptographic,
+  // canonical-JSON and receipt-hash operation. Direct users of this exported
+  // verifier must get the same trust boundary as the batch wrapper: mutating
+  // rawBody after HMAC checking must never change the parsed event or receipt.
+  const signedBody = Buffer.from(rawBody);
   if (typeof signatureHeader !== "string" || signatureHeader.length > 110) {
     return {state: "blocked", reason: "Invalid synthetic signature header"};
   }
@@ -85,13 +90,13 @@ export function verifySyntheticWebhookFixture(
   const signature = Buffer.from(match[2], "hex");
   const expected = createHmac("sha256", secret)
     .update("bidmason:synthetic-webhook:v1\n").update(String(sentAt))
-    .update("\n").update(rawBody).digest();
+    .update("\n").update(signedBody).digest();
   if (!timingSafeEqual(expected, signature)) {
     return {state: "blocked", reason: "Synthetic HMAC mismatch"};
   }
   let event: unknown;
   try {
-    const decoded = new TextDecoder("utf-8", {fatal: true}).decode(rawBody);
+    const decoded = new TextDecoder("utf-8", {fatal: true}).decode(signedBody);
     event = JSON.parse(decoded);
     // Reject duplicate keys, noncanonical encoding and unreviewed JSON syntax.
     if (JSON.stringify(event) !== decoded || !exact(event, EVENT_FIELDS)) {
@@ -121,7 +126,7 @@ export function verifySyntheticWebhookFixture(
       || Math.abs(observed - nowSeconds * 1000) > maxSkewMs) {
     return {state: "blocked", reason: "Inconsistent synthetic event time"};
   }
-  const hash = createHash("sha256").update(rawBody).digest("hex");
+  const hash = createHash("sha256").update(signedBody).digest("hex");
   const records = processed.filter(record => record.eventId === item.eventId);
   if (records.some(record => record.bodySha256 !== hash)) {
     return {state: "blocked", reason: "Conflicting synthetic event replay"};
