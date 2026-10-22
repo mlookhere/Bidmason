@@ -185,6 +185,31 @@ test("zero-retry stale result is visibly unresolved and does not alter reservati
   assert.equal(ledger.snapshot(intent).reserved,true);
 });
 
+test("future fictional CAS versions are never normalized by a stale retry",()=>{
+  for (const impossible of [2, Number.MAX_SAFE_INTEGER-1]) {
+    const ledger=reserve();
+    const result=reconcileSyntheticWebhookContactHoldWithRetry(
+      ledger,intent,reservation,[accepted,delivered,replied],secret,impossible,3);
+    assert.equal(result.decision,"blocked");
+    assert.equal(result.reason,"stale-or-invalid-version");
+    assert.equal(result.unresolvedStaleVersion,true);
+    assert.equal(result.staleRechecks,0);
+    assert.equal(result.reservationVersion,1);
+    assert.equal(result.contactHold,"none");
+    assert.equal(result.contactAuthorized,false);
+    assert.equal(ledger.snapshot(intent).version,1);
+    assert.equal(ledger.snapshot(intent).reserved,true);
+  }
+  // A genuinely current observation is applied without any retry.
+  const ledger=reserve();
+  const current=reconcileSyntheticWebhookContactHoldWithRetry(
+    ledger,intent,reservation,[accepted,delivered,replied],secret,1,3);
+  assert.equal(current.decision,"fictional-contact-hold-applied");
+  assert.equal(current.staleRechecks,0);
+  assert.equal(current.unresolvedStaleVersion,false);
+  assert.equal(ledger.snapshot(intent).version,2);
+});
+
 test("replayed signed reply after refreshed-version retry remains no-op",()=>{
   const ledger=reserve();
   apply(ledger,[accepted,delivered,replied]);

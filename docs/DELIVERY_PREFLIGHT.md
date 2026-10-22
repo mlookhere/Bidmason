@@ -1168,3 +1168,29 @@ provider/domain and verified signatures, transactional event deduplication
 and recipient suppression, negative tenant RLS tests, human approvals and
 all H01–H13 release requirements. This adds no API, browser change, queue,
 database or external network operation.
+
+## Impossible future-version CAS claims never recover as stale (fictional)
+
+The optional bounded `reconcileSyntheticWebhookContactHoldWithRetry` model
+previously retried any well-formed mismatched version, including a claimed
+**future** recipient version greater than the actual in-memory ledger.
+That is not a stale optimistic-concurrency observation and must never be
+silently normalized into a successful fictional contact hold.
+
+The retry path now distinguishes a genuinely old observed version
+(`version < actual snapshot.version`) from an impossible future
+observation. Only the former may consume the explicit 0–3 stale-recheck
+budget. A future version returns blocked / stale-or-invalid-version,
+`unresolvedStaleVersion: true`, `staleRechecks: 0`, and leaves the
+fictional recipient reservation unchanged. A matching current version
+can apply its already-validated fictional signal immediately; existing
+genuine stale-version retries remain covered by their original regression
+tests. Added an adversarial Node case for a one-step future version,
+a maximum-range future version, and a matching version.
+
+This is still an in-process fixture with caller-supplied HMAC keys and
+records: no provider origin, durable ledger, real CAS, contact consent,
+database recovery or human approval is proven. It does not send, unlock
+reservations, alter API routes or waive any mandatory CI gates. Actual
+tenant-scoped SQL transactions and H01–H13 real go-live signoffs remain
+unverified and blocking.

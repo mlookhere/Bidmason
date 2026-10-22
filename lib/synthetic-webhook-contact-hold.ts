@@ -86,7 +86,12 @@ export function reconcileSyntheticWebhookContactHoldWithRetry(
   for (;;) {
     const applied=ledger.compareAndApplyContactSignals(intent,version,signals);
     const stale=applied.reason==="stale-or-invalid-version";
-    if (!stale || !validInitialVersion || staleRechecks>=maxStaleRechecks) {
+    // Only an older observation is eligible for recheck. A claimed version
+    // ahead of the current ledger is inconsistent input, not a stale CAS;
+    // silently correcting it would accept an impossible concurrency witness.
+    const recoverableStale=stale && validInitialVersion
+      && version < applied.snapshot.version;
+    if (!recoverableStale || staleRechecks>=maxStaleRechecks) {
       const snapshot=applied.snapshot;
       return {
         state:"simulation-only",
