@@ -145,6 +145,10 @@ export function summarizeSyntheticBuyerInboxBatch(
   const usedEvents=new Set<string>();
   const usedGrants=new Set<string>();
   const proposals=new Set<string>();
+  // A proposal revision represents one immutable fictional document even
+  // when several recipients hold separately signed view claims. An inbox
+  // aggregate must not reconcile contradictory content digests as one deal.
+  const revisionContent=new Map<string,string>();
   const totals={eventsReviewed:0,questions:0,changeRequests:0,declines:0};
   for (let i=0;i<streams.length;i++){
     const entry=Object.getOwnPropertyDescriptor(streams,String(i))?.value;
@@ -160,6 +164,12 @@ export function summarizeSyntheticBuyerInboxBatch(
       entry.identity as BuyerViewIdentity,signingKey,nowSeconds,
       revokedGrantIds,entry.events as SyntheticBuyerInboxEvent[],
     );
+    const revision=JSON.stringify([entry.identity.proposalId,entry.identity.revision]);
+    const priorContent=revisionContent.get(revision);
+    if (priorContent!==undefined && priorContent!==entry.identity.contentSha256) {
+      throw new TypeError("Conflicting fictional buyer inbox proposal revision content");
+    }
+    revisionContent.set(revision,entry.identity.contentSha256 as string);
     for (let j=0;j<entry.events.length;j++){
       const item=Object.getOwnPropertyDescriptor(entry.events,String(j))?.value;
       // The scoped verifier just validated the entire stream, but the
