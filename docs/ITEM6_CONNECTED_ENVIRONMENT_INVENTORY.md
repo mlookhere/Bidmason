@@ -17,6 +17,14 @@
 | Backend integrations | No Supabase Edge Functions listed; `bm_reserve_upload_quota` is invoker-mode and not directly executable by `anon` or `authenticated` roles | Absence of external services elsewhere, provider integration, real transactional dispatch or customer delivery |
 | Advisor | One **INFO** finding: `public.bm_upload_quota` has RLS but no policies ([RLS enabled, no policy](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy)) | A confirmed vulnerability: this may be an intentional server-only quota table. Review intended privileged access before changing policy |
 
+## Read-only H01 permission and schema reconfirmation (2026-10-22)
+
+A fresh, read-only `information_schema.columns`, `information_schema.role_table_grants`, `pg_policies` and aggregate-count inspection established that `bm_organizations`, `bm_memberships` and `bm_brief_revisions` have `SELECT` grants for the **authenticated** role, but **no direct anonymous SELECT grants**. Both `bm_brief_revisions.id` and `bm_brief_revisions.organization_id` exist as non-null UUID columns (the H01 probe's intentionally minimal selection). The current organization/revision RLS SELECT policies depend on matching `bm_memberships` using `auth.uid()`; membership SELECT is scoped to `user_id = auth.uid()`. All three tables still had **zero rows** when checked. This is **metadata**, not signed-in test evidence.
+
+**Implication for the opt-in H01 probe:** A no-grant anonymous PostgREST request may return HTTP **401/403**, which is a valid *negative-disclosure* outcome after signed-in positive controls have demonstrated the API is operating. HTTP 200 with an exact empty array is also acceptable for anonymous checks. Only those *three anonymous* checks accept a 401/403, and only when no data is returned. Signed-in own-tenant positive controls and other signed-in isolation checks still require HTTP **200 with exact expected results**. HTTP 302/400/500 and any leaked anonymous row must fail. The read-only probe never issues grants or weakens RLS.
+
+These observed SQL grants do **not** establish PostgREST's configured exposed schemas, successful real bearer sessions, session revocation, complete cross-tenant permission denial, production readiness, or authorization to create data. Live H01 acceptance and all H02–H13 gates remain **unverified**.
+
 ## Mandatory connected acceptance not yet performed
 
 1. **H01 — Auth and RLS:** Provision two independently authenticated *synthetic* tenant users through authorized staging processes, not SQL role impersonation. Verify expected same-tenant access and deny cross-tenant SELECT/INSERT/UPDATE/DELETE, enumeration, missing membership, and session revocation using actual issued JWTs / PostgREST responses. Record exact test SHA, responsible independent reviewer and sanitized logs in restricted evidence storage.
