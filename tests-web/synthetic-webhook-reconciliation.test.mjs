@@ -56,6 +56,25 @@ test("signed callbacks arriving out of order reconstruct one simulation timeline
     assert.equal(Object.hasOwn(result,x),false);
 });
 
+test("reconciled callbacks use signed bytes rather than a replaced Buffer method",()=>{
+  const accepted=signed(event("provider_accepted",1));
+  const delivered=signed(event("provider_delivered",2));
+  let calls=0;
+  Object.defineProperty(accepted.rawBody,"toString",{
+    configurable:true,
+    value(){calls++;return JSON.stringify(event("provider_bounced",1));},
+  });
+  Object.defineProperty(delivered.rawBody,"toString",{
+    configurable:true,
+    value(){throw Error("untrusted toString executed");},
+  });
+  const result=reconcile([delivered,accepted]);
+  assert.equal(result.projection.delivery,"reported_delivered");
+  assert.deepEqual(result.projection.suppression,[]);
+  assert.equal(result.newEvents,2);
+  assert.equal(calls,0);
+});
+
 test("identical signed replays deduplicate despite separate arrival positions",()=>{
   const accepted=signed(event("provider_accepted",1));
   const delivered=signed(event("provider_delivered",2));
