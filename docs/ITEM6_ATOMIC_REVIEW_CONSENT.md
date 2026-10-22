@@ -289,3 +289,30 @@ evidence-coherence guard**, not a real distributed event store,
 authenticated issuer or provider event contract. It grants no sending
 authority, does not interpret actual provider identifiers and cannot clear
 H01–H13 external release holds.
+
+## Redacted forensic check for existing event-ID collisions
+
+The tenant-scoped, read-only `fictional_hold_summary` now audits all five
+fixture event families for **already-present** cross-ledger UUID reuse.
+Although normal insert operations reject those collisions transactionally,
+a fixture manually corrupted or restored from an older unsafe copy could
+otherwise appear conflict-free to an operator.
+
+`crossLedgerEventIdConflicts` counts **distinct conflicting invented event
+IDs**, not the number of duplicate rows. An ID appearing in three ledgers
+counts once; two different IDs involved in collisions count twice. The
+`eventEvidenceState` is either
+`no-observed-collisions-simulation-only` or
+`conflicting-event-ids-needs-review`. A healthy-looking value is *not* proof
+that the event source, tenant authorization, recipients, approvals, or
+provider messages are authentic or that any communication may be sent.
+
+The audit reuses the same fixed five-table list as the insert-time guard,
+does not accept table names from callers, filters every source by the
+exact fictional tenant in a single serialized snapshot, and returns
+**aggregates only**. Five tests deliberately inject conflicting records
+directly into disposable SQLite: no-conflict idempotent replay, collision
+detection and non-repair, one event duplicated across three ledgers
+counted once, cross-tenant isolation, and concurrent atomic snapshots.
+No evidence is deleted, unblocked, approved, reconciled or transmitted.
+H01–H13 real external acceptance holds remain unresolved.
