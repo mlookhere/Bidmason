@@ -260,3 +260,32 @@ tenants, and competing legacy handoff and withdrawal transactions. These
 are disposable offline state-machine tests only; no actual provider handoff,
 customer consent, authenticated revocation, send, or release authority
 has been implemented. H01–H13 remain unverified.
+
+## One fictional event identity across evidence ledgers
+
+The five offline evidence-event families (consent confirmations, consent
+withdrawals, contractor exact-recipient confirmations, recipient-confirmation
+revocations, and terminal proposal closure) now share one **tenant-local
+event-ID namespace**. Their original per-table uniqueness was insufficient:
+one invented UUID could previously appear as both, for example, a consent
+confirmation and a deal-closure decision without raising a conflict.
+
+`_assert_unused_fictional_event_id` checks all five fixed fixture tables
+**inside the same `BEGIN IMMEDIATE` transaction** immediately before each
+new insert. The tables are hard-coded, with only tenant and event UUID
+values parameterized. Cross-kind or cross-recipient reuse of a UUID within
+one fictional organization raises a conflict before any insertion or
+reservation invalidation. An identical event-ID replay of the *same original
+claim* remains handled by its existing idempotent duplicate branch; two
+different fictional tenants may independently reuse the UUID. All five
+insert paths use this one shared check, rather than copying divergent
+table lists.
+
+Seven adversarial tests exercise consent-vs-closure, consent-vs-contractor
+confirmation, revocation-vs-closure, withdrawal-vs-revocation,
+closure-vs-another-recipient's consent, separate-tenant replay, and a
+simultaneous two-writer collision. This shared namespace is a **fictional
+evidence-coherence guard**, not a real distributed event store,
+authenticated issuer or provider event contract. It grants no sending
+authority, does not interpret actual provider identifiers and cannot clear
+H01–H13 external release holds.
