@@ -116,6 +116,16 @@ def _resolve(root: Path, owner: Path, spec: str) -> Path | None:
     raise ValueError("Unresolved local code dependency")
 
 
+def _is_offline_only(rel: str) -> bool:
+    """Recognize protected helpers in either supported Next.js source root.
+
+    A future move from lib/ to src/lib/ must not remove an existing guard;
+    both source layouts can coexist and must be covered at the same time.
+    """
+    project_relative = rel.removeprefix("src/")
+    return any(project_relative.startswith(prefix) for prefix in FORBIDDEN)
+
+
 def findings(root: Path = ROOT) -> list[str]:
     """Fail live server entrypoints closed on simulated imports and ambiguity."""
     root = root.resolve()
@@ -129,7 +139,7 @@ def findings(root: Path = ROOT) -> list[str]:
                 continue
             visited.add(path)
             rel = path.relative_to(root).as_posix()
-            if any(rel.startswith(prefix) for prefix in FORBIDDEN):
+            if _is_offline_only(rel):
                 violations.add(f"{entry.relative_to(root).as_posix()} imports offline-only {rel}")
                 continue
             specs, dynamic = _imports(path.read_text(encoding="utf-8"))
