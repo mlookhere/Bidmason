@@ -63,6 +63,12 @@ export function reviewSimulatedRecipientContactHistory(
   const suppression = new Set<DeliveryProjection["suppression"][number]>();
   let repliedInHistory = false;
   let totalEvents = 0;
+  const priorReservations: string[] = [];
+  let earliestContactStop: string | null = null;
+  const stopKinds = new Set([
+    "recipient_replied", "recipient_opted_out",
+    "provider_bounced", "provider_complained",
+  ]);
 
   for (const record of history) {
     if (!exact(record, ["intent", "events"])) {
@@ -101,8 +107,30 @@ export function reviewSimulatedRecipientContactHistory(
       localIds.add(event.eventId);
     }
     for (const eventId of localIds) eventIds.add(eventId);
+    // Independent proposal streams can each be internally chronological
+    // while still contradicting a prior stop on this shared recipient.
+    // Collect events first so history order cannot hide that contradiction.
+    for (const event of projection.timeline) {
+      if (event.kind === "reserved") priorReservations.push(event.observedAt);
+      if (stopKinds.has(event.kind)
+          && (earliestContactStop === null
+              || event.observedAt < earliestContactStop)) {
+        earliestContactStop = event.observedAt;
+      }
+    }
     for (const reason of projection.suppression) suppression.add(reason);
     if (projection.replied) repliedInHistory = true;
+  }
+
+  // A reply, opt-out, bounce or complaint on ANY earlier fictional
+  // proposal makes another reservation at or after that instant
+  // contradictory evidence, not a normally suppressed follow-up. This
+  // does not validate completeness of caller-provided history.
+  if (earliestContactStop !== null
+      && priorReservations.some(reservedAt => reservedAt >= earliestContactStop)) {
+    throw new TypeError(
+      "Cross-proposal synthetic historical reservation conflicts with contact-stop chronology",
+    );
   }
 
   return {
