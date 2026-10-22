@@ -199,7 +199,10 @@ Runbook table cells describing reviewer roles and negative tests must remain
 **plain-text instructions**. The handoff generator rejects embedded URI schemes,
 web addresses, email addresses, Markdown links, HTML tags, inline code, extra
 table separators and control characters in these cells rather than echoing
-potentially sensitive information into the shareable packet. Source-controlled
+potentially sensitive information into the shareable packet. Only printable
+ASCII characters (U+0020 through U+007E) are accepted in those English-language
+checklist cells; bidirectional overrides, zero-width characters and Unicode
+lookalikes must fail instead of changing what the reviewer sees. Source-controlled
 text is not a safe evidence store; real references and reviewer identities
 belong in access-controlled operational records. This filter reduces common
 accidental leakage, but does not constitute complete PII detection or review
