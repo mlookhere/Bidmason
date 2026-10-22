@@ -20,7 +20,9 @@ const FIELDS = ["organizationId", "proposalId", "revision",
 const IDENTITY = ["organizationId", "proposalId", "revision",
   "recipientSha256", "contentSha256"] as const;
 const KINDS = ["question", "request_changes", "decline"] as const;
-const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069<>]/u;
+// Exclude invisible separators and formatting controls that can conceal
+// material text from reviewers. Printable multilingual letters remain valid.
+const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff<>]/u;
 
 function ownData(value: unknown, fields: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)

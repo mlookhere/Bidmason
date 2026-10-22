@@ -78,6 +78,20 @@ test("malicious markup, controls, bidi overrides and unbounded notes are rejecte
     "draft-internal-only");
 });
 
+test("invisible Unicode format and line separators cannot obscure internal review notes",()=>{
+  const hidden=["\u00ad", "\u034f", "\u061c", "\u180e", "\u200b", "\u200c",
+    "\u200d", "\u200e", "\u200f", "\u2028", "\u2029", "\u2060", "\ufeff"];
+  for(const ch of hidden){
+    assert.throws(()=>run({...draft,note:"Contract"+ch+"or approved"}),
+      /Invalid nonbinding/,`U+${ch.codePointAt(0).toString(16)}`);
+    assert.throws(()=>run({...draft,kind:"decline",note:ch}),/Invalid nonbinding/);
+  }
+  for(const note of ["请确认开始日期。", "시작 날짜를 확인해 주세요.",
+    "هل يمكنك تأكيد تاريخ البدء؟", "¿Puede confirmar la fecha?"]){
+    assert.equal(run({...draft,note}).state,"draft-internal-only");
+  }
+});
+
 test("extra privileges, invalid record arrays and accessor-backed properties fail closed",()=>{
   for(const addition of [{approved:true},{recipientEmail:"buyer@example.test"},
     {kind:"submit"},{note:21},{revision:0}]) {

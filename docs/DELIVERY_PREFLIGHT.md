@@ -1231,3 +1231,23 @@ only confirms the inventory stays fail-closed; it can never authorize a
 production provider, customer delivery, buyer portal or release. The real
 Phase 3 tracker work (BM-015b, BM-029 through BM-034 and DEC-06) and all
 human/tenant/legal/security go-live requirements remain outstanding.
+
+## Reviewer-visible integrity of nonbinding buyer-response notes
+
+The offline `assessBuyerResponseDraft` now rejects invisible Unicode
+formatting and separator characters that could hide or visually reorder
+material words in a purported buyer note. The validation rejects soft
+hyphens, grapheme joiners, Arabic directional controls, zero-width
+spaces/joiners/marks, Unicode line and paragraph separators, and a BOM
+without excluding ordinary printable multilingual letters. A targeted
+adversarial test first reproduced acceptance under the old validator,
+then passed after correction. Ordinary Chinese, Korean, Arabic, and
+Spanish review notes remain valid. The previously prohibited controls,
+HTML characters, unbounded length, and non-NFC notes remain blocked.
+
+This changes only internal **nonbinding fictional draft fingerprint**
+validation. A signed read-only view token is still not authentication of
+a buyer, not permission to submit or accept, and cannot authorize a
+contact, provider operation, live portal or real delivery. The required
+H01–H13 tenant, consent, provider, transaction, review and human
+release approvals remain unverified and blocked.
