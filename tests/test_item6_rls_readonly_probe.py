@@ -4,13 +4,17 @@ from __future__ import annotations
 import base64
 import contextlib
 import io
+import urllib.error
+import urllib.request
 import json
 import time
 import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
-from ci.item6_rls_readonly_probe import main, probe_readonly_rls
+from ci.item6_rls_readonly_probe import (
+    MAX_RESPONSE, _NoRedirect, _get, main, probe_readonly_rls,
+)
 
 ORG_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 ORG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -195,6 +199,12 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
             {"base": "http://" + "a"*20 + ".supabase.co"},
             {"base": URL + "/rest/v1"},
             {"base": URL + "?token=secret"},
+            {"base": URL + "\n"},
+            {"base": "\t" + URL},
+            {"base": URL.replace(".supabase.co", "\r.supabase.co")},
+            {"base": URL.upper()},
+            {"base": URL + "/"},
+            {"base": URL + "#fragment"},
             {"base": "https://"+ "a"*20 + ".supabase.co.evil.test"},
             {"base": "https://localhost"},
             {"publishable_key": "sb_secret_" + "x"*30},
@@ -208,6 +218,64 @@ class AuthenticatedReadOnlyProbeTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.run_probe(fake, **changes)
                 self.assertEqual(fake.requests, [])
+
+    def test_transport_uses_no_proxy_no_redirect_and_only_get(self):
+        class SafeResponse(io.BytesIO):
+            status = 200
+
+        class FakeOpener:
+            def open(self, req, timeout):
+                self_req.append((req, timeout))
+                return SafeResponse(b'{"id":"synthetic-only"}')
+
+        self_req = []
+        with patch("ci.item6_rls_readonly_probe.urllib.request.build_opener",
+                   return_value=FakeOpener()) as build:
+            status, payload = _get(URL + "/auth/v1/user", {
+                "Authorization": "Bearer fake-jwt", "apikey": KEY})
+        self.assertEqual((status, payload), (200, {"id": "synthetic-only"}))
+        self.assertEqual(len(self_req), 1)
+        self.assertEqual(self_req[0][0].get_method(), "GET")
+        self.assertEqual(self_req[0][1], 8)
+        handlers = build.call_args.args
+        self.assertEqual(len(handlers), 2)
+        self.assertIsInstance(handlers[0], urllib.request.ProxyHandler)
+        self.assertEqual(handlers[0].proxies, {})
+        self.assertIsInstance(handlers[1], _NoRedirect)
+
+    def test_transport_redirects_and_large_or_malformed_bodies_fail_closed(self):
+        class FakeOpener:
+            def __init__(self, response=None, error=None):
+                self.response = response
+                self.error = error
+                self.calls = 0
+
+            def open(self, req, timeout):
+                self.calls += 1
+                if self.error:
+                    raise self.error
+                return self.response
+
+        redirected = FakeOpener(error=urllib.error.HTTPError(
+            URL + "/auth/v1/user", 302, "Found",
+            {"Location": "https://untrusted.example.test/steal"}, None))
+        with patch("ci.item6_rls_readonly_probe.urllib.request.build_opener",
+                   return_value=redirected):
+            self.assertEqual(_get(URL + "/auth/v1/user", {
+                "Authorization": "Bearer fake-jwt"}), (302, None))
+        self.assertEqual(redirected.calls, 1)
+
+        for body in (b"x" * (MAX_RESPONSE + 1), b"{not-json}"):
+            with self.subTest(body_length=len(body)):
+                response = io.BytesIO(body)
+                response.status = 200
+                opened = FakeOpener(response=response)
+                with patch("ci.item6_rls_readonly_probe.urllib.request.build_opener",
+                           return_value=opened):
+                    with self.assertRaisesRegex(ValueError,
+                                                "Oversized|Malformed"):
+                        _get(URL + "/rest/v1/bm_memberships", {"apikey": KEY})
+                self.assertEqual(opened.calls, 1)
 
     def test_without_explicit_live_optin_cli_never_connects(self):
         with patch("sys.argv", ["item6_rls_readonly_probe"]), patch(
