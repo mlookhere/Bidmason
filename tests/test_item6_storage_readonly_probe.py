@@ -40,6 +40,7 @@ class StorageTransport:
         self.foreign_leak = False
         self.anon_leak = False
         self.public_leak = False
+        self.public_key_leak = False
         self.missing_own = False
         self.bad_auth = False
 
@@ -54,7 +55,9 @@ class StorageTransport:
         self.calls.append(("GET-RANGE", url, headers))
         bearer = headers.get("Authorization", "").removeprefix("Bearer ")
         if "/storage/v1/object/public/" in url:
-            return (206, True) if self.public_leak else (404, False)
+            exposed = (self.public_leak
+                or (self.public_key_leak and "apikey" in headers))
+            return (206, True) if exposed else (404, False)
         if not bearer:
             return (206, True) if self.anon_leak else (403, False)
         user = self.tokens[bearer]
@@ -77,8 +80,8 @@ class H02StorageReadOnlyTests(unittest.TestCase):
     def test_positive_controls_and_negative_reads_are_non_authorizing(self):
         result, fake = self.run_probe()
         self.assertEqual(result["state"], "requires-independent-review")
-        self.assertEqual(len(result["checks"]), 10)
-        self.assertEqual(len(fake.calls), 10)
+        self.assertEqual(len(result["checks"]), 12)
+        self.assertEqual(len(fake.calls), 12)
         self.assertTrue(all(row["passed"] for row in result["checks"]))
         self.assertIs(result["h02Accepted"], False)
         self.assertIs(result["releaseAuthorized"], False)
@@ -118,6 +121,7 @@ class H02StorageReadOnlyTests(unittest.TestCase):
         self.assertFalse(report["checks"][-1]["passed"])
         self.assertTrue(fixture.calls[-1][1].endswith("/public/bm-evidence/"+PATH_A))
         self.assertNotIn("Authorization",fixture.calls[-1][2])
+        self.assertNotIn("apikey",fixture.calls[-1][2])
 
     def test_public_route_server_errors_are_not_negative_security_proof(self):
         for status in (200, 206, 302, 400, 500):
@@ -132,6 +136,31 @@ class H02StorageReadOnlyTests(unittest.TestCase):
                     PATH_A,PATH_B,get=fake.get,peek=peek)
                 self.assertEqual(result["state"],"blocked")
                 self.assertEqual(result["checks"][-1]["name"],"public-object-1")
+
+    def test_anonymous_with_publishable_key_cannot_access_public_object(self):
+        fake=StorageTransport()
+        fake.public_key_leak=True
+        report, fixture=self.run_probe(fake)
+        self.assertEqual(report["state"],"blocked")
+        self.assertEqual(report["checks"][-1]["name"],"public-with-key-object-1")
+        self.assertFalse(report["checks"][-1]["passed"])
+        self.assertEqual(fixture.calls[-1][2],{"apikey":KEY})
+        # Completely keyless public GETs succeeded as DENIAL, but adding
+        # the publishable key must not open a private object.
+        self.assertEqual(fixture.calls[-3][2],{})
+        self.assertEqual(fixture.calls[-2][2],{})
+
+    def test_keyless_and_publishable_public_routes_are_both_exercised(self):
+        report, fake=self.run_probe()
+        self.assertEqual(report["state"],"requires-independent-review")
+        public_calls=fake.calls[-4:]
+        self.assertEqual(
+            [c[1].split("/bm-evidence/")[1] for c in public_calls],
+            [PATH_A,PATH_B,PATH_A,PATH_B])
+        self.assertTrue(all("/object/public/" in c[1] for c in public_calls))
+        self.assertEqual([c[2] for c in public_calls],
+                         [{},{},{"apikey":KEY},{"apikey":KEY}])
+        self.assertTrue(all(c["passed"] for c in report["checks"]))
 
     def test_auth_fail_closed_before_storage_request(self):
         fake=StorageTransport()
