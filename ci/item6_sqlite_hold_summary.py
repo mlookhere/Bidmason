@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from ci.item6_sqlite_rehearsal import _UUID, _transaction
+from ci.item6_sqlite_rehearsal import _EVENT_TABLES, _UUID, _transaction
 
 
 def fictional_hold_summary(path: Path, organization_id: str) -> dict[str, object]:
@@ -99,9 +99,29 @@ def fictional_hold_summary(path: Path, organization_id: str) -> dict[str, object
             """, (organization_id,)
         ).fetchone()[0]
 
+        # Catch evidence collisions already PRESENT in a tampered/legacy
+        # fixture. Application writes reject reuse; this read-only audit never
+        # repairs or tries to identify an event's authentic origin.
+        # Only internal, fixed table identifiers enter this expression.
+        event_sources = " UNION ALL ".join(
+            f"SELECT event_id FROM {table} WHERE organization_id=?"
+            for table in _EVENT_TABLES
+        )
+        conflicting_event_ids = db.execute(
+            "SELECT COUNT(*) FROM ("
+            " SELECT event_id FROM (" + event_sources + ")"
+            " GROUP BY event_id HAVING COUNT(*) > 1"
+            ")",
+            (organization_id,) * len(_EVENT_TABLES),
+        ).fetchone()[0]
+
         # The sole caller supplies no free-form SQL; every count uses the same
         # organization filter while BEGIN IMMEDIATE protects snapshot coherence.
         return {
+            "eventEvidenceState": (
+                "conflicting-event-ids-needs-review" if conflicting_event_ids
+                else "no-observed-collisions-simulation-only"),
+            "crossLedgerEventIdConflicts": conflicting_event_ids,
             "pendingEvidenceState": (
                 "inconsistent-needs-review" if unsafe_pending
                 else "consistent-simulation-only"),
