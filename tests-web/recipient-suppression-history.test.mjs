@@ -87,6 +87,46 @@ test("bounce and complaint on different proposals remain sticky",()=>{
   assert.equal(result.examinedStreams,3);
   assert.deepEqual(result,scan([complaint,bounce,clean]));
 });
+
+test("historical reservation after another proposal's stop is invalid in either stream order",()=>{
+  const kinds=[
+    ["reserved","provider_accepted","provider_delivered","recipient_replied"],
+    ["reserved","provider_accepted","provider_delivered","recipient_opted_out"],
+    ["reserved","provider_accepted","provider_bounced"],
+    ["reserved","provider_accepted","provider_delivered","provider_complained"],
+  ];
+  const later=make(2,["reserved","provider_accepted","provider_delivered"]);
+  const future={intent:later.intent,events:later.events.map((e,i)=>({
+    ...e,observedAt:"2026-10-20T09:0"+i+":00.000Z",
+  }))};
+  for(const sequence of kinds){
+    const stopped=make(1,sequence);
+    const historical={intent:stopped.intent,events:stopped.events};
+    for(const ordered of [[historical,future],[future,historical]]){
+      assert.throws(()=>scan(ordered),
+        /Cross-proposal synthetic historical reservation conflicts with contact-stop chronology/,
+        sequence.at(-1));
+    }
+    // The same instant is ambiguous, not a safe new reservation.
+    const stoppedAt=stopped.events.at(-1).observedAt;
+    const boundary={...future,events:future.events.map((e,i)=>({
+      ...e,observedAt:i===0?stoppedAt:e.observedAt,
+    }))};
+    assert.throws(()=>scan([historical,boundary]),
+      /Cross-proposal synthetic historical reservation conflicts with contact-stop chronology/,
+      sequence.at(-1));
+  }
+
+  // Earlier reservations are coherent, but never grant contact authority.
+  const stopped=make(1,["reserved","provider_accepted",
+    "provider_delivered","recipient_opted_out"]);
+  const earlier=make(2,["reserved","provider_accepted","provider_delivered"]);
+  const valid=scan([{intent:earlier.intent,events:earlier.events},
+    {intent:stopped.intent,events:stopped.events}]);
+  assert.equal(valid.contact,"suppressed-in-fixtures");
+  assert.equal(valid.contactAuthorized,false);
+});
+
 test("empty or clean history never authorizes contacting",()=>{
   const empty=scan([]);
   const clean=scan([delivered()]);
