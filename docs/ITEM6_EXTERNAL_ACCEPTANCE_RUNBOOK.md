@@ -199,7 +199,7 @@ An offline handoff generator now joins the **exact 13 manifest criterion IDs**
 to this runbook's responsible review roles, required artifacts, and live
 negative tests without inferring that any criterion is satisfied.
 
-Use `python3 ci/item6_review_handoff.py --format check` for the mandatory
+Use `python3 -m ci.item6_review_handoff --format check` for the mandatory
 CI consistency check, `--format markdown` for a private review checklist,
 or `--format json` for a machine-readable evidence *inventory*. All three
 modes validate the manifest's existing **blocked-only** schema and the
