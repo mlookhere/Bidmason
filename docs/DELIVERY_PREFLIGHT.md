@@ -1487,3 +1487,37 @@ proposals are independent. Without supplied closure evidence the review
 cannot assert a closure or absence thereof, and never grants contact
 authority. This logic has no authenticated history, database transaction,
 provider integration, sending queue, or live customer endpoint.
+
+
+## Proposal closure in integrated simulated reservation rehearsal
+
+`lib/synthetic-preflight-reservation.ts` now optionally accepts an explicit,
+caller-supplied fictional won/lost event stream as its sixth argument. The
+same `projectSyntheticDealOutcome` validator used by CRM and follow-up
+review enforces proposal/tenant identity, canonical as-of time, earlier
+revision scope, replay consistency and immutable terminal outcomes **before**
+any in-memory recipient CAS. A known closure returns `blocked` / `deal-closed`
+with `contactAuthorized: false` and does not reserve or change the ledger.
+The original exact-revision preflight, recipient-level permanent suppression,
+and historical-reply review remain required and take precedence in the
+returned non-sending explanation; even an already blocked preflight cannot
+conceal malformed closure evidence. Earlier-revision won/lost decisions
+cannot be reset by constructing a new proposal revision or recipient intent.
+
+An omitted or empty deal stream is **unverified**, never independently
+confirmed open. The positive `reserved-simulation-only` state continues to
+mean only that caller-provided fictional evidence was internally coherent at
+that instant: **it is not an authenticated contact authorization**, a real
+outbound reservation, or evidence that the caller supplied complete closure
+history. The in-memory ledger cannot guarantee cancellation of previously
+reserved work after an external closing event, and no signed source or
+production database transaction is introduced. The live Item 6 gate must
+read trusted, complete, tenant-scoped deal and recipient history and recheck
+it transactionally at actual dispatch time, with independently reviewed
+consent, company policy, provider identity and H01–H13 approvals.
+
+Four new required Linux/Windows Node regression groups cover won and lost
+closure across the current and previous revision, invalid and conflicting
+terminal events even during blocked preflight, suppression/reply precedence,
+unchanged CAS version, redacted outcomes and unrelated proposals. No required
+CI gate was removed or relaxed.

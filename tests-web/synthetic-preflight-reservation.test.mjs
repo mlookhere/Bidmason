@@ -288,3 +288,79 @@ test("malformed evidence containers and accessor-backed fields fail without muta
   assert.throws(()=>review({},e),/Invalid synthetic reservation rehearsal evidence/);
   assert.equal(ledger.snapshot(e.intent).version,0);
 });
+
+
+test("supplied won/lost closure from an earlier revision prevents a fresh simulated reservation",()=>{
+  const closed={eventId:"77777777-7777-4777-8777-777777777777",
+    organizationId:BASE.organizationId,proposalId:BASE.proposalId,revision:2,
+    kind:"won",observedAt:"2026-10-21T10:00:00.000Z"};
+  for(const kind of ["won","lost"]){
+    for(const revision of [2,3]){
+      const ledger=new SyntheticDispatchReservationLedger();
+      const evidence=make();
+      const result=rehearseSyntheticDeliveryReservation(
+        ledger,evidence,[],NOW,0,[{...closed,kind,revision}]);
+      assert.equal(result.state,"blocked");
+      assert.equal(result.reason,"deal-closed");
+      assert.equal(result.contactAuthorized,false);
+      assert.equal(result.reservationVersion,0);
+      assert.match(result.blockers.join(" "),/won\/lost/);
+      assert.equal(ledger.snapshot(evidence.intent).version,0);
+      assert.equal(ledger.snapshot(evidence.intent).reserved,false);
+      for(const sensitive of [BASE.recipient,BASE.organizationId,BASE.proposalId,"dryrun_"])
+        assert.equal(JSON.stringify(result).includes(sensitive),false);
+    }
+  }
+});
+
+test("malformed or conflicting closure cannot hide behind blocked preflight and does not mutate CAS",()=>{
+  const closed={eventId:"77777777-7777-4777-8777-777777777777",
+    organizationId:BASE.organizationId,proposalId:BASE.proposalId,revision:2,
+    kind:"lost",observedAt:"2026-10-21T10:00:00.000Z"};
+  const ledger=new SyntheticDispatchReservationLedger();
+  const evidence=make();evidence.proposal.reviewState="revoked";
+  const invoke=(items)=>rehearseSyntheticDeliveryReservation(ledger,evidence,[],NOW,0,items);
+  const different={...closed,eventId:"88888888-8888-4888-8888-888888888888"};
+  for(const items of [
+    [{...closed,organizationId:"ffffffff-ffff-4fff-8fff-ffffffffffff"}],
+    [{...closed,proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff"}],
+    [{...closed,revision:4}],
+    [{...closed,observedAt:"2026-10-24T10:00:00.000Z"}],
+    [closed,different],
+    [{...closed,approvedToSend:true}],
+    new Array(1),
+  ])assert.throws(()=>invoke(items),/Invalid|Conflicting|cross-tenant/);
+  let reads=0;
+  const hostile=[closed];
+  Object.defineProperty(hostile,"0",{enumerable:true,get(){reads++;throw Error("unsafe")}});
+  assert.throws(()=>invoke(hostile),/Invalid synthetic deal/);
+  assert.equal(reads,0);
+  assert.equal(ledger.snapshot(evidence.intent).version,0);
+  assert.equal(invoke([closed]).reason,"preflight-blocked");
+});
+
+test("permanent suppression outranks closure while both streams must be valid",()=>{
+  const closed={eventId:"77777777-7777-4777-8777-777777777777",
+    organizationId:BASE.organizationId,proposalId:BASE.proposalId,revision:2,
+    kind:"lost",observedAt:"2026-10-21T10:00:00.000Z"};
+  const ledger=new SyntheticDispatchReservationLedger();
+  const evidence=make();
+  assert.equal(rehearseSyntheticDeliveryReservation(ledger,evidence,history(),NOW,0,[closed]).reason,
+    "prior-recipient-suppressed");
+  assert.equal(rehearseSyntheticDeliveryReservation(ledger,evidence,
+    history("recipient_replied"),NOW,0,[closed]).reason,"prior-recipient-replied");
+  assert.equal(ledger.snapshot(evidence.intent).version,0);
+});
+
+test("unverified deal stream remains non-authoritative and different proposals are independent",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const other=make({proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff"});
+  const foreign={eventId:"77777777-7777-4777-8777-777777777777",
+    organizationId:BASE.organizationId,proposalId:BASE.proposalId,revision:2,
+    kind:"won",observedAt:"2026-10-21T10:00:00.000Z"};
+  assert.throws(()=>rehearseSyntheticDeliveryReservation(ledger,other,[],NOW,0,[foreign]),
+    /cross-tenant/);
+  const result=rehearseSyntheticDeliveryReservation(ledger,other,[],NOW,0,[]);
+  assert.equal(result.state,"reserved-simulation-only");
+  assert.equal(result.contactAuthorized,false);
+});

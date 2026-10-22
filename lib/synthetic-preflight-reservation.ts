@@ -11,6 +11,10 @@ import {
   type SyntheticRecipientHistory,
 } from "./recipient-suppression-history.ts";
 import {SyntheticDispatchReservationLedger} from "./synthetic-dispatch-reservation.ts";
+import {
+  projectSyntheticDealOutcome,
+  type SyntheticDealOutcomeEvent,
+} from "./synthetic-deal-outcome.ts";
 
 /** Only fictional caller-supplied evidence is supported. Never treat the
  * presence of an approved-looking fixture as proof of approval or consent. */
@@ -26,7 +30,7 @@ export type SyntheticPreflightReservationResult = {
   state: "blocked" | "reserved-simulation-only";
   reason: "preflight-blocked" | "prior-recipient-suppressed"
     | "prior-recipient-replied" | "recipient-reply-review-required"
-    | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
+    | "deal-closed" | "synthetic-cas-won-no-send" | "stale-or-invalid-version"
     | "recipient-suppressed" | "recipient-already-reserved";
   blockers: string[];
   observedHistory: "caller-fixtures-only";
@@ -48,7 +52,8 @@ function exactData(value: unknown): value is SyntheticReservationEvidence {
 /** A reproducible, NON-SENDING rehearsal of three existing safety boundaries:
  * 1) exact-revision preflight with two distinct fictional reviewers;
  * 2) same-recipient historical opt-out/complaint/bounce and reply review;
- * 3) version-checked in-memory recipient reservation.
+ * 3) explicitly supplied fictional won/lost events from this or past revisions;
+ * 4) version-checked in-memory recipient reservation.
  *
  * Every supplied record remains untrusted and synthetic; successful
  * reservation NEVER authorizes a provider call. This is NOT a server route,
@@ -59,6 +64,7 @@ export function rehearseSyntheticDeliveryReservation(
   history: readonly SyntheticRecipientHistory[],
   asOfUtc: string,
   expectedVersion: number,
+  dealOutcomes: readonly SyntheticDealOutcomeEvent[] = [],
 ): SyntheticPreflightReservationResult {
   if (!(ledger instanceof SyntheticDispatchReservationLedger) || !exactData(evidence)) {
     throw new TypeError("Invalid synthetic reservation rehearsal evidence");
@@ -73,6 +79,10 @@ export function rehearseSyntheticDeliveryReservation(
   const prior = reviewSimulatedRecipientContactHistory(
     evidence.intent, history, asOfUtc,
   );
+  // Validate provided deal evidence even when existing preflight/history is
+  // blocked: malformed or cross-tenant closure must never be concealed.
+  // An omitted stream is UNVERIFIED, not evidence the deal is open.
+  const deal = projectSyntheticDealOutcome(evidence.intent, dealOutcomes, asOfUtc);
   const current = ledger.snapshot(evidence.intent);
 
   if (preflight.state !== "consistent-internal-only") {
@@ -101,6 +111,19 @@ export function rehearseSyntheticDeliveryReservation(
     return {
       state: "blocked", reason: "prior-recipient-replied",
       blockers: ["Earlier fictional recipient reply requires operator review before another reminder"],
+      observedHistory: "caller-fixtures-only",
+      reservationVersion: current.version,
+      contactAuthorized: false,
+    };
+  }
+
+  // Closing a deal is proposal-wide: changing its revision or recipient cannot
+  // reopen this fictional reservation. The prior recipient suppression/reply
+  // checks above keep their stronger review precedence.
+  if (deal.closedAt !== null) {
+    return {
+      state: "blocked", reason: "deal-closed",
+      blockers: ["Fictional won/lost deal blocks another reservation"],
       observedHistory: "caller-fixtures-only",
       reservationVersion: current.version,
       contactAuthorized: false,
