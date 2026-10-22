@@ -55,6 +55,8 @@ class FictionalHoldSummaryTests(unittest.TestCase):
         result = self.summary()
         self.assertEqual(result, {
             "state": "review-simulation-only",
+            "eventEvidenceState": "no-observed-collisions-simulation-only",
+            "crossLedgerEventIdConflicts": 0,
             "pendingEvidenceState": "consistent-simulation-only",
             "inconsistentPendingReservations": 0,
             "contactAuthorized": False,
