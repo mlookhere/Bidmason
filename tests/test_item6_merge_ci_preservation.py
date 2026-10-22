@@ -62,6 +62,55 @@ class PreservedSliceCiTests(unittest.TestCase):
             merged_gate_findings(fake, self.root),
         )
 
+    def test_core_checks_cannot_be_conditional_or_nonblocking(self):
+        baseline = "  fast:\\n    name: fast\\n    runs-on: ubuntu-latest\\n"
+        self.assertIn(baseline.replace("\\n", "\n"), self.workflow)
+        for directive in ("    if: false\n",
+                          "    if: ${{ github.event_name == 'push' }}\n",
+                          "    continue-on-error: true\n",
+                          "    if: ${{ false }}\n"):
+            with self.subTest(directive=directive):
+                altered = self.workflow.replace(
+                    baseline.replace("\\n", "\n"),
+                    baseline.replace("\\n", "\n") + directive, 1,
+                )
+                self.assertIn(
+                    "conditional or nonblocking required job: fast",
+                    " ".join(merged_gate_findings(altered, self.root)),
+                )
+        step_guard = self.workflow.replace(
+            "      - name: Fast checks\n        run: bash ci/run fast",
+            "      - name: Fast checks\n        if: false\n        run: bash ci/run fast",
+            1,
+        )
+        self.assertIn(
+            "conditional or nonblocking required job: fast (if)",
+            merged_gate_findings(step_guard, self.root),
+        )
+
+    def test_inherited_slice_runner_cannot_hide_a_failure(self):
+        marker, job, command = MERGED_SLICE_GATES[0]
+        self.source(marker)
+        for clause in ("    if: false\n", "    continue-on-error: true\n",
+                       "    steps:\n      - if: false\n"):
+            with self.subTest(clause=clause):
+                fake = (f"\n  {job}:\n    runs-on: ubuntu-latest\n"
+                        f"{clause}"
+                        f"    steps:\n      - name: Required SQL suite\n"
+                        f"        run: {command}\n")
+                found = merged_gate_findings(self.workflow + fake, self.root)
+                self.assertTrue(
+                    any(f"conditional or nonblocking required job: {job}" in x for x in found),
+                    found,
+                )
+
+    def test_missing_core_job_is_not_replaced_by_text_in_comments(self):
+        altered = self.workflow.replace(
+            "  fast:\n    name: fast\n", "  # fast:\n    # name: fast\n", 1,
+        )
+        self.assertIn("missing required core CI job: fast",
+                      merged_gate_findings(altered, self.root))
+
     def test_all_six_feature_gates_survive_a_simulated_combined_workflow(self):
         extra_jobs = []
         for marker, job, command in MERGED_SLICE_GATES:
