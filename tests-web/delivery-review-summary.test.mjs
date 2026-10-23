@@ -54,6 +54,25 @@ test("multiple fictional deliveries aggregate non-authoritative priorities witho
   for(const forbidden of ["fictional.example","dryrun_","organizationId","recipient","proposalId","approved","sendAllowed"])
     assert.equal(json.includes(forbidden),false,forbidden);
 });
+test("explicitly revoked consent counts as stop-contact, not missing verification",()=>{
+  const unknown=recipientCase(make(0,undefined,"unknown"),"unknown@fictional.example");
+  const revoked=recipientCase(make(1,undefined,"revoked"),"revoked@fictional.example");
+  const report=summary([unknown,revoked]);
+  assert.equal(report.reviewedCases,2);
+  assert.deepEqual(report.attention,{stopContact:1,operatorReview:1,deferred:0});
+  assert.equal(count(report,"contact-suppressed"),1);
+  assert.equal(count(report,"consent-needs-verification"),1);
+  assert.equal(report.categories.reduce((sum,row)=>sum+row.count,0),2);
+  const reverse=summary([revoked,unknown]);
+  assert.deepEqual(reverse,report);
+  const serialized=JSON.stringify(report);
+  for(const secret of [unknown.intent.recipient,revoked.intent.recipient,
+    unknown.intent.idempotencyKey,revoked.intent.idempotencyKey,org,
+    "contactAuthorized","sendAllowed"]){
+    assert.equal(serialized.includes(secret),false);
+  }
+});
+
 test("category order and totals are stable under permutations",()=>{
   const cases=[make(0),make(1,["reserved","provider_accepted","provider_bounced"]),
     make(2,["reserved","provider_accepted","provider_delivered","recipient_replied"])];
