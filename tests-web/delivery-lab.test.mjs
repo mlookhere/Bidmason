@@ -4,11 +4,12 @@ import {readFileSync} from "node:fs";
 import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../lib/delivery-lab-fixtures.ts";
 const page=readFileSync(new URL("../app/delivery-lab/page.tsx",import.meta.url),"utf8");
 
-test("seven invented cases are derived from actual offline CRM and follow-up logic",()=>{
+test("eight invented cases are derived from actual offline CRM and follow-up logic",()=>{
   const cases=buildSyntheticDeliveryLabCases();
   assert.deepEqual(cases.map(x=>x.id),[
     "painting-reply","cleaning-bounce","painting-consent-unknown","cleaning-internal-candidate",
     "cleaning-prior-optout","painting-prior-reply","painting-deal-won",
+    "cleaning-reminders-exhausted",
   ]);
   assert.ok(cases.every(x=>x.projection.state==="simulation-only"));
   assert.ok(cases.every(x=>x.triage.state==="review-simulation-only"));
@@ -21,9 +22,9 @@ test("redacted CRM summaries stay tenant-scoped and never imply send authority",
   const painting=grouped["Fictional painting contractor"];
   const cleaning=grouped["Fictional cleaning contractor"];
   assert.deepEqual(painting.attention,{stopContact:0,operatorReview:3,deferred:1});
-  assert.deepEqual(cleaning.attention,{stopContact:2,operatorReview:1,deferred:0});
+  assert.deepEqual(cleaning.attention,{stopContact:2,operatorReview:1,deferred:1});
   assert.equal(painting.reviewedCases,4);
-  assert.equal(cleaning.reviewedCases,3);
+  assert.equal(cleaning.reviewedCases,4);
   for(const {company,report} of reports){
     assert.ok(company.startsWith("Fictional "));
     assert.equal(report.state,"review-simulation-only");
@@ -45,10 +46,10 @@ test("fictional company pipeline is derived from the same scoped CRM evidence",(
   assert.deepEqual(painting.pipeline.deals,{unverified:3,won:1,lost:0});
   assert.equal(painting.pipeline.distinctProposals,4);
   assert.deepEqual(cleaning.pipeline.delivery,{
-    notStarted:0,reserved:0,accepted:0,reportedDelivered:2,bounced:1,
+    notStarted:0,reserved:0,accepted:0,reportedDelivered:3,bounced:1,
   });
-  assert.deepEqual(cleaning.pipeline.deals,{unverified:3,won:0,lost:0});
-  assert.equal(cleaning.pipeline.distinctProposals,3);
+  assert.deepEqual(cleaning.pipeline.deals,{unverified:4,won:0,lost:0});
+  assert.equal(cleaning.pipeline.distinctProposals,4);
   for(const {report,pipeline} of summaries){
     assert.equal(pipeline.reviewedCases,report.reviewedCases);
     assert.deepEqual(pipeline.attention,report.attention);
@@ -162,6 +163,24 @@ test("timing candidate never becomes a sending authorization",()=>{
   assert.match(page,/External authorization and real consent remain unverified/);
   assert.doesNotMatch(page,/<form\b|<input\b|<button\b|<textarea\b/i);
 });
+test("max-reminder fixture remains terminal with a blank future due date",()=>{
+  const caseItem=buildSyntheticDeliveryLabCases()
+    .find(x=>x.id==="cleaning-reminders-exhausted");
+  assert.ok(caseItem);
+  assert.equal(caseItem.followUp.state,"blocked");
+  assert.equal(caseItem.followUp.recordedAttempts,1);
+  assert.equal(caseItem.followUp.nextEligibleAt,null);
+  assert.equal(caseItem.triage.category,"follow-up-limit-reached");
+  assert.equal(caseItem.triage.attention,"deferred");
+  assert.equal(caseItem.triage.contactAuthorized,false);
+  const cleaning=buildSyntheticDeliveryLabSummaries()
+    .find(x=>x.company==="Fictional cleaning contractor");
+  assert.equal(cleaning.report.categories.find(x=>x.category==="follow-up-limit-reached").count,1);
+  assert.match(page,/Next fictional reminder eligibility/);
+  assert.match(page,/None — no scheduled send/);
+  assert.doesNotMatch(JSON.stringify(caseItem),/buyer-exhausted@|dryrun_/);
+});
+
 test("static route discloses limits and remains noindex, no input or mutation",()=>{
   assert.match(page,/Synthetic records only/);
   assert.match(page,/not access controlled/);
