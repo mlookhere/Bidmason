@@ -180,6 +180,25 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
     assert exhausted.get_by_text("Blocked", exact=True).count() == 1
     assert exhausted.get_by_text("None — no scheduled send", exact=True).count() == 1
     assert exhausted.get_by_text("follow up limit reached (simulation only)", exact=True).count() == 1
+    # A blocked fictional recipient cannot show a new reminder date simply
+    # because the *current* proposal's local cooldown has elapsed. This also
+    # protects the prior-reply and prior-opt-out cross-proposal examples.
+    for case_id in (
+        "painting-reply", "cleaning-bounce", "painting-consent-unknown",
+        "cleaning-prior-optout", "painting-prior-reply",
+        "painting-deal-won", "cleaning-reminders-exhausted",
+    ):
+        card = page.locator(f"[data-scenario='{case_id}']")
+        due = card.locator(".lab-facts > div").filter(
+            has=card.locator("dt", has_text="Next fictional reminder eligibility"))
+        assert due.count() == 1, f"Missing due summary: {case_id}"
+        assert due.locator("dd").inner_text() == "None — no scheduled send", (
+            f"Contact-blocked case misleadingly shows a reminder time: {case_id}")
+    candidate = page.locator("[data-scenario='cleaning-internal-candidate']")
+    due = candidate.locator(".lab-facts > div").filter(
+        has=candidate.locator("dt", has_text="Next fictional reminder eligibility"))
+    assert due.count() == 1
+    assert due.locator("dd").inner_text() == "2026-10-21T08:02:00.000Z"
     assert page.locator("form, input, textarea, select, button").count() == 0
     assert page.get_by_text("Delivery remains disabled").count() == 1
     assert not mutations and not errors, f"Unexpected requests/errors: {mutations}, {errors}"
