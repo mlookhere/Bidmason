@@ -135,13 +135,20 @@ export function assessSimulatedFollowUp(
   if(limitReached)blockers.push("Follow-up attempt limit reached");
   const baseline=lastAttempt||deliveredAt;
   let nextEligibleAt:string|null=null;
-  // The exhausted policy has no later due time: waiting cannot reset a cap.
-  if(baseline && !deal.closedAt && !limitReached){
+  // A due timestamp is only a hypothetical timing assessment when the
+  // current fictional stream has confirmed consent, a completed delivery,
+  // and no reply/stop/deal/attempt-cap hold. A stop or missing consent does
+  // not become eligible merely by waiting. Prior-proposal holds are applied
+  // separately by recipient-aware triage and must be hidden by its preview.
+  const futureObservation=delivery.timeline.some(e=>e.observedAt>nowUtc);
+  if(baseline && policy.consent==="confirmed"
+    && delivery.delivery==="reported_delivered"
+    && !delivery.replied && delivery.suppression.length===0
+    && !deal.closedAt && !limitReached && !futureObservation){
     nextEligibleAt=new Date(Date.parse(baseline)+policy.minimumDelayHours*3600000).toISOString();
     if(nowUtc<nextEligibleAt)blockers.push("Minimum follow-up delay has not elapsed");
   }
-  if(delivery.timeline.at(-1)?.observedAt && delivery.timeline.at(-1)!.observedAt>nowUtc)
-    blockers.push("Delivery stream contains future observations");
+  if(futureObservation)blockers.push("Delivery stream contains future observations");
   return {state:blockers.length?"blocked":"candidate-internal-only",
     blockers,nextEligibleAt,recordedAttempts:seen.size};
 }
