@@ -62,9 +62,36 @@ test("category order and totals are stable under permutations",()=>{
   assert.deepEqual(a,b);
   assert.deepEqual(a.categories.map(c=>c.category),[
     "contact-suppressed","reply-needs-review","consent-needs-verification",
-    "delivery-needs-verification","waiting-for-cooldown","deal-closed",
-    "external-authorization-required"]);
+    "delivery-needs-verification","waiting-for-cooldown",
+    "follow-up-limit-reached","deal-closed","external-authorization-required"]);
 });
+
+test("redacted CRM tracks exhausted reminder cases without implying a new due date",()=>{
+  const current=make(0);
+  const attempt={
+    attemptId:"88888888-8888-4888-8888-888888888888",
+    organizationId:current.intent.organizationId,
+    idempotencyKey:current.intent.idempotencyKey,
+    recipient:current.intent.recipient,
+    recordedAt:"2026-10-21T09:00:00.000Z",
+  };
+  const capped={...current,policy:{...current.policy,maximumAttempts:1},
+    previousAttempts:[attempt]};
+  const result=summary([capped]);
+  assert.equal(result.state,"review-simulation-only");
+  assert.equal(result.reviewedCases,1);
+  assert.deepEqual(result.attention,{stopContact:0,operatorReview:0,deferred:1});
+  assert.equal(count(result,"follow-up-limit-reached"),1);
+  assert.equal(count(result,"waiting-for-cooldown"),0);
+  assert.equal(result.categories.reduce((sum,row)=>sum+row.count,0),1);
+  for(const forbidden of [current.intent.recipient,current.intent.proposalId,
+    current.intent.idempotencyKey,attempt.attemptId,"contactAuthorized"]){
+    assert.equal(JSON.stringify(result).includes(forbidden),false);
+  }
+  const differentConsent={...capped,policy:{...capped.policy,consent:"unknown"}};
+  assert.equal(count(summary([differentConsent]),"consent-needs-verification"),1);
+});
+
 test("cross-tenant cases fail even when internally consistent",()=>{
   const external=make(0,["reserved"],"confirmed",
     "99999999-9999-4999-8999-999999999999");
