@@ -84,7 +84,7 @@ test('H01/H02 fail closed on forged acceptance, misleading state or limitations'
       {...base,contactAuthorized:true},
     ]){
       assert.throws(()=>check(module,bad),
-        /(Incomplete or unsafe|Incomplete read-only) probe/);
+        /(Incomplete or unsafe read-only|Incomplete read-only) probe/);
     }
     assert.throws(()=>check(module===H01?H02:H01,base),
       /Incomplete or unsafe read-only probe report/);
