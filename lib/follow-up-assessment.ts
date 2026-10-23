@@ -125,7 +125,10 @@ export function assessSimulatedFollowUp(
     lastAttempt=attempt.recordedAt;
   }
   const blockers:string[]=[];
-  if(policy.consent!=="confirmed")blockers.push("Contact consent is not confirmed");
+  // An explicit revocation is a durable fictional stop, while unknown
+  // consent is missing evidence. Keep them distinguishable for operator review.
+  if(policy.consent==="revoked")blockers.push("Contact consent was revoked");
+  else if(policy.consent==="unknown")blockers.push("Contact consent is not confirmed");
   if(delivery.delivery!=="reported_delivered"||!deliveredAt)
     blockers.push("No uncontested simulated delivery event");
   if(delivery.replied)blockers.push("Recipient reply suppresses follow-up");
