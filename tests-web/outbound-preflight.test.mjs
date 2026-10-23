@@ -49,15 +49,41 @@ test("content, policy, source, QA, org, recipient, and revision changes require 
   }
 });
 
-test("opt-outs, bounces, unknown suppressions and cross-tenant recipients block",()=>{
-  for(const state of ["opted_out","bounced","unknown"]){
+test("revoked consent, opt-outs, bounces and unknown suppression all block",()=>{
+  for(const state of ["revoked","opted_out","bounced","unknown"]){
     const f=fixture();f.suppression.state=state;
-    assert.equal(run(f).state,"blocked");
+    const result=run(f);
+    assert.equal(result.state,"blocked",state);
+    assert.equal(Object.hasOwn(result,"contactAuthorized"),false);
+    if(state==="revoked"){
+      assert.deepEqual(result.blockers,
+        ["Recipient consent is explicitly revoked; do not contact"]);
+    }else{
+      assert.ok(result.blockers.includes("Recipient suppression is not confirmed clear"));
+    }
   }
   for(const property of ["organizationId","recipient"]){
     const f=fixture();f.suppression[property]="other@example.test";
     assert.equal(run(f).state,"blocked");
   }
+});
+
+test("revocation cannot be cleared by unrelated dispatch or proposal changes",()=>{
+  for(const modify of [
+    f=>{f.dispatch.state="sent"},
+    f=>{f.proposal.reviewState="draft"},
+    f=>{f.suppression.version=999},
+  ]){
+    const f=fixture();
+    f.suppression.state="revoked";
+    modify(f);
+    const result=run(f);
+    assert.equal(result.state,"blocked");
+    assert.ok(result.blockers.includes(
+      "Recipient consent is explicitly revoked; do not contact"));
+  }
+  const clean=run(fixture());
+  assert.deepEqual(clean,{state:"consistent-internal-only",blockers:[]});
 });
 
 test("review must be exact and represented by two different roles and actors",()=>{
