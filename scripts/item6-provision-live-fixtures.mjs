@@ -6,6 +6,7 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {limitedProbeEnvironment} from './item6-fixture-process-env.mjs';
+import {verifyReadOnlyProbeReport} from './item6-verify-probe-result.mjs';
 
 const SLUGS=['bm-synthetic-h01-h02-20261022-a','bm-synthetic-h01-h02-20261022-b'];
 const NAMES=['TEST ONLY - BidMason synthetic tenant A','TEST ONLY - BidMason synthetic tenant B'];
@@ -66,8 +67,16 @@ function runProbe(python,module,env){
     env:limitedProbeEnvironment(process.env,env,module),encoding:'utf8',timeout:120000,
     maxBuffer:150000,stdio:['ignore','pipe','pipe'],shell:false
   });
-  // Do not forward outputs; future probe versions might expose identifiers.
-  return {probe:module,status:result.status===0?'requires-independent-review':'blocked'};
+  // Exit 0 is necessary but insufficient: require the exact complete case
+  // matrix, false release/acceptance flags, and all published limitations.
+  // Never echo provider stdout/stderr, token-bearing bodies or raw check IDs.
+  if(result.status!==0)return {probe:module,status:'blocked'};
+  try{
+    const proof=verifyReadOnlyProbeReport(module,result.stdout);
+    return {probe:module,...proof};
+  }catch{
+    return {probe:module,status:'blocked'};
+  }
 }
 async function provision(){
   if(process.argv.length!==3||process.argv[2]!=='--provision')
