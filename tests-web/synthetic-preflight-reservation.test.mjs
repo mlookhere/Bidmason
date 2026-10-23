@@ -93,18 +93,38 @@ test("different, missing or forged reviewer roles and actors block before CAS",(
   }
 });
 
-test("unknown current consent, opt-out and already dispatched status prevent reservation",()=>{
-  for(const state of ["opted_out","bounced","unknown"]){
+test("revoked consent, unknown status, opt-out and sent dispatch never reserve",()=>{
+  for(const state of ["revoked","opted_out","bounced","unknown"]){
     const e=make();e.suppression.state=state;
     const ledger=new SyntheticDispatchReservationLedger();
-    assert.equal(review(ledger,e).reason,"preflight-blocked");
+    const verdict=review(ledger,e);
+    assert.equal(verdict.reason,"preflight-blocked",state);
+    assert.equal(verdict.contactAuthorized,false);
     assert.equal(ledger.snapshot(e.intent).version,0);
+    if(state==="revoked")assert.ok(verdict.blockers.includes(
+      "Recipient consent is explicitly revoked; do not contact"));
   }
   for(const state of ["reserved","sent","unknown"]){
     const e=make();e.dispatch.state=state;
     const ledger=new SyntheticDispatchReservationLedger();
     assert.equal(review(ledger,e).reason,"preflight-blocked");
     assert.equal(ledger.snapshot(e.intent).version,0);
+  }
+});
+
+test("explicit current revocation dominates fictional clear history and retry versions",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const evidence=make();
+  evidence.suppression.state="revoked";
+  for(const version of [0,1,99]){
+    const verdict=review(ledger,evidence,[],version);
+    assert.equal(verdict.state,"blocked");
+    assert.equal(verdict.reason,"preflight-blocked");
+    assert.equal(verdict.reservationVersion,0);
+    assert.equal(verdict.contactAuthorized,false);
+    assert.ok(verdict.blockers.includes(
+      "Recipient consent is explicitly revoked; do not contact"));
+    assert.equal(ledger.snapshot(evidence.intent).reserved,false);
   }
 });
 
