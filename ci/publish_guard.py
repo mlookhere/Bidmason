@@ -22,7 +22,8 @@ LEGACY_NAMES = frozenset({
 LAB_ROUTE = "app/delivery-lab/page.tsx"
 LAB_FIXTURE = "lib/delivery-lab-fixtures.ts"
 LAB_IMPORTS = {
-    LAB_ROUTE: {"next", "../../lib/delivery-lab-fixtures.ts"},
+    LAB_ROUTE: {"next", "../../lib/delivery-lab-fixtures.ts",
+                "../../lib/delivery-lab-blocker-reasons.ts"},
     LAB_FIXTURE: {
         "./outbound-preflight.ts", "./follow-up-assessment.ts",
         "./delivery-event-projection.ts", "./recipient-aware-delivery-triage.ts",
@@ -54,6 +55,7 @@ LAB_EMAIL = re.compile(r"[a-z0-9._%+\-]+@[a-z0-9.-]+\.[a-z]{2,}", re.I)
 # unreviewed dependency or introduce a side-effect after the page is approved.
 # These exact specifiers are review checkpoints, not a proof of JS purity.
 LAB_TRANSITIVE_IMPORTS = {
+    "lib/delivery-lab-blocker-reasons.ts": {"./delivery-lab-fixtures.ts"},
     "lib/outbound-preflight.ts": {"node:crypto"},
     "lib/delivery-event-projection.ts": {"./outbound-preflight.ts"},
     "lib/follow-up-assessment.ts": {
