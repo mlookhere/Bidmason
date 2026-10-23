@@ -96,7 +96,7 @@ test('malformed output and unknown diagnostic modules never become evidence',()=
     JSON.stringify(report(H01))+'\n'+JSON.stringify(report(H01)),
     'x'.repeat(150001)]){
     assert.throws(()=>verifyReadOnlyProbeReport(H01,raw),
-      /(Invalid|Malformed) read-only probe report/);
+      /(Invalid|Malformed|Incomplete or unsafe) read-only probe report/);
   }
   assert.throws(()=>check('ci.fake_probe',report(H01)),
     /Invalid read-only probe report/);
