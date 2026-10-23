@@ -50,6 +50,14 @@ export function classifySimulatedDeliveryTriage(
     category="contact-suppressed";
     attention="stop-contact";
     rationale="Fictional bounce, complaint or opt-out: do not contact; human suppression review required.";
+  }else if(policy.consent==="revoked"){
+    // Explicitly revoked consent is a known stop, NOT an unknown consent
+    // state that can be cleared by ordinary operator verification.
+    // Evaluate after stream suppression so provider stop evidence is retained,
+    // but before replies/cooldowns/closed deals to preserve the stronger hold.
+    category="contact-suppressed";
+    attention="stop-contact";
+    rationale="Fictional contact consent was revoked: do not contact; independent consent review required.";
   }else if(delivery.replied){
     category="reply-needs-review";
     attention="operator-review";
