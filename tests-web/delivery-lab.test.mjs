@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../lib/delivery-lab-fixtures.ts";
+import {syntheticDeliveryBlockerReasons} from "../lib/delivery-lab-blocker-reasons.ts";
 const page=readFileSync(new URL("../app/delivery-lab/page.tsx",import.meta.url),"utf8");
+const blockerSource=readFileSync(new URL("../lib/delivery-lab-blocker-reasons.ts",import.meta.url),"utf8");
 
 test("eight invented cases are derived from actual offline CRM and follow-up logic",()=>{
   const cases=buildSyntheticDeliveryLabCases();
@@ -191,6 +193,34 @@ test("max-reminder fixture remains terminal with a blank future due date",()=>{
   assert.doesNotMatch(JSON.stringify(caseItem),/buyer-exhausted@|dryrun_/);
 });
 
+test("overlapping current consent holds and prior-proposal stop evidence all appear",()=>{
+  const byId=Object.fromEntries(buildSyntheticDeliveryLabCases().map(c=>[c.id,c]));
+  const current=byId["painting-consent-unknown"];
+  const earlierStop=byId["cleaning-prior-optout"];
+  const earlierReply=byId["painting-prior-reply"];
+  const both={
+    ...current,
+    historicalSuppression:earlierStop.historicalSuppression,
+    triage:{...current.triage,historicalReplyObserved:true},
+  };
+  const reasons=syntheticDeliveryBlockerReasons(both);
+  assert.equal(reasons.some(x=>/consent/i.test(x)),true);
+  assert.equal(reasons.some(x=>/Earlier recipient suppression overrides/i.test(x)),true);
+  assert.equal(reasons.some(x=>/Earlier recipient reply requires/i.test(x)),true);
+  assert.equal(reasons.length,3);
+  assert.deepEqual(syntheticDeliveryBlockerReasons(both),reasons);
+  const serialized=JSON.stringify(reasons);
+  for(const secret of ["buyer@", "fictional.example", "organizationId", "proposalId", "dryrun_"])
+    assert.equal(serialized.includes(secret),false);
+  assert.equal(syntheticDeliveryBlockerReasons(earlierStop).length,1);
+  assert.equal(syntheticDeliveryBlockerReasons(earlierReply).length,1);
+  const candidate=byId["cleaning-internal-candidate"];
+  const noLocalHold=syntheticDeliveryBlockerReasons(candidate);
+  assert.equal(noLocalHold.length,1);
+  assert.match(noLocalHold[0],/External authorization and real consent remain unverified/);
+  assert.doesNotMatch(JSON.stringify(noLocalHold),/contactAuthorized|sendAllowed/);
+});
+
 test("static route discloses limits and remains noindex, no input or mutation",()=>{
   assert.match(page,/Synthetic records only/);
   assert.match(page,/not access controlled/);
@@ -203,7 +233,8 @@ test("static route discloses limits and remains noindex, no input or mutation",(
   assert.match(page,/Stop-contact review/);
   assert.match(page,/Earlier proposal suppression/);
   assert.match(page,/Earlier proposal reply/);
-  assert.match(page,/Earlier recipient suppression overrides this proposal/);
+  assert.match(blockerSource,/Earlier recipient suppression overrides this proposal/);
+  assert.match(page,/syntheticDeliveryBlockerReasons\(scenario\)/);
   assert.match(page,/No contact authorization or live tenant access/);
   assert.match(page,/What an operator would review/);
   assert.doesNotMatch(page,/fetch\(|submit\(|localStorage|sessionStorage|use client/i);
