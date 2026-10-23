@@ -63,7 +63,7 @@ function validId(value){
 function one(value){return Array.isArray(value)&&value.length===1?value[0]:null;}
 function runProbe(python,module,env){
   const result=spawnSync(python,['-m',module,'--live-readonly'],{
-    env:limitedProbeEnvironment(process.env,env),encoding:'utf8',timeout:120000,
+    env:limitedProbeEnvironment(process.env,env,module),encoding:'utf8',timeout:120000,
     maxBuffer:150000,stdio:['ignore','pipe','pipe'],shell:false
   });
   // Do not forward outputs; future probe versions might expose identifiers.
