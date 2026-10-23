@@ -128,7 +128,7 @@ test("an earlier fictional reply requires manual review despite a due-looking ne
   assert.equal(priorReply.triage.historicalStreams,1);
   assert.equal(priorReply.triage.contactAuthorized,false);
   assert.equal(cases.filter(x=>x.triage.category==="reply-needs-review").length,2);
-  assert.match(page,/Earlier recipient reply requires manual review before a new follow-up/);
+  assert.match(blockerSource,/Earlier recipient reply requires manual review before a new follow-up/);
   assert.match(page,/Reply in fictional earlier proposal — manual review required/);
   const serialized=JSON.stringify(priorReply);
   for(const forbidden of ["buyer-prior-reply@", "33333333-3333", "44444444-4444", "dryrun_"])
@@ -169,7 +169,7 @@ test("timing candidate never becomes a sending authorization",()=>{
   assert.equal(candidate.triage.category,"external-authorization-required");
   assert.deepEqual(candidate.followUp.blockers,[]);
   assert.match(page,/Internal candidate only — not send approval/);
-  assert.match(page,/External authorization and real consent remain unverified/);
+  assert.match(blockerSource,/External authorization and real consent remain unverified/);
   assert.doesNotMatch(page,/<form\b|<input\b|<button\b|<textarea\b/i);
 });
 test("max-reminder fixture remains terminal with a blank future due date",()=>{
