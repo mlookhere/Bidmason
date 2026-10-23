@@ -9,7 +9,7 @@ type RecordState = {
   reservationKey: string | null;
   reservationProposalId: string | null;
   replyReviewRequired: boolean;
-  suppressions: Set<"opted_out" | "bounced" | "complained">;
+  suppressions: Set<"opted_out" | "bounced" | "complained" | "revoked">;
 };
 
 export type SyntheticReservationSnapshot = {
@@ -17,7 +17,7 @@ export type SyntheticReservationSnapshot = {
   version: number;
   reserved: boolean;
   replyReviewRequired: boolean;
-  suppression: ("bounced" | "complained" | "opted_out")[];
+  suppression: ("bounced" | "complained" | "opted_out" | "revoked")[];
   contactAuthorized: false;
 };
 export type SyntheticReservationVerdict = {
@@ -136,6 +136,35 @@ export class SyntheticDispatchReservationLedger {
       reservationKey: intent.idempotencyKey, reservationProposalId: intent.proposalId};
     this.#records.set(this.#key(intent), updated);
     return {state: "reserved-simulation-only", reason: "synthetic-cas-won-no-send",
+      snapshot: this.#snapshot(updated)};
+  }
+
+  /** Simulates a separately observed consent revocation racing an in-memory
+   * reservation. This is not a provider event, consent record, or production
+   * API. Unlike the webhook-only suppression reasons, revoked status is an
+   * explicit durable-in-this-process contact hold: a new proposal or revision
+   * can never reset it, and there is deliberately no lift/clear action. */
+  compareAndRecordConsentRevocation(
+    rawIntent: DeliveryIntent, expectedVersion: number,
+  ): SyntheticReservationVerdict {
+    const intent = scopedIntent(rawIntent);
+    const record = this.#read(intent);
+    if (!validVersion(expectedVersion) || record.version !== expectedVersion) {
+      return {state: "blocked", reason: "stale-or-invalid-version",
+        snapshot: this.#snapshot(record)};
+    }
+    if (record.suppressions.has("revoked")) {
+      return {state: "blocked", reason: "duplicate-consent-revocation",
+        snapshot: this.#snapshot(record)};
+    }
+    const updated: RecordState = {
+      ...record, version: record.version + 1,
+      reservationKey: null, reservationProposalId: null,
+      suppressions: new Set([...record.suppressions,"revoked"]),
+    };
+    this.#records.set(this.#key(intent),updated);
+    return {state: "suppressed-simulation-only",
+      reason: "synthetic-consent-revocation-recorded",
       snapshot: this.#snapshot(updated)};
   }
 
