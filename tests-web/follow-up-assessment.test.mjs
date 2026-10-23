@@ -33,6 +33,10 @@ test("consent, reply, opt-out, complaint and bounce never retain a fictional due
     const result=run({policy:{...policy,consent}});
     assert.equal(result.state,"blocked");
     assert.equal(result.nextEligibleAt,null,consent);
+    assert.equal(result.blockers.includes(consent==="revoked"
+      ?"Contact consent was revoked"
+      :"Contact consent is not confirmed"),true,consent);
+    assert.equal(result.recordedAttempts,0);
   }
   for(const kind of ["recipient_replied","recipient_opted_out",
     "provider_complained","provider_bounced"]){
