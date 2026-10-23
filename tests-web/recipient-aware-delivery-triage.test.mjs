@@ -269,6 +269,26 @@ test("historical suppression outranks current replies, consent ambiguity, and co
     "contact-suppressed");
 });
 
+test("current revoked consent cannot be downgraded by an earlier fictional reply",()=>{
+  const prior=past("recipient_replied");
+  const history=[{intent:prior.intent,events:prior.events}];
+  const current={...entry,policy:{...POLICY,consent:"revoked"}};
+  const result=triage(current,history);
+  assert.equal(result.category,"contact-suppressed");
+  assert.equal(result.attention,"stop-contact");
+  assert.equal(result.historicalReplyObserved,true);
+  assert.equal(result.historicalStreams,1);
+  assert.equal(result.contactAuthorized,false);
+  assert.match(result.rationale,/revoked.*do not contact/i);
+  const report=summarize([current],[history]);
+  assert.equal(report.categories
+    .find(x=>x.category==="contact-suppressed").count,1);
+  assert.equal(report.attention.stopContact,1);
+  assert.equal(report.attention.operatorReview,0);
+  for(const token of [EMAIL,ORG,current.intent.idempotencyKey])
+    assert.equal(JSON.stringify(report).includes(token),false);
+});
+
 test("empty or clean fictional history never upgrades to contact authorization",()=>{
   const clean=make(1,["reserved","provider_accepted","provider_delivered"],ORG,EMAIL,1);
   for(const history of [[],[{intent:clean.intent,events:clean.events}]]){
