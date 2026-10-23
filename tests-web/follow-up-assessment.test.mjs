@@ -51,6 +51,16 @@ test("follow-up history enforces delay, limits and identical idempotent replays"
   const exhausted=run({attempts:[first,second]});
   assert.equal(exhausted.state,"blocked");
   assert.ok(exhausted.blockers.includes("Follow-up attempt limit reached"));
+  assert.equal(exhausted.nextEligibleAt,null);
+  for(const when of ["2026-10-23T12:00:00.000Z","2026-11-12T12:00:00.000Z"]){
+    const capped=run({attempts:[first,second],now:when});
+    assert.equal(capped.state,"blocked");
+    assert.equal(capped.nextEligibleAt,null);
+    assert.equal(capped.recordedAttempts,2);
+  }
+  const oneCap=run({attempts:[first],policy:{...policy,maximumAttempts:1}});
+  assert.equal(oneCap.state,"blocked");
+  assert.equal(oneCap.nextEligibleAt,null);
   assert.equal(run({attempts:[first,{...first}]}).recordedAttempts,1);
 });
 test("cross-tenant, inconsistent replay, forged and out-of-order attempts are refused",()=>{
