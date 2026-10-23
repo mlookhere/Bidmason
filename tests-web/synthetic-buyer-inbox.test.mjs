@@ -63,6 +63,29 @@ test("duplicate event ID or reused grant rejects entire summary, not partial cou
     /Inconsistent fictional buyer inbox evidence/);
 });
 
+test("a fictional decline ends that buyer's immutable revision, not merely its grant",()=>{
+  const prior=event(UUID_A,token(),"question",NOW-200);
+  const declined=event(UUID_B,token(),"decline",NOW-100);
+  declined.draft.note="";
+  const coherent=run([prior,declined]);
+  assert.equal(coherent.questions,1);
+  assert.equal(coherent.declines,1);
+  assert.equal(coherent.responseSubmitted,false);
+  const laterId="33333333-3333-4333-8333-333333333333";
+  const after=event(laterId,token(),"request_changes",NOW-99);
+  const simultaneous=event(laterId,token(),"question",NOW-100);
+  const duplicateDecline=event(laterId,token(),"decline",NOW-99);
+  duplicateDecline.draft.note="";
+  for(const later of [after,simultaneous,duplicateDecline]){
+    assert.throws(()=>run([prior,declined,later]),
+      /Contradictory fictional buyer response after decline/);
+  }
+  // A later, independently signed view grant does not restore this
+  // revision's previously declined fictional response rights.
+  assert.notEqual(after.viewToken,declined.viewToken);
+  assert.equal(run([prior]).declines,0);
+});
+
 test("chronological gaps, future timestamps and malformed dates fail closed",()=>{
   const first=event(UUID_A,token(),"question",NOW-200);
   const second=event(UUID_B,token(),"request_changes",NOW-100);
