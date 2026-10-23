@@ -59,3 +59,11 @@ Running without `--provision`, with the wrong host/project ref, missing secrets,
 Even after successful provisioning and green H01 27-case / H02 16-case *read-only* diagnostics, independent authorized reviewers must still document cross-tenant **writes**, membership/session revocation, signed URL expiry/revocation, Storage object replacement/delete denials, malicious paths, malware handling, positive/negative approvals, provider-native signatures, transactional sending, buyer access, recovery and H03–H13. The actual combined PR tree must execute all **13 full CI jobs** on the same integrated SHA before integration/release consideration.
 
 **`releaseState=blocked`, `releaseAuthorized=false`, PR #15 draft, Issues #7/#1 open.**
+
+## Automated operator safety hardening — October 22, 2026
+
+The fixture command now **pins the existing, explicitly approved BidMason Supabase project reference `jgbogpunyzkoytrclqdl`**, not merely any syntactically valid matching URL/ref pair. The public project reference is not a credential. Requests to a different valid Supabase project refuse before any network calls. The command still requires the canonical project URL, protected Admin key, publishable key, explicit acknowledgment, and empty Auth-user preflight.
+
+The H01/H02 diagnostic child processes receive an explicit **allowlist of 14 probe-specific environment variables**, plus minimal platform variables needed to start Python. The fixture Admin key, other application secrets, proxy settings and arbitrary ambient environment variables are **not forwarded**. The access JWTs supplied to each diagnostic remain ephemeral in its process environment, and the probes never log tokens. See `scripts/item6-fixture-process-env.mjs` and the dedicated offline negative tests. No connected project settings, user sessions, bucket permissions or live migrations changed for this hardening.
+
+**This hardening was implemented and tested offline; actual Auth/Storage provisioning and manual H01–H13 acceptance remain deferred and unverified.**
