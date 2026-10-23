@@ -65,11 +65,30 @@ test("recipient response blocks follow-up even if otherwise due",()=>{
  assert.equal(outcome.category,"reply-needs-review");
  assert.equal(outcome.attention,"operator-review");
 });
-test("unknown and revoked consent require verification even after fictional delivery",()=>{
- for(const consent of ["unknown","revoked"]){
-  const outcome=evaluate(sent,{...policy,consent});
-  assert.equal(outcome.category,"consent-needs-verification");
+test("unknown consent needs review; revoked consent is a terminal contact stop",()=>{
+ const unknown=evaluate(sent,{...policy,consent:"unknown"});
+ assert.equal(unknown.category,"consent-needs-verification");
+ assert.equal(unknown.attention,"operator-review");
+ const revoked=evaluate(sent,{...policy,consent:"revoked"});
+ assert.equal(revoked.category,"contact-suppressed");
+ assert.equal(revoked.attention,"stop-contact");
+ assert.match(revoked.rationale,/revoked.*do not contact/i);
+ assert.equal(revoked.state,"review-simulation-only");
+ for(const key of ["contactAuthorized","sendAllowed","approved"]){
+  assert.equal(Object.hasOwn(revoked,key),false);
  }
+ // Revocation cannot be downgraded by a reply, missing provider evidence,
+ // or a fictional deal closing: it is a separate explicit contact hold.
+ const replied=[...sent,event("recipient_replied",3)];
+ assert.equal(evaluate(replied,{...policy,consent:"revoked"}).category,
+  "contact-suppressed");
+ assert.equal(evaluate([],{...policy,consent:"revoked"}).attention,
+  "stop-contact");
+ const deal={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  organizationId:intent.organizationId,proposalId:intent.proposalId,
+  revision:intent.revision,kind:"won",observedAt:"2026-10-21T09:00:00.000Z"};
+ assert.equal(evaluate(sent,{...policy,consent:"revoked"},at,[],[deal]).category,
+  "contact-suppressed");
 });
 test("missing accepted/delivered history requires provider verification",()=>{
  for(const events of [[],[event("reserved")],[event("reserved"),event("provider_accepted",1)]]){
