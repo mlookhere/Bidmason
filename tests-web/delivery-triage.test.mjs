@@ -78,14 +78,23 @@ test("missing accepted/delivered history requires provider verification",()=>{
   assert.equal(outcome.state,"review-simulation-only");
  }
 });
-test("timing and exhausted attempts defer instead of manufacturing approvals",()=>{
- assert.equal(evaluate(sent,policy,"2026-10-20T09:00:00.000Z").category,
- "waiting-for-cooldown");
+test("temporary cooldown and permanently exhausted attempt limit are distinct",()=>{
+ const wait=evaluate(sent,policy,"2026-10-20T09:00:00.000Z");
+ assert.equal(wait.category,"waiting-for-cooldown");
+ assert.equal(wait.attention,"deferred");
  const attempt={attemptId:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   organizationId:intent.organizationId,idempotencyKey:intent.idempotencyKey,
   recipient:intent.recipient,recordedAt:"2026-10-21T10:00:00.000Z"};
- assert.equal(evaluate(sent,{...policy,maximumAttempts:1},at,[attempt]).category,
- "waiting-for-cooldown");
+ const capped={...policy,maximumAttempts:1};
+ for(const when of [at,"2026-10-30T10:00:00.000Z"]){
+   const result=evaluate(sent,capped,when,[attempt]);
+   assert.equal(result.category,"follow-up-limit-reached");
+   assert.equal(result.attention,"deferred");
+   assert.match(result.rationale,/waiting longer cannot authorize/i);
+   assert.equal(result.state,"review-simulation-only");
+   assert.equal(Object.hasOwn(result,"contactAuthorized"),false);
+ }
+ assert.equal(evaluate(sent,policy,at,[attempt]).category,"external-authorization-required");
 });
 test("out-of-order, cross-tenant, or corrupted evidence cannot produce a triage result",()=>{
  assert.throws(()=>evaluate([event("provider_delivered")]),/Unexpected/);
