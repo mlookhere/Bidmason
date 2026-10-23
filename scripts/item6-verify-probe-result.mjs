@@ -82,7 +82,7 @@ export function verifyReadOnlyProbeReport(module,raw){
   // newline. CRLF is accepted for a Windows operator host; any other output
   // or a duplicate/unknown key in the wire format fails closed.
   const canonical=canonicalPythonJson(result);
-  if(raw!==canonical+"\\n" && raw!==canonical+"\\r\\n"){
+  if(raw!==canonical+"\n" && raw!==canonical+"\r\n"){
     throw new TypeError("Noncanonical read-only probe report");
   }
   const top=["schema","state","releaseAuthorized",expected.acceptance,
