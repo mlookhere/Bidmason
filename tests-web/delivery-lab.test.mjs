@@ -90,6 +90,9 @@ test("reply, bounce and unknown consent each block follow-up",()=>{
   assert.equal(byId["painting-consent-unknown"].followUp.state,"blocked");
   assert.equal(byId["painting-consent-unknown"].triage.category,"consent-needs-verification");
   assert.ok(byId["painting-consent-unknown"].followUp.blockers.some(x=>x.includes("consent")));
+  for(const id of ["painting-reply","cleaning-bounce","painting-consent-unknown"]){
+    assert.equal(byId[id].followUp.nextEligibleAt,null,id);
+  }
 });
 test("earlier fictional opt-out overrides otherwise internally eligible new proposal",()=>{
   const cases=buildSyntheticDeliveryLabCases();
@@ -112,6 +115,10 @@ test("an earlier fictional reply requires manual review despite a due-looking ne
   const priorReply=cases.find(x=>x.id==="painting-prior-reply");
   assert.equal(priorReply.projection.replied,false);
   assert.equal(priorReply.followUp.state,"candidate-internal-only");
+  // This proposal alone has a fictional due timestamp; the public preview
+  // must mask it because the *historical* reply requires manual review.
+  assert.ok(priorReply.followUp.nextEligibleAt);
+  assert.match(page,/safeReminderTime\(scenario\)/);
   assert.equal(priorReply.triage.category,"reply-needs-review");
   assert.equal(priorReply.triage.attention,"operator-review");
   assert.equal(priorReply.triage.historicalReplyObserved,true);
@@ -177,6 +184,9 @@ test("max-reminder fixture remains terminal with a blank future due date",()=>{
     .find(x=>x.company==="Fictional cleaning contractor");
   assert.equal(cleaning.report.categories.find(x=>x.category==="follow-up-limit-reached").count,1);
   assert.match(page,/Next fictional reminder eligibility/);
+  assert.match(page,/safeReminderTime\(scenario\)/);
+  assert.match(page,/scenario\.triage\.category !== "waiting-for-cooldown"/);
+  assert.match(page,/scenario\.triage\.category !== "external-authorization-required"/);
   assert.match(page,/None — no scheduled send/);
   assert.doesNotMatch(JSON.stringify(caseItem),/buyer-exhausted@|dryrun_/);
 });
