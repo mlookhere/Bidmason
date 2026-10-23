@@ -21,6 +21,7 @@ const CATEGORIES: readonly DeliveryTriage["category"][] = [
   "consent-needs-verification",
   "delivery-needs-verification",
   "waiting-for-cooldown",
+  "follow-up-limit-reached",
   "deal-closed",
   "external-authorization-required",
 ];
