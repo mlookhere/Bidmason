@@ -33,7 +33,7 @@ test("cross-proposal fictional inbox adds counts, deduplicates proposal totals a
   const streams=[
     {identity:first,events:[event(1,0,first,"question")]},
     {identity:second,events:[event(2,0,second,"request_changes")]},
-    {identity:first,events:[event(3,0,first,"decline")]},
+    {identity:first,events:[event(3,1,first,"decline")]},
   ];
   const summary=batch(streams);
   assert.deepEqual(summary,{
@@ -48,6 +48,40 @@ test("cross-proposal fictional inbox adds counts, deduplicates proposal totals a
     streams[0].events[0].draft.note,"grantId","eventId","fingerprint",
     "recipient","proposalId","token"])
     assert.equal(output.includes(sensitive),false);
+});
+
+test("terminal buyer decline is consistent across stream order and new grants",()=>{
+  const original=identity();
+  const question={identity:original,events:[event(31,-1,original,"question")]};
+  const decline={identity:original,events:[event(32,0,original,"decline")]};
+  const later={identity:original,events:[event(33,1,original,"request_changes")]};
+  const sameTime={identity:original,events:[event(34,0,original,"question")]};
+  const secondDecline={identity:original,events:[event(35,2,original,"decline")]};
+  assert.equal(batch([question,decline]).eventsReviewed,2);
+  assert.equal(batch([decline,question]).declines,1);
+  for(const contradictory of [later,sameTime,secondDecline]){
+    for(const streams of [
+      [question,decline,contradictory],
+      [contradictory,decline,question],
+      [decline,contradictory,question],
+    ]){
+      assert.throws(()=>batch(streams),
+        /Contradictory fictional buyer response after decline/);
+    }
+  }
+  // A different fictional buyer or a newly issued proposal revision is
+  // independent of this immutable recipient + proposal + revision.
+  const anotherRecipient={...original,recipientSha256:"e".repeat(64)};
+  const newRevision={...original,revision:4};
+  for(const next of [anotherRecipient,newRevision]){
+    const independent={identity:next,events:[event(36,2,next,"question")]};
+    const report=batch([decline,independent]);
+    assert.equal(report.eventsReviewed,2);
+    assert.equal(report.declines,1);
+    assert.equal(report.questions,1);
+    assert.equal(report.responseSubmitted,false);
+    assert.equal(report.contactAuthorized,false);
+  }
 });
 
 test("one fictional proposal revision must retain its content across buyers",()=>{
