@@ -1,5 +1,6 @@
 import type {Metadata} from "next";
-import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries} from "../../lib/delivery-lab-fixtures.ts";
+import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries,
+  type DeliveryLabCase} from "../../lib/delivery-lab-fixtures.ts";
 
 export const metadata: Metadata = {
   title: "Delivery Safety Lab | BidMason Internal Preview",
@@ -15,6 +16,17 @@ const EVENT_NAMES: Record<string,string> = {
   recipient_opted_out:"Recipient opt-out (fictional)",
   recipient_replied:"Reply reported (fictional)",
 };
+
+/** A prior-proposal hold outranks a local proposal's hypothetical due date.
+ * Never show a new reminder date for a recipient requiring stop/consent/reply
+ * review. No output from this static preview is permission to contact. */
+function safeReminderTime(scenario: DeliveryLabCase): string {
+  if (scenario.triage.category !== "waiting-for-cooldown"
+    && scenario.triage.category !== "external-authorization-required") {
+    return "None — no scheduled send";
+  }
+  return scenario.followUp.nextEligibleAt ?? "None — no scheduled send";
+}
 
 export default function DeliveryLab() {
   const scenarios=buildSyntheticDeliveryLabCases();
@@ -90,7 +102,7 @@ export default function DeliveryLab() {
                   <div><dt>Deal outcome</dt><dd>{scenario.dealOutcome==="won"?"Won — follow-ups stopped (fictional)":scenario.dealOutcome==="lost"?"Lost — follow-ups stopped (fictional)":"No closed outcome in fixture — unverified"}</dd></div>
                   <div><dt>Contact state</dt><dd>{scenario.contactState==="fictional-confirmed"?"Fixture states confirmed (unverified)":"Unknown — blocks contact"}</dd></div>
                   <div><dt>Follow-up assessment</dt><dd>{scenario.triage.attention==="stop-contact"||scenario.triage.historicalReplyObserved||scenario.followUp.state==="blocked"?"Blocked":"Internal candidate only — not send approval"}</dd></div>
-                  <div><dt>Next fictional reminder eligibility</dt><dd>{scenario.followUp.nextEligibleAt ?? "None — no scheduled send"}</dd></div>
+                  <div><dt>Next fictional reminder eligibility</dt><dd>{safeReminderTime(scenario)}</dd></div>
                   <div><dt>Earlier proposal suppression</dt><dd>{scenario.historicalSuppression.length?scenario.historicalSuppression.join(", ").replaceAll("_"," ")+" (fictional)":"None in fixture — not verified clearance"}</dd></div>
                   <div><dt>Earlier proposal reply</dt><dd>{scenario.triage.historicalReplyObserved?"Reply in fictional earlier proposal — manual review required":"None in fixture — not verified absence"}</dd></div>
                   <div><dt>Fictional reply</dt><dd>{scenario.projection.replied?"Recorded in fixture":"None in fixture"}</dd></div>
