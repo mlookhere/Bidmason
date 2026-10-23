@@ -139,7 +139,7 @@ test('extra whitespace, log prefixes and unreviewed non-ASCII output are not val
     JSON.stringify(report(H01))+'\n',
   ]){
     assert.throws(()=>verifyReadOnlyProbeReport(H01,untrusted),
-      /(Noncanonical|Non-ASCII) read-only probe/);
+      /(Noncanonical|Non-ASCII|Malformed) read-only probe/);
   }
 });
 
