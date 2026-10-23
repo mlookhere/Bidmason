@@ -28,6 +28,7 @@ type CaseDefinition = {
   earlierOptOutProposalId?: string;
   earlierReplyProposalId?: string;
   terminal?: "won" | "lost";
+  attemptLimitReached?: boolean;
 };
 const CASES: readonly CaseDefinition[] = [
   {id:"painting-reply",label:"A reply stops reminders",
@@ -82,6 +83,14 @@ const CASES: readonly CaseDefinition[] = [
    consent:"confirmed",
    events:["reserved","provider_accepted","provider_delivered"],
    terminal:"won"},
+  {id:"cleaning-reminders-exhausted",label:"A reminder cap never resets by waiting",
+   company:"Fictional cleaning contractor",
+   organizationId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+   proposalId:"66666666-6666-4666-8666-666666666666",
+   recipient:"buyer-exhausted@fictional.example",
+   consent:"confirmed",
+   events:["reserved","provider_accepted","provider_delivered"],
+   attemptLimitReached:true},
 ];
 
 export type DeliveryLabCase = {
@@ -111,7 +120,14 @@ function buildFixtureRecords(): FixtureRecord[] {
       recipient:intent.recipient,kind,
       observedAt:"2026-10-20T08:"+String(index).padStart(2,"0")+":00.000Z",
     }));
-    const policy={consent:scenario.consent,version:1,minimumDelayHours:24,maximumAttempts:2};
+    const policy={consent:scenario.consent,version:1,minimumDelayHours:24,
+      maximumAttempts:scenario.attemptLimitReached?1:2};
+    const previousAttempts=scenario.attemptLimitReached?[{
+      attemptId:String(scenarioIndex*10+8).padStart(8,"0")
+        +"-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      organizationId:intent.organizationId,idempotencyKey:intent.idempotencyKey,
+      recipient:intent.recipient,recordedAt:"2026-10-21T09:00:00.000Z",
+    }]:[];
     const history: SyntheticRecipientHistory[] = scenario.earlierOptOutProposalId
       || scenario.earlierReplyProposalId
       ? (()=>{
@@ -142,15 +158,16 @@ function buildFixtureRecords(): FixtureRecord[] {
     }] : [];
     const outcome=projectSyntheticDealOutcome(intent,dealOutcomes,NOW);
     const triage=classifySimulatedRecipientAwareTriage(
-      intent,events,policy,[],history,NOW,dealOutcomes);
+      intent,events,policy,previousAttempts,history,NOW,dealOutcomes);
     return {
       organizationId:scenario.organizationId,
       company:scenario.company,
-      review:{intent,events,policy,previousAttempts:[]},
+      review:{intent,events,policy,previousAttempts},
       history,dealOutcomes,
       publicCase:{id:scenario.id,label:scenario.label,company:scenario.company,
         projection:projectSimulatedDeliveryEvents(intent,events),
-        followUp:assessSimulatedFollowUp(intent,events,policy,[],NOW,dealOutcomes),
+        followUp:assessSimulatedFollowUp(
+          intent,events,policy,previousAttempts,NOW,dealOutcomes),
         dealOutcome:outcome.outcome,
         triage,
         historicalSuppression:triage.historicalSuppression,
