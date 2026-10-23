@@ -48,7 +48,7 @@ const pythonJson=value=>Array.isArray(value)
     ? '{'+Object.keys(value).sort().map(k=>
       JSON.stringify(k)+': '+pythonJson(value[k])).join(', ')+'}'
     : JSON.stringify(value);
-const stdout=value=>pythonJson(value)+'\\n';
+const stdout=value=>pythonJson(value)+'\n';
 const check=(module,payload)=>
   verifyReadOnlyProbeReport(module,stdout(payload));
 
@@ -104,9 +104,9 @@ test('genuine Python sorted-key JSON and Windows CRLF are accepted without relea
   for(const module of [H01,H02]){
     const output=stdout(report(module));
     assert.ok(output.startsWith('{"checks": ['));
-    assert.ok(output.endsWith('}\\n'));
+    assert.ok(output.endsWith('}\n'));
     const unix=verifyReadOnlyProbeReport(module,output);
-    const windows=verifyReadOnlyProbeReport(module,output.replace(/\\n$/, '\\r\\n'));
+    const windows=verifyReadOnlyProbeReport(module,output.replace(/\n$/, '\r\n'));
     assert.deepEqual(unix,windows);
     assert.equal(unix.releaseAuthorized,false);
   }
@@ -133,13 +133,13 @@ test('duplicate wire keys cannot hide a failed or forged probe check',()=>{
 test('extra whitespace, log prefixes and unreviewed non-ASCII output are not valid evidence',()=>{
   const actual=stdout(report(H01));
   for(const untrusted of [
-    actual.trim(),actual+'\\n','info: passed\\n'+actual,
+    actual.trim(),actual+'\n','info: passed\n'+actual,
     actual.replace(', ',','),actual.replace(': ',':'),
     actual.replace('user-1-auth','user-1-äuth'),
-    JSON.stringify(report(H01))+'\\n',
+    JSON.stringify(report(H01))+'\n',
   ]){
     assert.throws(()=>verifyReadOnlyProbeReport(H01,untrusted),
-      /Noncanonical read-only probe/);
+      /(Noncanonical|Non-ASCII) read-only probe/);
   }
 });
 
