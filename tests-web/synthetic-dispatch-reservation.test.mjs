@@ -86,6 +86,94 @@ test("reservation and opt-out racing at same version never both succeed",async()
 });
 
 
+test("fictional consent revocation before or after reservation is sticky across revisions",()=>{
+  for(const alreadyReserved of [false,true]){
+    const ledger=new SyntheticDispatchReservationLedger();
+    let version=0;
+    if(alreadyReserved){
+      const reserved=ledger.compareAndReserve(intent,0);
+      assert.equal(reserved.state,"reserved-simulation-only");
+      version=reserved.snapshot.version;
+    }
+    const revoked=ledger.compareAndRecordConsentRevocation(intent,version);
+    assert.equal(revoked.state,"suppressed-simulation-only");
+    assert.equal(revoked.reason,"synthetic-consent-revocation-recorded");
+    assert.equal(revoked.snapshot.version,version+1);
+    assert.equal(revoked.snapshot.reserved,false);
+    assert.deepEqual(revoked.snapshot.suppression,["revoked"]);
+    assert.equal(revoked.snapshot.contactAuthorized,false);
+    const newRevision=make({revision:2});
+    const newProposal=make({proposalId:"cccccccc-cccc-4ccc-8ccc-cccccccccccc"});
+    for(const candidate of [intent,newRevision,newProposal]){
+      assert.equal(ledger.compareAndReserve(candidate,version+1).reason,"recipient-suppressed");
+      assert.equal(ledger.snapshot(candidate).reserved,false);
+    }
+    const replay=ledger.compareAndRecordConsentRevocation(intent,version+1);
+    assert.equal(replay.state,"blocked");
+    assert.equal(replay.reason,"duplicate-consent-revocation");
+    assert.equal(replay.snapshot.version,version+1);
+    assert.equal(typeof ledger.clearConsentRevocation,"undefined");
+    assert.equal(typeof ledger.unsuppress,"undefined");
+    for(const sensitive of [intent.recipient,intent.organizationId,intent.idempotencyKey]){
+      assert.equal(JSON.stringify(revoked).includes(sensitive),false);
+    }
+  }
+});
+
+test("revocation CAS races never leave reserved after a successful revocation",async()=>{
+  for(let i=0;i<32;i++){
+    const ledger=new SyntheticDispatchReservationLedger();
+    const ops=i%2===0?["revoke","reserve"]:["reserve","revoke"];
+    const outcomes=await Promise.all(ops.map(op=>Promise.resolve().then(()=>
+      op==="revoke"?ledger.compareAndRecordConsentRevocation(intent,0):
+        ledger.compareAndReserve(intent,0))));
+    assert.equal(outcomes.filter(x=>x.state!=="blocked").length,1);
+    let snapshot=ledger.snapshot(intent);
+    if(snapshot.reserved){
+      const applied=ledger.compareAndRecordConsentRevocation(intent,snapshot.version);
+      assert.equal(applied.state,"suppressed-simulation-only");
+      snapshot=applied.snapshot;
+    }
+    assert.equal(snapshot.reserved,false);
+    assert.deepEqual(snapshot.suppression,["revoked"]);
+    assert.equal(ledger.compareAndReserve(intent,snapshot.version).reason,"recipient-suppressed");
+  }
+});
+
+test("consent revocation retains earlier reply and provider suppression and stays tenant-scoped",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  ledger.compareAndRecordReply(intent,0);
+  ledger.compareAndSuppress(intent,1,"bounced");
+  const revoked=ledger.compareAndRecordConsentRevocation(intent,2);
+  assert.equal(revoked.snapshot.replyReviewRequired,true);
+  assert.deepEqual(revoked.snapshot.suppression,["bounced","revoked"]);
+  assert.equal(revoked.snapshot.version,3);
+  assert.equal(ledger.compareAndApplyContactSignals(intent,3,{
+    suppression:["complained"],replied:false,
+  }).state,"suppressed-simulation-only");
+  assert.deepEqual(ledger.snapshot(intent).suppression,["bounced","complained","revoked"]);
+  const otherTenant=make({organizationId:"dddddddd-dddd-4ddd-8ddd-dddddddddddd"});
+  const otherRecipient=make({recipient:"other@fictional.example"});
+  for(const independent of [otherTenant,otherRecipient]){
+    assert.equal(ledger.snapshot(independent).version,0);
+    assert.equal(ledger.compareAndReserve(independent,0).state,"reserved-simulation-only");
+  }
+  assert.equal(ledger.compareAndReserve(intent,4).reason,"recipient-suppressed");
+});
+
+test("invalid revocation identities and stale versions fail without mutation",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  assert.throws(()=>ledger.compareAndRecordConsentRevocation({...intent,approved:true},0),
+    /Invalid synthetic reservation identity/);
+  for(const version of [NaN,Infinity,-1,0.5,"0",1]){
+    const r=ledger.compareAndRecordConsentRevocation(intent,version);
+    assert.equal(r.state,"blocked");
+    assert.equal(r.reason,"stale-or-invalid-version");
+  }
+  assert.deepEqual(ledger.snapshot(intent).suppression,[]);
+  assert.equal(ledger.snapshot(intent).version,0);
+});
+
 test("a fictional reply AFTER reservation invalidates it and prevents replay",()=>{
   const ledger=new SyntheticDispatchReservationLedger();
   const reserved=ledger.compareAndReserve(intent,0);
