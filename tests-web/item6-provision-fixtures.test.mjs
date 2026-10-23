@@ -73,19 +73,26 @@ test('a different canonical Supabase project is not authorized to receive test f
   for(const token of [pub,secret])assert.equal(r.stderr.includes(token),false);
 });
 
-test('child H01/H02 environment never inherits Admin key or unrelated secrets',()=>{
-  const keys=[
-    'BIDMASON_H01_URL','BIDMASON_H01_PUBLISHABLE_KEY',
-    'BIDMASON_H01_USER_A_JWT','BIDMASON_H01_USER_B_JWT',
-    'BIDMASON_H01_ORG_A','BIDMASON_H01_ORG_B',
-    'BIDMASON_H01_REVISION_A','BIDMASON_H01_REVISION_B',
-    'BIDMASON_H02_URL','BIDMASON_H02_PUBLISHABLE_KEY',
-    'BIDMASON_H02_USER_A_JWT','BIDMASON_H02_USER_B_JWT',
-    'BIDMASON_H02_PATH_A','BIDMASON_H02_PATH_B',
-  ];
-  const scoped=Object.fromEntries(keys.map(key=>[key,'fixture-only-value']));
+const H01=[
+  'BIDMASON_H01_URL','BIDMASON_H01_PUBLISHABLE_KEY',
+  'BIDMASON_H01_USER_A_JWT','BIDMASON_H01_USER_B_JWT',
+  'BIDMASON_H01_ORG_A','BIDMASON_H01_ORG_B',
+  'BIDMASON_H01_REVISION_A','BIDMASON_H01_REVISION_B',
+];
+const H02=[
+  'BIDMASON_H02_URL','BIDMASON_H02_PUBLISHABLE_KEY',
+  'BIDMASON_H02_USER_A_JWT','BIDMASON_H02_USER_B_JWT',
+  'BIDMASON_H02_PATH_A','BIDMASON_H02_PATH_B',
+];
+const MODULE01='ci.item6_rls_readonly_probe';
+const MODULE02='ci.item6_storage_readonly_probe';
+const complete=()=>Object.fromEntries([...H01,...H02]
+  .map(key=>[key,'probe-value-'+key]));
+
+test('each child receives only its own JWTs plus safe platform values',()=>{
   const ambient={
-    PATH:'/fixture-bin',
+    PATH:'/fixture-bin',PYTHONPATH:'/malicious-imports',
+    PYTHONHOME:'/malicious-interpreter',VIRTUAL_ENV:'/malicious-venv',
     BIDMASON_FIXTURE_ADMIN_KEY:'do-not-forward',
     STRIPE_SECRET_KEY:'do-not-forward',
     SUPABASE_SERVICE_ROLE_KEY:'do-not-forward',
@@ -93,33 +100,60 @@ test('child H01/H02 environment never inherits Admin key or unrelated secrets',(
     NODE_OPTIONS:'--import malicious-preload',
     BIDMASON_H01_USER_A_JWT:'stale-ambient-token',
   };
-  const result=limitedProbeEnvironment(ambient,scoped);
-  assert.equal(Object.getPrototypeOf(result),null);
-  assert.deepEqual(Object.keys(result).sort(),['PATH',...keys].sort());
-  assert.equal(result.PATH,'/fixture-bin');
-  assert.equal(result.BIDMASON_H01_USER_A_JWT,'fixture-only-value');
-  assert.equal(Object.values(result).includes('do-not-forward'),false);
-  for(const key of ['BIDMASON_FIXTURE_ADMIN_KEY','STRIPE_SECRET_KEY',
-    'SUPABASE_SERVICE_ROLE_KEY','HTTPS_PROXY','NODE_OPTIONS']){
-    assert.equal(Object.hasOwn(result,key),false,key);
+  const supplied=complete();
+  const h01=limitedProbeEnvironment(ambient,supplied,MODULE01);
+  const h02=limitedProbeEnvironment(ambient,supplied,MODULE02);
+  assert.equal(Object.getPrototypeOf(h01),null);
+  assert.equal(Object.getPrototypeOf(h02),null);
+  assert.deepEqual(Object.keys(h01).sort(),['PATH',...H01].sort());
+  assert.deepEqual(Object.keys(h02).sort(),['PATH',...H02].sort());
+  for(const key of H01){
+    assert.equal(h01[key],supplied[key]);
+    assert.equal(Object.hasOwn(h02,key),false,key);
   }
+  for(const key of H02){
+    assert.equal(h02[key],supplied[key]);
+    assert.equal(Object.hasOwn(h01,key),false,key);
+  }
+  for(const key of ['BIDMASON_FIXTURE_ADMIN_KEY','STRIPE_SECRET_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY','HTTPS_PROXY','NODE_OPTIONS',
+    'PYTHONPATH','PYTHONHOME','VIRTUAL_ENV']){
+    assert.equal(Object.hasOwn(h01,key),false,key);
+    assert.equal(Object.hasOwn(h02,key),false,key);
+  }
+  assert.equal(Object.values(h01).includes('do-not-forward'),false);
+  assert.equal(Object.values(h02).includes('do-not-forward'),false);
 });
 
-test('H01/H02 child environment rejects extra keys and missing sessions',()=>{
-  const keys=[
-    'BIDMASON_H01_URL','BIDMASON_H01_PUBLISHABLE_KEY',
-    'BIDMASON_H01_USER_A_JWT','BIDMASON_H01_USER_B_JWT',
-    'BIDMASON_H01_ORG_A','BIDMASON_H01_ORG_B',
-    'BIDMASON_H01_REVISION_A','BIDMASON_H01_REVISION_B',
-    'BIDMASON_H02_URL','BIDMASON_H02_PUBLISHABLE_KEY',
-    'BIDMASON_H02_USER_A_JWT','BIDMASON_H02_USER_B_JWT',
-    'BIDMASON_H02_PATH_A','BIDMASON_H02_PATH_B',
-  ];
-  const supplied=Object.fromEntries(keys.map(key=>[key,'fixture-only-value']));
-  assert.throws(()=>limitedProbeEnvironment({},{}),/Incomplete H01\/H02/);
-  assert.throws(()=>limitedProbeEnvironment({},
-    {...supplied,BIDMASON_FIXTURE_ADMIN_KEY:'forbidden'}),
-    /Unexpected live-probe environment field/);
+test('H01/H02 subprocess refuses unknown module, injected keys and missing JWTs',()=>{
+  const supplied=complete();
+  assert.throws(()=>limitedProbeEnvironment({},supplied,undefined),
+    /Unrecognized H01\/H02 live-probe module/);
+  assert.throws(()=>limitedProbeEnvironment({},supplied,'ci.malicious_probe'),
+    /Unrecognized H01\/H02 live-probe module/);
+  for(const module of [MODULE01,MODULE02]){
+    assert.throws(()=>limitedProbeEnvironment({}, {},module),
+      /Incomplete H01\/H02 live-probe environment/);
+    assert.throws(()=>limitedProbeEnvironment({},{
+      ...supplied,BIDMASON_FIXTURE_ADMIN_KEY:'forbidden'
+    },module),/Unexpected live-probe environment field/);
+  }
   delete supplied.BIDMASON_H02_USER_B_JWT;
-  assert.throws(()=>limitedProbeEnvironment({},supplied),/Incomplete H01\/H02/);
+  assert.throws(()=>limitedProbeEnvironment({},supplied,MODULE01),
+    /Incomplete H01\/H02 live-probe environment/);
+  assert.throws(()=>limitedProbeEnvironment({},supplied,MODULE02),
+    /Incomplete H01\/H02 live-probe environment/);
+});
+
+test('diagnostic input isolation cannot be tricked by unexpected empty credentials',()=>{
+  for(const module of [MODULE01,MODULE02]){
+    const supplied=complete();
+    supplied.BIDMASON_H01_USER_B_JWT='';
+    assert.throws(()=>limitedProbeEnvironment({},supplied,module),
+      /Unexpected live-probe environment field/);
+    const valid=complete();
+    valid.BIDMASON_H02_USER_A_JWT=null;
+    assert.throws(()=>limitedProbeEnvironment({},valid,module),
+      /Unexpected live-probe environment field/);
+  }
 });
