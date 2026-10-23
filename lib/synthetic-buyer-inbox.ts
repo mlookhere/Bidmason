@@ -97,6 +97,16 @@ export function summarizeSyntheticBuyerInbox(
     else if(assessment.kind==="request_changes") totals.changeRequests++;
     else totals.declines++;
   }
+  // A fictional decline ends review of this exact recipient/revision.
+  // A later (or equal-second, order-ambiguous) response using a fresh
+  // read-only grant must not silently reopen the already declined revision.
+  // This check happens AFTER all signed grants and drafts were validated.
+  const declineRecords=events.filter(item=>item.draft.kind==="decline");
+  if(declineRecords.length>1 || (declineRecords.length===1
+      && events.some(item=>item!==declineRecords[0]
+        && item.observedAtSeconds>=declineRecords[0].observedAtSeconds))){
+    throw new TypeError("Contradictory fictional buyer response after decline");
+  }
   return {
     state:"inbox-simulation-only",
     eventsReviewed:events.length,
@@ -149,6 +159,10 @@ export function summarizeSyntheticBuyerInboxBatch(
   // when several recipients hold separately signed view claims. An inbox
   // aggregate must not reconcile contradictory content digests as one deal.
   const revisionContent=new Map<string,string>();
+  // A different grant/stream for the same buyer and proposal revision must
+  // not restart a declined conversation. Evaluate after ALL streams, so the
+  // caller's batch order cannot hide an otherwise terminal decline.
+  const recipientResponses=new Map<string,Array<{time:number;kind:string}>>();
   const totals={eventsReviewed:0,questions:0,changeRequests:0,declines:0};
   for (let i=0;i<streams.length;i++){
     const entry=Object.getOwnPropertyDescriptor(streams,String(i))?.value;
@@ -184,12 +198,32 @@ export function summarizeSyntheticBuyerInboxBatch(
       }
       usedEvents.add(item.eventId);
       usedGrants.add(proof.grantId);
+      const recipientKey=JSON.stringify([
+        entry.identity.proposalId,entry.identity.revision,
+        entry.identity.recipientSha256,
+      ]);
+      const observations=recipientResponses.get(recipientKey)??[];
+      observations.push({
+        time:item.observedAtSeconds,
+        kind:item.draft.kind,
+      });
+      recipientResponses.set(recipientKey,observations);
     }
     proposals.add(entry.identity.proposalId as string);
     totals.eventsReviewed+=scoped.eventsReviewed;
     totals.questions+=scoped.questions;
     totals.changeRequests+=scoped.changeRequests;
     totals.declines+=scoped.declines;
+  }
+  // Preserve a terminal fictional decline for each recipient, even when
+  // a different signed grant was used and batch entries are rearranged.
+  // Independent recipients, proposals and revisions remain distinct.
+  for(const observations of recipientResponses.values()){
+    const declines=observations.filter(x=>x.kind==="decline");
+    if(declines.length>1 || (declines.length===1 && observations.some(x=>
+        x!==declines[0] && x.time>=declines[0].time))){
+      throw new TypeError("Contradictory fictional buyer response after decline");
+    }
   }
   return {
     state:"inbox-simulation-only",
