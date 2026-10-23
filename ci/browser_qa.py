@@ -189,14 +189,17 @@ def check_delivery_lab(browser, url: str, width: int, height: int) -> None:
         "painting-deal-won", "cleaning-reminders-exhausted",
     ):
         card = page.locator(f"[data-scenario='{case_id}']")
-        due = card.locator(".lab-facts > div").filter(
-            has=card.locator("dt", has_text="Next fictional reminder eligibility"))
+        # Resolve the matching label within each card, then traverse to
+        # that definition row. A nested has= locator rooted at the outer card
+        # incorrectly scopes the filter and returns zero matches in Chromium.
+        due = card.get_by_text(
+            "Next fictional reminder eligibility", exact=True).locator("xpath=..")
         assert due.count() == 1, f"Missing due summary: {case_id}"
         assert due.locator("dd").inner_text() == "None — no scheduled send", (
             f"Contact-blocked case misleadingly shows a reminder time: {case_id}")
     candidate = page.locator("[data-scenario='cleaning-internal-candidate']")
-    due = candidate.locator(".lab-facts > div").filter(
-        has=candidate.locator("dt", has_text="Next fictional reminder eligibility"))
+    due = candidate.get_by_text(
+        "Next fictional reminder eligibility", exact=True).locator("xpath=..")
     assert due.count() == 1
     assert due.locator("dd").inner_text() == "2026-10-21T08:02:00.000Z"
     assert page.locator("form, input, textarea, select, button").count() == 0
