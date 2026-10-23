@@ -11,7 +11,7 @@ export type DeliveryTriage = {
   state: "review-simulation-only";
   category: "contact-suppressed" | "reply-needs-review" | "consent-needs-verification"
     | "delivery-needs-verification" | "waiting-for-cooldown"
-    | "deal-closed" | "external-authorization-required";
+    | "deal-closed" | "follow-up-limit-reached" | "external-authorization-required";
   attention: "stop-contact" | "operator-review" | "deferred";
   rationale: string;
   sourceEventCount: number;
@@ -66,11 +66,14 @@ export function classifySimulatedDeliveryTriage(
     category="delivery-needs-verification";
     attention="operator-review";
     rationale="No complete fictional delivery history; verify external provider evidence.";
-  }else if(followUp.blockers.some(x=>x.includes("Minimum follow-up delay")
-      || x.includes("attempt limit"))){
+  }else if(followUp.recordedAttempts>=policy.maximumAttempts){
+    category="follow-up-limit-reached";
+    attention="deferred";
+    rationale="Fictional reminder attempt cap reached; waiting longer cannot authorize another attempt.";
+  }else if(followUp.blockers.some(x=>x.includes("Minimum follow-up delay"))){
     category="waiting-for-cooldown";
     attention="deferred";
-    rationale="Fictional timing or attempt policy blocks follow-up; never enqueue a send.";
+    rationale="Fictional minimum follow-up delay has not elapsed; never enqueue a send.";
   }else{
     // Even a fully consistent dry run has NO authenticated provider,
     // current tenant approval, live consent, or atomic dispatch reservation.
