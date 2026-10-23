@@ -43,6 +43,35 @@ class PublishGuardTests(unittest.TestCase):
         self.assertEqual(findings(self.root), [])
 
 
+    def test_blocker_helper_cannot_acquire_network_or_unreviewed_imports(self):
+        # The new pure operator-reason helper is an explicit, reviewed
+        # transitive dependency of a PUBLIC no-auth static fixture page.
+        # Its presence is not a waiver for real API calls or extra imports.
+        self.with_lab()
+        self.assertEqual(findings(self.root), [])
+        helper = self.root / "lib/delivery-lab-blocker-reasons.ts"
+        for code in (
+            "fetch('/api/send-real-reminder');",
+            "process.env.PROVIDER_ADMIN_KEY;",
+            "localStorage.setItem('token', 'unsafe');",
+            'import {submit} from "./external-dispatch.ts";',
+            'import "./unreviewed-side-effect.ts";',
+            'export {send} from "./provider.ts";',
+        ):
+            with self.subTest(code=code):
+                self.with_lab()
+                helper.write_text(helper.read_text() + "\n" + code + "\n")
+                self.assertTrue(any(
+                    "lib/delivery-lab-blocker-reasons.ts" in problem
+                    and ("offline and read-only" in problem
+                         or "transitive imports" in problem)
+                    for problem in findings(self.root)))
+        self.with_lab()
+        helper.unlink()
+        self.assertTrue(any(
+            "Missing or symlinked lab dependency: lib/delivery-lab-blocker-reasons.ts"
+            in problem for problem in findings(self.root)))
+
     def test_indirect_helper_network_storage_and_actions_are_rejected(self):
         for code in ("fetch('https://real.example/api')",
                      "process.env.REAL_PROVIDER_KEY",
