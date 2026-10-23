@@ -28,11 +28,19 @@ test("due candidate remains internal only, without send authority",()=>{
   assert.deepEqual(result.blockers,[]);
   for(const field of ["send","approved","authorized","provider"])assert.equal(Object.hasOwn(result,field),false);
 });
-test("consent, reply, opt-out, complaint and bounce each block",()=>{
-  for(const consent of ["unknown","revoked"])
-    assert.equal(run({policy:{...policy,consent}}).state,"blocked");
-  for(const kind of ["recipient_replied","recipient_opted_out","provider_complained","provider_bounced"])
-    assert.equal(run({events:[...delivered,evt(kind,3)]}).state,"blocked",kind);
+test("consent, reply, opt-out, complaint and bounce never retain a fictional due date",()=>{
+  for(const consent of ["unknown","revoked"]){
+    const result=run({policy:{...policy,consent}});
+    assert.equal(result.state,"blocked");
+    assert.equal(result.nextEligibleAt,null,consent);
+  }
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_complained","provider_bounced"]){
+    const result=run({events:[...delivered,evt(kind,3)]});
+    assert.equal(result.state,"blocked",kind);
+    assert.equal(result.nextEligibleAt,null,kind);
+    assert.equal(result.recordedAttempts,0,kind);
+  }
 });
 test("incomplete delivery, future observations and cooldown do not become candidates",()=>{
   for(const events of [[],[evt("reserved")],[evt("reserved"),evt("provider_accepted",1)]]){
@@ -44,6 +52,20 @@ test("incomplete delivery, future observations and cooldown do not become candid
     assert.equal(run({now}).state,"blocked");
   assert.equal(run({now:"2026-10-21T08:02:00.000Z"}).state,"candidate-internal-only");
 });
+test("a future delivery event cannot generate current reminder eligibility",()=>{
+  const future=delivered.map((event,index)=>({...event,
+    observedAt:"2026-10-24T08:0"+index+":00.000Z"}));
+  const result=run({events:future});
+  assert.equal(result.state,"blocked");
+  assert.equal(result.nextEligibleAt,null);
+  assert.ok(result.blockers.includes("Delivery stream contains future observations"));
+  const earlier=run({events:future,now:"2026-10-20T07:00:00.000Z"});
+  assert.equal(earlier.nextEligibleAt,null);
+  const cooldown=run({now:"2026-10-20T09:00:00.000Z"});
+  assert.equal(cooldown.state,"blocked");
+  assert.equal(cooldown.nextEligibleAt,"2026-10-21T08:02:00.000Z");
+});
+
 test("follow-up history enforces delay, limits and identical idempotent replays",()=>{
   const first=attempt(0),second=attempt(1);
   assert.equal(run({attempts:[first],now:"2026-10-22T09:00:00.000Z"}).state,"blocked");
@@ -87,6 +109,7 @@ test("attempts at or after replies and suppression events fail chronological val
     const result=run({events,attempts:[earlier]});
     assert.equal(result.state,"blocked",kind);
     assert.equal(result.recordedAttempts,1,kind);
+    assert.equal(result.nextEligibleAt,null,kind);
     assert.throws(()=>run({events,attempts:[earlier,attempt(1)]}),
       /stop-contact chronology/,kind);
   }
