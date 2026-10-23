@@ -33,7 +33,7 @@ export type InternalReviewReceipt = DeliveryRevision & {
 export type RecipientSuppression = {
   organizationId: string;
   recipient: string;
-  state: "clear" | "opted_out" | "bounced" | "unknown";
+  state: "clear" | "revoked" | "opted_out" | "bounced" | "unknown";
   version: number;
 };
 
@@ -129,7 +129,7 @@ export function evaluateDeliveryDryRun(
     || !exact(dispatch, ["idempotencyKey", "state"])
     || typeof suppression.organizationId !== "string"
     || !safeAddress(suppression.recipient)
-    || !["clear", "opted_out", "bounced", "unknown"].includes(suppression.state)
+    || !["clear", "revoked", "opted_out", "bounced", "unknown"].includes(suppression.state)
     || !Number.isSafeInteger(suppression.version) || suppression.version < 1
     || typeof dispatch.idempotencyKey !== "string"
     || !["absent", "reserved", "sent", "unknown"].includes(dispatch.state)) {
@@ -158,7 +158,11 @@ export function evaluateDeliveryDryRun(
   }
   if (suppression.organizationId !== intent.organizationId
     || suppression.recipient !== intent.recipient || suppression.state !== "clear") {
-    blockers.push("Recipient suppression is not confirmed clear");
+    // Revocation is an explicit contact hold, not unknown source evidence.
+    // This fictional model still proves neither consent nor send authority.
+    blockers.push(suppression.state === "revoked"
+      ? "Recipient consent is explicitly revoked; do not contact"
+      : "Recipient suppression is not confirmed clear");
   }
   if (dispatch.idempotencyKey !== intent.idempotencyKey
     || dispatch.state !== "absent") {
