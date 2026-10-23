@@ -40,8 +40,17 @@ function report(module){
     ],
   };
 }
+// Mirrors the actual Python probe stdout format, independently of the
+// implementation-under-test: json.dumps(..., sort_keys=True) + print newline.
+const pythonJson=value=>Array.isArray(value)
+  ? '['+value.map(pythonJson).join(', ')+']'
+  : value!==null&&typeof value==='object'
+    ? '{'+Object.keys(value).sort().map(k=>
+      JSON.stringify(k)+': '+pythonJson(value[k])).join(', ')+'}'
+    : JSON.stringify(value);
+const stdout=value=>pythonJson(value)+'\\n';
 const check=(module,payload)=>
-  verifyReadOnlyProbeReport(module,JSON.stringify(payload));
+  verifyReadOnlyProbeReport(module,stdout(payload));
 
 test('the exact independent H01 and H02 matrices are reviewable, never accepted',()=>{
   for(const [module,count] of [[H01,27],[H02,16]]){
@@ -91,12 +100,55 @@ test('H01/H02 fail closed on forged acceptance, misleading state or limitations'
   }
 });
 
+test('genuine Python sorted-key JSON and Windows CRLF are accepted without release',()=>{
+  for(const module of [H01,H02]){
+    const output=stdout(report(module));
+    assert.ok(output.startsWith('{"checks": ['));
+    assert.ok(output.endsWith('}\\n'));
+    const unix=verifyReadOnlyProbeReport(module,output);
+    const windows=verifyReadOnlyProbeReport(module,output.replace(/\\n$/, '\\r\\n'));
+    assert.deepEqual(unix,windows);
+    assert.equal(unix.releaseAuthorized,false);
+  }
+});
+
+test('duplicate wire keys cannot hide a failed or forged probe check',()=>{
+  for(const module of [H01,H02]){
+    const legitimate=stdout(report(module));
+    const duplicateApproval=legitimate.replace(
+      '"releaseAuthorized": false',
+      '"releaseAuthorized": true, "releaseAuthorized": false');
+    const duplicateControl=legitimate.replace(
+      '"passed": true', '"passed": false, "passed": true');
+    const duplicateName=legitimate.replace(
+      '"name": "user-1-auth"', '"name": "forged", "name": "user-1-auth"');
+    for(const hostile of [duplicateApproval,duplicateControl,duplicateName]){
+      assert.notEqual(hostile,legitimate);
+      assert.throws(()=>verifyReadOnlyProbeReport(module,hostile),
+        /Noncanonical read-only probe report/);
+    }
+  }
+});
+
+test('extra whitespace, log prefixes and unreviewed non-ASCII output are not valid evidence',()=>{
+  const actual=stdout(report(H01));
+  for(const untrusted of [
+    actual.trim(),actual+'\\n','info: passed\\n'+actual,
+    actual.replace(', ',','),actual.replace(': ',':'),
+    actual.replace('user-1-auth','user-1-äuth'),
+    JSON.stringify(report(H01))+'\\n',
+  ]){
+    assert.throws(()=>verifyReadOnlyProbeReport(H01,untrusted),
+      /Noncanonical read-only probe/);
+  }
+});
+
 test('malformed output and unknown diagnostic modules never become evidence',()=>{
   for(const raw of ['','BLOCKED','{}','[]','null','true',
     JSON.stringify(report(H01))+'\n'+JSON.stringify(report(H01)),
     'x'.repeat(150001)]){
     assert.throws(()=>verifyReadOnlyProbeReport(H01,raw),
-      /(Invalid|Malformed|Incomplete or unsafe) read-only probe report/);
+      /(Invalid|Malformed|Incomplete or unsafe|Noncanonical) read-only probe report/);
   }
   assert.throws(()=>check('ci.fake_probe',report(H01)),
     /Invalid read-only probe report/);
