@@ -1,6 +1,7 @@
 import type {Metadata} from "next";
 import {buildSyntheticDeliveryLabCases, buildSyntheticDeliveryLabSummaries,
   type DeliveryLabCase} from "../../lib/delivery-lab-fixtures.ts";
+import {syntheticDeliveryBlockerReasons} from "../../lib/delivery-lab-blocker-reasons.ts";
 
 export const metadata: Metadata = {
   title: "Delivery Safety Lab | BidMason Internal Preview",
@@ -112,13 +113,8 @@ export default function DeliveryLab() {
                 <p className="lab-review-rationale">{scenario.triage.rationale}</p>
                 <h4>Why this cannot send</h4>
                 <ul className="lab-blockers">
-                  {scenario.followUp.blockers.length
-                    ?scenario.followUp.blockers.map(reason=><li key={reason}>{reason}</li>)
-                    :scenario.historicalSuppression.length
-                      ?<li>Earlier recipient suppression overrides this proposal&apos;s internal timing assessment. Contact remains blocked.</li>
-                      :scenario.triage.historicalReplyObserved
-                        ?<li>Earlier recipient reply requires manual review before a new follow-up. Contact remains blocked.</li>
-                        :<li>No internal timing blocker in fixture. External authorization and real consent remain unverified.</li>}
+                  {syntheticDeliveryBlockerReasons(scenario)
+                    .map(reason=><li key={reason}>{reason}</li>)}
                 </ul>
                 <details className="lab-history">
                   <summary>Inspect fictional event history ({scenario.projection.eventCount})</summary>
