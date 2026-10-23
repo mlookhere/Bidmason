@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Superseded commits on the same PR/branch cannot satisfy exact-head gates.
+# Cancel only their redundant CI runs; all eight jobs still run on the new head.
+concurrency:
+  group: bidmason-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   fast:
     name: fast
@@ -39,6 +44,19 @@ jobs:
           persist-credentials: false
       - name: Security checks
         run: bash ci/run security
+
+  synthetic-webhook-qa:
+    name: synthetic-webhook-qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: "24"
+      - name: Strict synthetic webhook signature and replay tests
+        run: node --test tests-web/synthetic-webhook-*.test.mjs
 
   web-build:
     name: web-build

@@ -1,0 +1,211 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {deliveryIdempotencyKey} from "../lib/outbound-preflight.ts";
+import {assessSimulatedFollowUp} from "../lib/follow-up-assessment.ts";
+
+const identity={organizationId:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  proposalId:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",revision:3,
+  sourceSha256:"a".repeat(64),policySha256:"b".repeat(64),
+  contentSha256:"c".repeat(64),qaSha256:"d".repeat(64),recipient:"buyer@example.test"};
+const intent={...identity,idempotencyKey:deliveryIdempotencyKey(identity)};
+const evt=(kind,i=0)=>({eventId:String(i+1).padStart(8,"0")+"-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  organizationId:intent.organizationId,idempotencyKey:intent.idempotencyKey,
+  recipient:intent.recipient,kind,observedAt:"2026-10-20T08:"+
+    String(i).padStart(2,"0")+":00.000Z"});
+const attempt=(i=0)=>({attemptId:String(i+1).padStart(8,"0")+"-cccc-4ccc-8ccc-cccccccccccc",
+  organizationId:intent.organizationId,idempotencyKey:intent.idempotencyKey,
+  recipient:intent.recipient,recordedAt:i===0
+    ?"2026-10-22T08:00:00.000Z":"2026-10-23T08:00:00.000Z"});
+const delivered=["reserved","provider_accepted","provider_delivered"].map(evt);
+const policy={consent:"confirmed",version:1,minimumDelayHours:24,maximumAttempts:2};
+const run=(o={})=>assessSimulatedFollowUp(o.intent??intent,o.events??delivered,
+  o.policy??policy,o.attempts??[],o.now??"2026-10-23T12:00:00.000Z",o.dealEvents??[]);
+
+test("due candidate remains internal only, without send authority",()=>{
+  const result=run();
+  assert.equal(result.state,"candidate-internal-only");
+  assert.equal(result.nextEligibleAt,"2026-10-21T08:02:00.000Z");
+  assert.deepEqual(result.blockers,[]);
+  for(const field of ["send","approved","authorized","provider"])assert.equal(Object.hasOwn(result,field),false);
+});
+test("consent, reply, opt-out, complaint and bounce never retain a fictional due date",()=>{
+  for(const consent of ["unknown","revoked"]){
+    const result=run({policy:{...policy,consent}});
+    assert.equal(result.state,"blocked");
+    assert.equal(result.nextEligibleAt,null,consent);
+    assert.equal(result.blockers.includes(consent==="revoked"
+      ?"Contact consent was revoked"
+      :"Contact consent is not confirmed"),true,consent);
+    assert.equal(result.recordedAttempts,0);
+  }
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_complained","provider_bounced"]){
+    const result=run({events:[...delivered,evt(kind,3)]});
+    assert.equal(result.state,"blocked",kind);
+    assert.equal(result.nextEligibleAt,null,kind);
+    assert.equal(result.recordedAttempts,0,kind);
+  }
+});
+test("incomplete delivery, future observations and cooldown do not become candidates",()=>{
+  for(const events of [[],[evt("reserved")],[evt("reserved"),evt("provider_accepted",1)]]){
+    const result=run({events});
+    assert.equal(result.state,"blocked");
+    assert.equal(result.nextEligibleAt,null);
+  }
+  for(const now of ["2026-10-20T07:00:00.000Z","2026-10-20T09:00:00.000Z"])
+    assert.equal(run({now}).state,"blocked");
+  assert.equal(run({now:"2026-10-21T08:02:00.000Z"}).state,"candidate-internal-only");
+});
+test("a future delivery event cannot generate current reminder eligibility",()=>{
+  const future=delivered.map((event,index)=>({...event,
+    observedAt:"2026-10-24T08:0"+index+":00.000Z"}));
+  const result=run({events:future});
+  assert.equal(result.state,"blocked");
+  assert.equal(result.nextEligibleAt,null);
+  assert.ok(result.blockers.includes("Delivery stream contains future observations"));
+  const earlier=run({events:future,now:"2026-10-20T07:00:00.000Z"});
+  assert.equal(earlier.nextEligibleAt,null);
+  const cooldown=run({now:"2026-10-20T09:00:00.000Z"});
+  assert.equal(cooldown.state,"blocked");
+  assert.equal(cooldown.nextEligibleAt,"2026-10-21T08:02:00.000Z");
+});
+
+test("follow-up history enforces delay, limits and identical idempotent replays",()=>{
+  const first=attempt(0),second=attempt(1);
+  assert.equal(run({attempts:[first],now:"2026-10-22T09:00:00.000Z"}).state,"blocked");
+  assert.equal(run({attempts:[first],now:"2026-10-23T08:00:00.000Z"}).state,"candidate-internal-only");
+  const exhausted=run({attempts:[first,second]});
+  assert.equal(exhausted.state,"blocked");
+  assert.ok(exhausted.blockers.includes("Follow-up attempt limit reached"));
+  assert.equal(exhausted.nextEligibleAt,null);
+  for(const when of ["2026-10-23T12:00:00.000Z","2026-11-12T12:00:00.000Z"]){
+    const capped=run({attempts:[first,second],now:when});
+    assert.equal(capped.state,"blocked");
+    assert.equal(capped.nextEligibleAt,null);
+    assert.equal(capped.recordedAttempts,2);
+  }
+  const oneCap=run({attempts:[first],policy:{...policy,maximumAttempts:1}});
+  assert.equal(oneCap.state,"blocked");
+  assert.equal(oneCap.nextEligibleAt,null);
+  assert.equal(run({attempts:[first,{...first}]}).recordedAttempts,1);
+});
+test("cross-tenant, inconsistent replay, forged and out-of-order attempts are refused",()=>{
+  const first=attempt(0),second=attempt(1);
+  for(const change of [
+    {organizationId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"},
+    {recipient:"other@example.test"},{idempotencyKey:"dryrun_"+"0".repeat(64)},
+    {recordedAt:"2026-02-30T08:00:00.000Z"},{attemptId:"invalid"},{approved:true},
+  ])assert.throws(()=>run({attempts:[{...first,...change}]}),/Invalid or cross-tenant/);
+  assert.throws(()=>run({attempts:[first,{...first,recordedAt:second.recordedAt}]}),/Conflicting/);
+  assert.throws(()=>run({attempts:[second,first]}),/chronological/);
+  assert.throws(()=>run({attempts:[{...first,recordedAt:"2026-10-19T08:00:00.000Z"}]}),/chronological/);
+  const changed={...identity,revision:4};
+  assert.throws(()=>run({intent:{...changed,idempotencyKey:intent.idempotencyKey}}),/Invalid simulated delivery identity/);
+});
+test("attempts at or after replies and suppression events fail chronological validation",()=>{
+  const stopTime="2026-10-22T08:00:00.000Z";
+  for(const kind of ["recipient_replied","recipient_opted_out",
+    "provider_bounced","provider_complained"]){
+    const events=[...delivered,{...evt(kind,3),observedAt:stopTime}];
+    assert.throws(()=>run({events,attempts:[attempt(0)]}),/stop-contact chronology/,kind);
+    assert.throws(()=>run({events,attempts:[attempt(1)]}),/stop-contact chronology/,kind);
+    const earlier={...attempt(0),recordedAt:"2026-10-21T09:00:00.000Z"};
+    const result=run({events,attempts:[earlier]});
+    assert.equal(result.state,"blocked",kind);
+    assert.equal(result.recordedAttempts,1,kind);
+    assert.equal(result.nextEligibleAt,null,kind);
+    assert.throws(()=>run({events,attempts:[earlier,attempt(1)]}),
+      /stop-contact chronology/,kind);
+  }
+});
+
+test("recorded follow-up attempts must respect minimum delay from delivery and each other",()=>{
+  const first=attempt(0),second=attempt(1);
+  const firstDue="2026-10-21T08:02:00.000Z";
+  assert.throws(()=>run({attempts:[{...first,recordedAt:"2026-10-21T08:01:59.999Z"}]}),
+    /minimum delay/);
+  assert.equal(run({attempts:[{...first,recordedAt:firstDue}]}).recordedAttempts,1);
+  assert.throws(()=>run({attempts:[first,{...second,recordedAt:"2026-10-23T07:59:59.999Z"}]}),
+    /minimum delay/);
+  assert.equal(run({attempts:[first,second]}).recordedAttempts,2);
+  assert.equal(run({attempts:[first,{...first},second]}).recordedAttempts,2);
+  assert.throws(()=>run({attempts:[first],policy:{...policy,minimumDelayHours:48}}),
+    /minimum delay/);
+});
+
+test("unsafe policy, accessor fields, malformed time and sparse arrays fail closed",()=>{
+  for(const change of [
+    {minimumDelayHours:0},{minimumDelayHours:721},{minimumDelayHours:1.5},
+    {maximumAttempts:0},{maximumAttempts:4},{version:0},{consent:"implied"},{approved:true}
+  ])assert.throws(()=>run({policy:{...policy,...change}}),/Invalid simulated follow-up inputs/);
+  for(const now of ["2026-10-20T08:00:00Z","yesterday","2026-02-30T08:00:00.000Z"])
+    assert.throws(()=>run({now}),/Invalid simulated follow-up inputs/);
+  assert.throws(()=>run({attempts:new Array(1)}),/Invalid simulated follow-up inputs/);
+  let reads=0;const hostile={...policy};
+  Object.defineProperty(hostile,"consent",{enumerable:true,get(){reads++;throw Error("getter")}});
+  assert.throws(()=>run({policy:hostile}),/Invalid simulated follow-up inputs/);
+  assert.equal(reads,0);
+});
+test("forged events and accessor-backed attempt entries cannot become ready",()=>{
+  assert.throws(()=>run({events:[evt("provider_delivered")]}),/Unexpected/);
+  assert.throws(()=>run({events:[evt("reserved",3),evt("provider_accepted",2)]}),/Out-of-order/);
+  const bad={...attempt()};
+  Object.defineProperty(bad,"recordedAt",{enumerable:true,get(){throw Error("getter")}});
+  assert.throws(()=>run({attempts:[bad]}),/Invalid or cross-tenant/);
+});
+
+test("fictional won/lost closes follow-up even with consent and elapsed timing",()=>{
+  for(const kind of ["won","lost"]){
+    const record={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:intent.revision,kind,observedAt:"2026-10-22T09:00:00.000Z"};
+    const result=run({dealEvents:[record]});
+    assert.equal(result.state,"blocked");
+    assert.equal(result.nextEligibleAt,null);
+    assert.ok(result.blockers.includes("Fictional won/lost deal stops follow-up"));
+    const before={...attempt(0),recordedAt:"2026-10-22T08:00:00.000Z"};
+    assert.equal(run({attempts:[before],dealEvents:[record]}).state,"blocked");
+    assert.throws(()=>run({attempts:[attempt(1)],dealEvents:[record]}),
+      /closed-deal chronology/);
+    const changed={...record,revision:4};
+    assert.throws(()=>run({dealEvents:[changed]}),/cross-tenant/);
+  }
+});
+
+
+test("a past-revision terminal deal cannot be reactivated by current-revision reminders",()=>{
+  for(const kind of ["won","lost"]){
+    const closed={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:2,kind,observedAt:"2026-10-22T09:00:00.000Z"};
+    const state=run({dealEvents:[closed]});
+    assert.equal(state.state,"blocked");
+    assert.equal(state.nextEligibleAt,null);
+    assert.ok(state.blockers.includes("Fictional won/lost deal stops follow-up"));
+    assert.throws(()=>run({dealEvents:[closed],attempts:[attempt(1)]}),
+      /closed-deal chronology/);
+  }
+});
+
+
+test("post-closure dispatch reservations are contradictory even with valid provider callbacks",()=>{
+  for(const kind of ["won","lost"]){
+    const closed={eventId:"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      organizationId:intent.organizationId,proposalId:intent.proposalId,
+      revision:2,kind,observedAt:"2026-10-21T09:00:00.000Z"};
+    const after=delivered.map((event,index)=>({...event,
+      observedAt:"2026-10-22T08:0"+index+":00.000Z"}));
+    assert.throws(()=>run({events:after,dealEvents:[closed]}),
+      /Simulated delivery reservation conflicts with closed-deal chronology/);
+    const boundary=delivered.map((event,index)=>({...event,
+      observedAt:index===0?closed.observedAt:"2026-10-22T08:0"+index+":00.000Z"}));
+    assert.throws(()=>run({events:boundary,dealEvents:[closed]}),
+      /Simulated delivery reservation conflicts with closed-deal chronology/);
+    // Delivery may complete AFTER a deal closes if the dispatch was reserved BEFORE.
+    const acceptedLater=delivered.map((event,index)=>index===0?event:{...event,
+      observedAt:"2026-10-22T08:0"+index+":00.000Z"});
+    const result=run({events:acceptedLater,dealEvents:[closed]});
+    assert.equal(result.state,"blocked");
+    assert.ok(result.blockers.includes("Fictional won/lost deal stops follow-up"));
+  }
+});

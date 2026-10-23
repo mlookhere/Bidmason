@@ -1,0 +1,46 @@
+# Item 6 H01 — opt-in authenticated read-only RLS probe
+
+**Scope:** [H01 in the acceptance runbook](ITEM6_EXTERNAL_ACCEPTANCE_RUNBOOK.md).
+**State:** Unexecuted against real user sessions; **BLOCKED** for release. This probe supplies a reproducible subset of future H01 live evidence; it does not replace the required two-user authorization audit, negative write tests, membership revocation tests, or independent review.
+
+## Preconditions
+
+An authorized staging operator must first provision **two different test users and two distinct synthetic organizations**, each user a member of exactly one organization, **plus one synthetic brief revision row in each organization**. Both organization rows, matching memberships and exact tenant-scoped revision IDs must exist and be visible to their own real user sessions. Do not create customer-like proposal content; use invented test-only documents and hashes. The currently observed empty BidMason environment does **not** satisfy these preconditions. Obtain short-lived signed-in user access JWTs through normal Auth, and a **publishable**, not secret/service-role, API key. Never provision users, membership, credentials or data with this probe. Do not use genuine customer records or grant service bypass privileges.
+
+Provide these environment variables **in a protected execution session**, without committing them, printing them, or placing tokens in command arguments:
+
+| Environment variable | Required input |
+| --- | --- |
+| `BIDMASON_H01_URL` | Exact HTTPS project URL (`https://<20-char-project-ref>.supabase.co`) |
+| `BIDMASON_H01_PUBLISHABLE_KEY` | Project publishable key (`sb_publishable_...`); no secret, service-role or legacy privileged key |
+| `BIDMASON_H01_USER_A_JWT` / `BIDMASON_H01_USER_B_JWT` | Two different unexpired authenticated Supabase Auth user JWTs |
+| `BIDMASON_H01_ORG_A` / `BIDMASON_H01_ORG_B` | Different UUIDs for the synthetic organizations belonging respectively to users A and B |
+| `BIDMASON_H01_REVISION_A` / `BIDMASON_H01_REVISION_B` | Different UUIDs identifying the one seeded **synthetic** `bm_brief_revisions` record per organization; must belong respectively to A and B |
+
+## Invocation
+
+```bash
+python -m ci.item6_rls_readonly_probe --live-readonly
+```
+
+Without `--live-readonly`, the command refuses execution and sends **zero** network requests. With explicit opt-in, the only network calls are bounded HTTPS `GET` requests to the exact supplied Supabase host's `/auth/v1/user` and `/rest/v1/` **organizations/memberships/brief revisions** paths. Redirects and environment proxies are disabled. The input URL must exactly equal the canonical lowercase HTTPS origin (no whitespace, control characters, path, query, port or fragment); URL parsing that would silently normalize those bytes is rejected before either JWT is sent. A redirect response, oversized body or malformed JSON is never accepted as proof of isolation. The tool does not upload/download objects, write any table, refresh Auth sessions or contact buyers.
+
+The 27-case read matrix verifies:
+
+- Both bearer sessions resolve through Auth to distinct actual users (not only unverified JWT payload claims), **before either user can make a tenant data request**.
+- For each user: own synthetic organization visible, other synthetic organization invisible, tenant enumeration limited to that user's single synthetic organization.
+- For each user: own exact membership visible, the **other authenticated user's actual membership** in the other organization invisible, an **organization-only** query for all memberships in the foreign tenant empty (so a different foreign user cannot be silently omitted), and unfiltered membership enumeration limited to that user's single synthetic membership.
+- Each user: its own exact synthetic brief revision is accessible; the other user's revision is inaccessible; **organization-only** enumeration of the entire foreign tenant's revisions is empty, including revisions not named in the fixture; unfiltered revision enumeration exposes only its own record. The probe selects only `id,organization_id`, **never proposal document JSON, source hashes, or customer details**.
+- Anonymous organization, membership and brief revision listings reveal no synthetic tenants, identities or revision records.
+
+**Authenticated** checks require HTTP 200 and an exact, minimal JSON array, including positive own-tenant records. Anonymous checks accept either HTTP 200 with an empty array **or** HTTP 401/403 with a demonstrably empty body (PostgREST may reject anonymous SELECT when that role has no grant). The transport now inspects at most one byte from denied responses: a nonempty response body, **including an ordinary PostgREST JSON error envelope**, or a missing/uninspectable response stream blocks rather than being silently converted to `None`. Such a denial requires separate restricted review of its body before it can be treated as evidence; this intentionally conservative probe never displays or logs it. This is a negative disclosure check **only after both authenticated positive controls passed**. Anonymous HTTP 302/400/500 or a leaked row—even attached to an error response—fails. An authenticated HTTP 401/403 also fails: denying the whole data API is not proof that valid users are correctly isolated. A missing own record, leaked other-tenant row, malformed response, bad token, wrong hostname or disallowed key **fails**.
+
+The output contains only test names, booleans and non-authorizing state. Even when 27/27 pass, the result is `state: requires-independent-review`, `h01Accepted: false` and `releaseAuthorized: false`. Errors are printed generically without credentials, tenant IDs or provider bodies. Keep raw system logs under restricted access; obtain separate authorized reviewer signoff and exact execution evidence before H01 may advance.
+
+## Still mandatory
+
+Read-only checks are **not** proof of negative SELECT over every table; denied INSERT/UPDATE/DELETE; orphaned/missing membership; stale/revoked sessions; impersonation attempts; service-role misuse; cross-tenant storage and signed-link denial; or external operational signoff. Complete these independently through controlled synthetic staging tests. H02–H13 remain completely separate release gates.
+
+Unit tests (`tests/test_item6_rls_readonly_probe.py`) use only mocked transports; tests also verify canonical-origin input validation, disabled proxy/redirect handlers, bounded HTTP bodies and no-network-by-default behavior. They verify positive controls, cross-tenant **other-user** membership leakage, filtered versus unfiltered membership enumeration, anonymous leaks, two-session Auth ordering, invalid auth, endpoint/key/token validation and default non-network behavior. **GitHub Actions never supplies live JWTs or performs live tenant reads.**
+
+**Current live H01 acceptance: UNVERIFIED. Production dispatch and buyer access remain disabled.**

@@ -1,0 +1,149 @@
+# Item 6 — Isolated SQLite transaction rehearsal (no external actions)
+
+**Status: CI-only fictional fixture. Item 6 H01–H13 remain UNVERIFIED; release blocked.**
+
+## Purpose and boundaries
+
+`ci/item6_sqlite_rehearsal.py` models a small part of the future H08/H09
+transaction contract using temporary SQLite files and invented `.example`,
+`.test`, or `.invalid` addresses only. It lives in `ci/` and has no Next
+route, customer database, Supabase connection, email, token issuance, provider
+API, or actual delivery operation. The `dryrun_` key is only an untrusted
+identifier, not an authenticated authorization or proof of approval. It
+cannot grant contact permission. It can be tested on Linux and Windows with
+Python's standard library, without credentials or external connectivity.
+
+A new isolated fixture is created exclusively under the operating system's
+temporary directory and refuses pre-existing files, symlink paths and real
+recipient domains. The fixture is deleted by its enclosing test's temporary
+directory context. The model accepts **fictional caller data**, not verified
+provider events, consent, buyer identity or operator approvals. It has no
+queue worker or `sent` state. In particular, it never claims to solve the
+**provider accepted request vs database commit** crash boundary, message
+idempotency across a real provider, PostgreSQL row locking, tenant RLS or
+recoverability after a disaster. Passing tests cannot close H08/H09.
+
+## Rules exercised
+
+| Concern | Offline demonstration | Required live evidence still missing |
+| --- | --- | --- |
+| One reservation per tenant/recipient | `BEGIN IMMEDIATE` and a partial unique index allow one current fictional lock across independent connections | PostgreSQL transaction, actual RLS, exact current approved revision and real provider idempotency |
+| Same idempotency key | `(organization_id,idempotency_key)` unique primary key blocks replay even after invalidation | Trusted key material, persisted provider request/response correlation and crash recovery |
+| Reply/opt-out/bounce/complaint | Immutable signal rows immediately invalidate simulated recipient reservations in one transaction, across proposals | Verified events, consent source and durable stop-contact enforcement at worker send boundary |
+| Won/lost closure | Immutable proposal-wide terminal claim invalidates all same-proposal reservations, across recipients and revisions | Authenticated CRM events and transactional recheck of deal outcome before real send |
+| Tenant separation | Every SQL lookup and update is scoped by organization | Auth session ownership, RLS denial and test-tenant evidence in real PostgreSQL |
+| Rollback/races | Explicit commit/rollback, independent concurrent SQLite connections, replay and adversarial tests | PostgreSQL concurrency, isolation/deadlocks, retries, queue outage and provider crash simulation |
+
+`tests/test_item6_sqlite_rehearsal.py` is discovered by the existing
+non-optional `ci/tests.py` suite, which runs in Linux `fast`, `pr`, `security`
+and Windows `win-fast`; no gate has been removed. Run locally with
+`python -m unittest -v tests.test_item6_sqlite_rehearsal`.
+
+**Next production implementation requires separate explicit authority** to
+operate on the chosen authenticated staging tenant and sender sandbox. Build
+PostgreSQL migrations with reviewed RLS, exact immutable revision approvals,
+recipient consent proof, verified signed provider callbacks, atomic outbox
+reservation/rechecks and independently tested recovery; only then collect
+H01–H13 evidence in the existing release inventory. Never connect this
+SQLite simulation to the app or interpret `reserved-simulation-only` as a
+ready-to-send verdict.
+
+
+## Uncertain provider-handoff recovery rehearsal — fictional only
+
+A crash after a provider request begins but before its result is durably
+recorded is **not** safely equivalent to "never sent." The isolated SQLite
+fixture now models this ambiguous boundary without contacting any provider.
+A previously reserved fictional row can transition exactly once to
+outcome_unknown using mark_fictional_handoff_unknown; a second claim
+returns a blocked/no-op verdict. This state survives process restart and
+blocks a new dry-run reservation for the same tenant and recipient, even for
+a different proposal. The original tenant/key uniqueness remains intact,
+and the partial unique active-recipient index now covers **both** reserved
+and outcome_unknown. There is **no** method to send, mark delivered,
+release uncertainty, or automatically retry.
+
+Later caller-provided reply/opt-out/bounce/complaint or won/lost events
+invalidate only unattempted reserved rows, never retroactively reclassify
+outcome_unknown into an unsent or delivered event. Stop-contact and
+closure conditions still block future fictional reservations. The
+read-only fictional_unknown_count returns only a per-tenant aggregate,
+not recipient, proposal or key information. Eight additional Python
+negative/recovery tests cover exact claim identity, subprocess restart,
+same/other proposal conflicts, contact and terminal-deal signals,
+22 concurrent claimants, opposing racing mutations, tenant isolation,
+and process exit without a database commit. They run through the existing
+required ci/tests.py discovery in Linux fast/pr/security and Windows;
+no existing CI or release threshold is changed.
+
+**Do not equate this with an outbox or real crash recovery.** There is no
+real provider, delivery attempt, signed provider receipt, durable
+PostgreSQL RLS, authenticated user/tenant, approved revision, verified
+consent or independent evidence. Production must separately resolve an
+uncertain send with the selected provider's authenticated idempotency and
+status APIs, log/reconcile ambiguous outcomes, and test crashes at every
+actual DB/provider boundary. A fictional rollback/restart test does not
+prove H07/H08/H09/H11; H01–H13 all remain unverified and release blocked.
+
+## Exclusive fixture creation and source identity checks
+
+The temporary rehearsal previously accepted **any** existing SQLite file
+beneath the operating system's temporary directory. A similarly named
+non-rehearsal database could be opened for a transaction without confirming
+that this test model had initialized its schema. Initialization also checked
+for an existing path separately from creating it, leaving a pathname race.
+
+`initialize_fixture_db` now claims the new temporary file **exclusively**
+using `O_CREAT | O_EXCL` (and `O_NOFOLLOW` where supported), requests
+owner-only file permissions, and writes a dedicated
+`bidmason:fictional-item6-sqlite:v1` marker with the disposable schema.
+Rehearsal transactions open existing files with SQLite `mode=rw`
+(no implicit create), then require **exactly one** valid marker row before
+any simulated reservation/contact/closure operation. Missing, altered,
+or foreign SQLite fixture identities fail closed with a diagnostic error;
+nothing is copied or migrated from another database.
+
+Five new required cross-platform Python regressions first failed on the
+previous source and now cover unrelated SQLite files without mutation,
+a partial lookalike schema without the marker, concurrent initialization
+of one pathname, marker continuity across new connections and an unknown
+handoff, and deletion of the identity marker. The existing 24 SQLite
+rehearsal/recovery tests also pass unchanged; 29/29 total locally.
+This fix does not create an app storage layer or add a new CI gate.
+
+**Boundary:** The marker is a stable schema tag, **not** a signed credential,
+a tamper-proof attestation, authenticated tenant ownership, or protection
+against a hostile process that can modify the same files. A privileged
+attacker can spoof a static marker, and filesystem path replacement races
+require OS-level isolation beyond the fixture helper. The model must remain
+inside isolated CI temporary directories with only fabricated addresses.
+It cannot satisfy H01–H13 or authorize any provider, customer, send, or
+database deployment.
+
+## Immutable fictional idempotency and terminal-event identities
+
+The SQLite rehearsal now distinguishes **an identical delivery-key replay**
+from a new recipient or proposal attempting to reuse an existing key. A
+key collision across claims is a transaction error and cannot silently
+return the benign duplicate verdict, whether the original reservation is
+still active, invalidated or marked `outcome_unknown`. The `organization_id`
+continues to scope keys, permitting the same fictional hash in independent
+tenants.
+
+Won/lost closure events now have a tenant-scoped **unique event-ID index**
+in addition to the existing tenant/proposal primary key. A terminal event
+ID cannot close a second proposal belonging to the same fictional tenant.
+The logic checks for a cross-proposal replay before mutation and the SQLite
+unique constraint provides a second integrity boundary under concurrent
+connections. Exact same-proposal ID/body replays remain idempotent; use of
+the same fabricated event ID in a different tenant remains isolated.
+
+Seven new adversarial tests were run fail-first: **six failed against the
+previous source** and all seven now pass. They exercise duplicate keys
+with changed recipients/proposals, collisions surviving an uncertain
+handoff and later opt-out, independently scoped tenants, reused terminal
+event IDs, and simultaneous competing closure claims. Full local SQLite
+rehearsal/recovery/fixture/identity suite: **36/36 passed**. This is
+internal CI-only fixture correctness; no provider-origin authenticity,
+immutable actual approval, real consent or H01–H13 independent evidence
+has been established. All production release gates remain BLOCKED.

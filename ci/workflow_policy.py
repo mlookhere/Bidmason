@@ -18,7 +18,103 @@ UNSAFE = (
 )
 
 
-def findings(source: str) -> list[str]:
+# Once a slice's substantive tests exist in the combined tree, its CI job
+# must survive workflow merges. Independent work branches keep their gate
+# sets; an integration conflict must not replace an earlier runner with a stub.
+# The command must occur in an executable run step, not only a comment.
+# Every core PR check must remain an unconditional, failure-propagating job.
+# Additional slice gates become mandatory when their executable marker exists.
+CORE_JOB_COMMANDS = {
+    "fast": "bash ci/run fast",
+    "pr": "bash ci/run pr",
+    "security": "bash ci/run security",
+    "web-build": "bash ci/run web",
+    "win-fast": "./ci/run.ps1 fast",
+    "pdf-qa": "bash ci/run pdf",
+    "browser-e2e": "python3 ci/browser_qa.py",
+}
+CORE_JOBS = tuple(CORE_JOB_COMMANDS)
+NONBLOCKING_DIRECTIVE = re.compile(r"(?m)^[ \t]+(?:-[ \t]+)?(if|continue-on-error):(?:[ \t]|$)")
+
+
+MERGED_SLICE_GATES = (
+    ("ci/db_rls_test.sql", "db-rls",
+     "psql -X -v ON_ERROR_STOP=1 -f ci/db_rls_test.sql"),
+    ("ci/clamav_real_integration.test.mjs", "av-real",
+     "node --test ci/clamav_real_integration.test.mjs"),
+    ("db/typed_note_foundation.sql", "intake-db",
+     "psql -X -v ON_ERROR_STOP=1 -f db/typed_note_foundation.sql"),
+    ("ci/item3_item4_migration_parity.test.mjs", "item3-intake-compat",
+     "node --test ci/item3_item4_migration_parity.test.mjs"),
+    ("ci/branded_pdf_qa.py", "proposal-pdf-qa",
+     "python3 ci/branded_pdf_qa.py"),
+    ("ci/item6_release_evidence.py", "synthetic-webhook-qa",
+     "node --test tests-web/synthetic-webhook-*.test.mjs"),
+)
+
+
+def _job_blocks(source: str) -> tuple[dict[str, str], set[str]]:
+    """Extract top-level job bodies, not unrelated YAML or comments."""
+    _, sep, jobs_source = source.partition("\njobs:\n")
+    if not sep:
+        return {}, set()
+    boundaries = list(re.finditer(
+        r"(?m)^  ([a-z][a-z0-9-]*):[ \t]*$", jobs_source,
+    ))
+    blocks: dict[str, str] = {}
+    duplicates: set[str] = set()
+    for index, match in enumerate(boundaries):
+        name = match.group(1)
+        if name in blocks:
+            duplicates.add(name)
+        blocks[name] = jobs_source[match.end():(
+            boundaries[index + 1].start()
+            if index + 1 < len(boundaries) else len(jobs_source)
+        )]
+    return blocks, duplicates
+
+
+def _has_executable_run(block: str, command: str) -> bool:
+    return re.search(
+        r"(?m)^[ \t]+run:[ \t]*" + re.escape(command) + r"[ \t]*$",
+        block,
+    ) is not None
+
+
+def merged_gate_findings(source: str, root: Path = ROOT) -> list[str]:
+    """Preserve unconditional, failure-propagating core and feature CI gates."""
+    blocks, duplicates = _job_blocks(source)
+    problems = [f"duplicate workflow job: {name}" for name in sorted(duplicates)]
+    required = set(CORE_JOBS)
+    for marker, name, command in MERGED_SLICE_GATES:
+        if not (root / marker).is_file():
+            continue
+        required.add(name)
+        block = blocks.get(name)
+        if block is None:
+            problems.append(f"missing {name} job for {marker}")
+        elif not _has_executable_run(block, command):
+            problems.append(f"missing substantive {name} run command for {marker}")
+
+    for name in sorted(required):
+        block = blocks.get(name)
+        if block is None:
+            if name in CORE_JOBS:
+                problems.append(f"missing required core CI job: {name}")
+            continue
+        if name in CORE_JOB_COMMANDS and not _has_executable_run(
+            block, CORE_JOB_COMMANDS[name]
+        ):
+            problems.append(f"missing substantive core {name} run command")
+        # A job-level or step-level condition can silently skip its only test.
+        # continue-on-error can hide an actual failure behind a green job.
+        # Do not parse these fragile YAML constructs as harmless conditions.
+        for directive in sorted(set(NONBLOCKING_DIRECTIVE.findall(block))):
+            problems.append(f"conditional or nonblocking required job: {name} ({directive})")
+    return problems
+
+
+def findings(source: str, root: Path = ROOT) -> list[str]:
     problems = []
     if not re.search(r"(?m)^permissions:\s*$", source) or "contents: read" not in source:
         problems.append("missing explicit read-only permissions")
@@ -36,6 +132,7 @@ def findings(source: str) -> list[str]:
     for pattern, reason in UNSAFE:
         if re.search(pattern, source):
             problems.append(reason)
+    problems.extend(merged_gate_findings(source, root))
     return problems
 
 
