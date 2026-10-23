@@ -107,6 +107,13 @@ export function summarizeSyntheticBuyerInbox(
         && item.observedAtSeconds>=declineRecords[0].observedAtSeconds))){
     throw new TypeError("Contradictory fictional buyer response after decline");
   }
+  // The stream currently accepts same-second response events in input order.
+  // Without a trustworthy event sequence number, their chronology is
+  // ambiguous. Never treat arbitrary caller array order as causal proof.
+  if(events.some((item,index)=>index>0
+      && item.observedAtSeconds===events[index-1].observedAtSeconds)){
+    throw new TypeError("Ambiguous fictional buyer response chronology");
+  }
   return {
     state:"inbox-simulation-only",
     eventsReviewed:events.length,
@@ -223,6 +230,15 @@ export function summarizeSyntheticBuyerInboxBatch(
     if(declines.length>1 || (declines.length===1 && observations.some(x=>
         x!==declines[0] && x.time>=declines[0].time))){
       throw new TypeError("Contradictory fictional buyer response after decline");
+    }
+    // Two independently verified grants with identical event timestamps
+    // cannot establish which fictional response came first. Inspect the
+    // whole batch regardless of stream order; no partial aggregate escapes.
+    const seenTimes=new Set<number>();
+    for(const response of observations){
+      if(seenTimes.has(response.time))
+        throw new TypeError("Ambiguous fictional buyer response chronology");
+      seenTimes.add(response.time);
     }
   }
   return {
