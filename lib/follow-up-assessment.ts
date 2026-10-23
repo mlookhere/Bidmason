@@ -131,10 +131,12 @@ export function assessSimulatedFollowUp(
   if(delivery.replied)blockers.push("Recipient reply suppresses follow-up");
   if(delivery.suppression.length)blockers.push("Bounce, complaint or opt-out suppresses follow-up");
   if(deal.closedAt)blockers.push("Fictional won/lost deal stops follow-up");
-  if(seen.size>=policy.maximumAttempts)blockers.push("Follow-up attempt limit reached");
+  const limitReached=seen.size>=policy.maximumAttempts;
+  if(limitReached)blockers.push("Follow-up attempt limit reached");
   const baseline=lastAttempt||deliveredAt;
   let nextEligibleAt:string|null=null;
-  if(baseline && !deal.closedAt){
+  // The exhausted policy has no later due time: waiting cannot reset a cap.
+  if(baseline && !deal.closedAt && !limitReached){
     nextEligibleAt=new Date(Date.parse(baseline)+policy.minimumDelayHours*3600000).toISOString();
     if(nowUtc<nextEligibleAt)blockers.push("Minimum follow-up delay has not elapsed");
   }
