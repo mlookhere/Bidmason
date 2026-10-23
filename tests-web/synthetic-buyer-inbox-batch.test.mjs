@@ -50,6 +50,31 @@ test("cross-proposal fictional inbox adds counts, deduplicates proposal totals a
     assert.equal(output.includes(sensitive),false);
 });
 
+test("cross-stream equal-second responses for the same recipient and revision fail regardless of order",()=>{
+  const original=identity();
+  const question={identity:original,events:[event(41,0,original,"question")]};
+  const change={identity:original,events:[event(42,0,original,"request_changes")]};
+  assert.notEqual(question.events[0].viewToken,change.events[0].viewToken);
+  for(const streams of [[question,change],[change,question]]){
+    assert.throws(()=>batch(streams),
+      /Ambiguous fictional buyer response chronology/);
+  }
+  const independentRecipient={...original,recipientSha256:"e".repeat(64)};
+  const independentRevision={...original,revision:4};
+  const independentProposal=identity(SECOND);
+  for(const other of [independentRecipient,independentRevision,independentProposal]){
+    const independent={identity:other,events:[event(43,0,other,"question")]};
+    const report=batch([question,independent]);
+    assert.equal(report.eventsReviewed,2);
+    assert.equal(report.questions,2);
+    assert.equal(report.contactAuthorized,false);
+    assert.equal(report.responseSubmitted,false);
+  }
+  const later={identity:original,events:[event(44,1,original,"question")]};
+  assert.equal(batch([question,later]).eventsReviewed,2);
+  assert.equal(batch([later,question]).eventsReviewed,2);
+});
+
 test("terminal buyer decline is consistent across stream order and new grants",()=>{
   const original=identity();
   const question={identity:original,events:[event(31,-1,original,"question")]};
