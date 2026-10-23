@@ -86,6 +86,22 @@ test("a fictional decline ends that buyer's immutable revision, not merely its g
   assert.equal(run([prior]).declines,0);
 });
 
+test("distinct fictional responses at the same second are ambiguous, even with unique grants",()=>{
+  const first=event(UUID_A,token(),"question",NOW-200);
+  const second=event(UUID_B,token(),"request_changes",NOW-200);
+  assert.notEqual(first.viewToken,second.viewToken);
+  for(const events of [[first,second],[second,first]]){
+    assert.throws(()=>run(events),
+      /Ambiguous fictional buyer response chronology/);
+  }
+  // Distinct timestamps remain a valid, read-only draft summary.
+  const distinct=run([first,{...second,observedAtSeconds:NOW-199}]);
+  assert.equal(distinct.eventsReviewed,2);
+  assert.equal(distinct.questions,1);
+  assert.equal(distinct.changeRequests,1);
+  assert.equal(distinct.contactAuthorized,false);
+});
+
 test("chronological gaps, future timestamps and malformed dates fail closed",()=>{
   const first=event(UUID_A,token(),"question",NOW-200);
   const second=event(UUID_B,token(),"request_changes",NOW-100);
