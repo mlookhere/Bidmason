@@ -5,11 +5,14 @@
  * Does not confer H01/H02 acceptance or production/send authorization. */
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
+import {limitedProbeEnvironment} from './item6-fixture-process-env.mjs';
 
 const SLUGS=['bm-synthetic-h01-h02-20261022-a','bm-synthetic-h01-h02-20261022-b'];
 const NAMES=['TEST ONLY - BidMason synthetic tenant A','TEST ONLY - BidMason synthetic tenant B'];
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const REF=/^[a-z]{20}$/;
+// User-authorized existing project; matching a different valid URL/ref is not approval.
+const EXPECTED_PROJECT_REF='jgbogpunyzkoytrclqdl';
 const PNG=Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR5cAAAAASUVORK5CYII=',
   'base64'
@@ -26,6 +29,8 @@ function configuration(){
   const adminKey=requireEnv('BIDMASON_FIXTURE_ADMIN_KEY');
   if(!REF.test(projectRef)||url!=='https://'+projectRef+'.supabase.co')
     throw Error('Expected canonical HTTPS URL and matching 20-character Supabase project ref');
+  if(projectRef!==EXPECTED_PROJECT_REF)
+    throw Error('Only the previously authorized BidMason Supabase project is permitted');
   if(!publicKey.startsWith('sb_publishable_')||publicKey.length<30
     ||(!adminKey.startsWith('sb_secret_')&&!adminKey.startsWith('eyJ'))
     ||adminKey.length<30||publicKey===adminKey)
@@ -58,7 +63,7 @@ function validId(value){
 function one(value){return Array.isArray(value)&&value.length===1?value[0]:null;}
 function runProbe(python,module,env){
   const result=spawnSync(python,['-m',module,'--live-readonly'],{
-    env:{...process.env,...env},encoding:'utf8',timeout:120000,
+    env:limitedProbeEnvironment(process.env,env),encoding:'utf8',timeout:120000,
     maxBuffer:150000,stdio:['ignore','pipe','pipe'],shell:false
   });
   // Do not forward outputs; future probe versions might expose identifiers.
