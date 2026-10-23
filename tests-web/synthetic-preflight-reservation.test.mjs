@@ -128,6 +128,30 @@ test("explicit current revocation dominates fictional clear history and retry ve
   }
 });
 
+test("fresh clear-looking fictional preflight cannot bypass sticky ledger consent revocation",()=>{
+  const ledger=new SyntheticDispatchReservationLedger();
+  const first=make();
+  assert.equal(review(ledger,first).state,"reserved-simulation-only");
+  const hold=ledger.compareAndRecordConsentRevocation(first.intent,1);
+  assert.equal(hold.state,"suppressed-simulation-only");
+  assert.equal(hold.snapshot.reserved,false);
+  assert.deepEqual(hold.snapshot.suppression,["revoked"]);
+  // A later caller's independent clean-looking suppression fixture is not
+  // permitted to erase a previously recorded fictional recipient stop.
+  for(const candidate of [
+    make(),make({revision:4}),
+    make({proposalId:"ffffffff-ffff-4fff-8fff-ffffffffffff"}),
+  ]){
+    assert.equal(candidate.suppression.state,"clear");
+    const result=review(ledger,candidate,[],2);
+    assert.equal(result.state,"blocked");
+    assert.equal(result.reason,"recipient-suppressed");
+    assert.equal(result.contactAuthorized,false);
+    assert.equal(result.reservationVersion,2);
+    assert.equal(ledger.snapshot(candidate.intent).reserved,false);
+  }
+});
+
 test("historical opt-out blocks an otherwise clean-looking preflight",()=>{
   for(const kind of ["recipient_opted_out","provider_complained"]){
     const ledger=new SyntheticDispatchReservationLedger();
